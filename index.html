@@ -1676,6 +1676,24 @@ function WheelPicker({ value, onChange, slots, lang }) {
   function onScroll() {
     const el = scrollRef.current;
     if (!el || !userScrollingRef.current) return;
+
+    // LIVE update: emit the slot directly under center as the user scrolls.
+    // This makes the price card track the wheel instead of waiting for settle.
+    // Throttled via rAF so we don't thrash React.
+    if (!el._rafPending) {
+      el._rafPending = true;
+      requestAnimationFrame(() => {
+        el._rafPending = false;
+        const i = Math.round(el.scrollTop / ITEM_H);
+        const clamped = Math.max(0, Math.min(slots.length - 1, i));
+        const slot = slots[clamped];
+        if (slot && slot.left > 0 && slot.t !== value) {
+          onChange(slot.t);
+        }
+      });
+    }
+
+    // SETTLE: when scrolling stops, snap to a valid slot (skip over Full ones).
     clearTimeout(el._t);
     el._t = setTimeout(() => {
       const i = Math.round(el.scrollTop / ITEM_H);
@@ -1697,8 +1715,8 @@ function WheelPicker({ value, onChange, slots, lang }) {
           el.scrollTo({ top: target * ITEM_H, behavior: "smooth" });
         }
       }
-      setTimeout(() => { userScrollingRef.current = false; }, 120);
-    }, 110);
+      userScrollingRef.current = false;
+    }, 40);
   }
 
   return (
