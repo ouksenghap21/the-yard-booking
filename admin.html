@@ -1493,8 +1493,421 @@ button { font-family: inherit; cursor: pointer; }
   margin-bottom: 1px;
 }
 
-/* Search input */
-.search-input {
+/* Coaching block in timeline — wood-toned to distinguish */
+.booking-block.status-coaching     { background: var(--wood); color: var(--cream); border-color: var(--wood); }
+.booking-block.status-coaching_paid{ background: var(--wood); color: var(--cream); border-color: var(--wood); }
+.booking-block.status-coaching::before,
+.booking-block.status-coaching_paid::before {
+  content: "★";
+  margin-right: 3px;
+  font-size: 9px;
+}
+
+/* ============== BOOKINGS RANGE VIEW TOGGLE ============== */
+.range-toggle {
+  display: inline-flex;
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-left: auto;
+}
+.range-toggle button {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 8px 14px;
+  border: none;
+  border-right: 1.5px solid var(--ink);
+  background: var(--cream);
+  color: var(--ink);
+  cursor: pointer;
+}
+.range-toggle button:last-child { border-right: none; }
+.range-toggle button.on {
+  background: var(--ink);
+  color: var(--cream);
+}
+
+/* Week view: stacked daily timelines */
+.week-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.week-day {
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.week-day-head {
+  background: var(--ink);
+  color: var(--cream);
+  padding: 8px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.week-day-head .label {
+  font-weight: 700;
+}
+.week-day-head .label .num {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 16px;
+  margin-left: 6px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.week-day-head .stats {
+  opacity: 0.7;
+  font-weight: 500;
+}
+.week-day-head.is-today .label::after {
+  content: " · TODAY";
+  color: var(--clay-2);
+}
+
+/* Month grid: calendar */
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.month-dow-head {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 10px 12px;
+  background: var(--ink);
+  color: var(--cream);
+  text-align: center;
+}
+.month-cell {
+  min-height: 90px;
+  padding: 8px 10px;
+  border-right: 1px solid rgba(26,26,26,0.08);
+  border-top: 1px solid rgba(26,26,26,0.08);
+  cursor: pointer;
+  transition: background 0.12s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.month-cell:hover { background: var(--cream); }
+.month-cell.empty { background: rgba(0,0,0,0.02); cursor: default; }
+.month-cell.empty:hover { background: rgba(0,0,0,0.02); }
+.month-cell.today { background: rgba(199,79,58,0.06); }
+.month-cell.weekend { background: rgba(168,116,74,0.04); }
+
+.month-cell .day-num {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1;
+}
+.month-cell.today .day-num {
+  color: var(--clay);
+  font-weight: 700;
+}
+.month-cell .day-stats {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.month-cell .day-stats .ct {
+  display: flex;
+  justify-content: space-between;
+  opacity: 0.7;
+}
+.month-cell .day-stats .ct .v { font-weight: 700; }
+.month-cell .day-stats .util-mini {
+  height: 4px;
+  background: var(--concrete);
+  border-radius: 2px;
+  margin-top: 2px;
+  position: relative;
+  overflow: hidden;
+}
+.month-cell .day-stats .util-mini .fill {
+  position: absolute;
+  inset: 0;
+  background: var(--green);
+  transform-origin: left center;
+}
+
+/* ============== COACHING TAB ============== */
+.coaching-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 18px;
+  border-bottom: 1.5px solid var(--ink);
+}
+.coaching-tabs button {
+  background: transparent;
+  border: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 12px 18px;
+  color: var(--ink);
+  opacity: 0.5;
+  cursor: pointer;
+  position: relative;
+  bottom: -1.5px;
+}
+.coaching-tabs button:hover { opacity: 0.85; }
+.coaching-tabs button.on {
+  opacity: 1;
+  border-bottom: 2.5px solid var(--clay);
+}
+
+.coach-card {
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-left: 5px solid var(--wood);
+  border-radius: 4px;
+  padding: 14px 18px;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 16px;
+  align-items: center;
+  cursor: pointer;
+  transition: background 0.12s ease;
+  margin-bottom: 10px;
+}
+.coach-card:hover { background: var(--cream); }
+.coach-card .coach-id {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+.coach-card .coach-name {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 15px;
+}
+.coach-card .coach-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  opacity: 0.6;
+  margin-top: 3px;
+}
+.coach-card .deal-tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 3px 7px;
+  border-radius: 3px;
+  background: var(--wood);
+  color: var(--cream);
+}
+.coach-card .deal-tag.flat_rent { background: var(--ink); }
+.coach-card .deal-tag.rev_share { background: var(--green); }
+.coach-card .deal-tag.hybrid    { background: var(--wood); }
+.coach-card .deal-tag.custom    { background: var(--clay); }
+
+/* Coaching session card */
+.session-card {
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-left: 5px solid var(--wood);
+  border-radius: 4px;
+  padding: 12px 16px;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+.session-card:hover { background: var(--cream); }
+.session-card.unpaid { border-left-color: var(--clay); }
+.session-card.paid { border-left-color: var(--green); }
+.session-card.waived { opacity: 0.6; }
+
+.session-card .when {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  min-width: 110px;
+}
+.session-card .when .date {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  opacity: 0.55;
+  font-weight: 600;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+}
+.session-card .who .coach {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.session-card .who .student-line {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  margin-top: 3px;
+  font-weight: 500;
+}
+.session-card .who .student-line.empty { opacity: 0.4; font-style: italic; }
+.session-card .meta-line {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  opacity: 0.55;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+.session-card .amounts {
+  text-align: right;
+  font-family: var(--mono);
+}
+.session-card .amounts .facility {
+  font-size: 14px;
+  font-weight: 700;
+}
+.session-card .amounts .coach-take {
+  font-size: 10px;
+  opacity: 0.55;
+  margin-top: 2px;
+  letter-spacing: 0.06em;
+}
+.session-card .amounts .lesson {
+  font-size: 9px;
+  opacity: 0.4;
+  margin-top: 2px;
+  letter-spacing: 0.06em;
+}
+
+/* Coach payments due card */
+.coach-pay-card {
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  padding: 16px 20px;
+  margin-bottom: 10px;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 18px;
+  align-items: center;
+}
+.coach-pay-card.has-debt { border-left: 5px solid var(--clay); }
+.coach-pay-card .name {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 22px;
+  line-height: 1;
+}
+.coach-pay-card .meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  margin-top: 4px;
+}
+.coach-pay-card .owes {
+  text-align: right;
+  font-family: var(--mono);
+}
+.coach-pay-card .owes .v {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 26px;
+  color: var(--clay);
+}
+.coach-pay-card .owes .label {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.5;
+  display: block;
+  margin-top: 2px;
+}
+
+/* Session math preview in session modal */
+.math-preview {
+  background: var(--cream);
+  border: 1.5px dashed var(--ink);
+  border-radius: 4px;
+  padding: 14px 16px;
+  margin: 14px 0;
+}
+.math-preview .row {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 0;
+  font-size: 13.5px;
+}
+.math-preview .row.total {
+  border-top: 1.5px solid var(--ink);
+  padding-top: 10px;
+  margin-top: 6px;
+}
+.math-preview .row .k {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+.math-preview .row.total .k { opacity: 1; font-weight: 700; }
+.math-preview .row .v {
+  font-family: var(--mono);
+  font-weight: 600;
+}
+.math-preview .row.total .v {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 22px;
+  font-weight: 400;
+}
+.math-preview .row.total.facility .v { color: var(--green); }
+.math-preview .row.total.coach .v { color: var(--wood); }
+.math-preview .formula {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  opacity: 0.55;
+  font-style: italic;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(26,26,26,0.2);
+}
+
   font-family: var(--mono);
   font-size: 13px;
   padding: 8px 14px;
@@ -1634,7 +2047,7 @@ const { createRoot } = ReactDOM;
  * It should match the URL used by the customer-facing index.html.
  * Find it in Apps Script → Deploy → Manage deployments → copy "Web app" URL.
  */
-const API_URL = "https://script.google.com/macros/s/AKfycbySSk--iEFY8vTvldpARENCQ6KApJik0UHqASKa7PfJ1IkIJkmEAvOQPCsKR84MFtAY/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbySSk--iEFY8vTvldpARENCQ6KApJik0UHqASKa7PfJ1IkIJkmEAvOQPCsKR84MFtAY/exec ";
 
 const COURTS_COUNT = 8;
 const OPEN_HOUR = 6;       // 06:00
@@ -1860,7 +2273,8 @@ function Timeline({ bookings, dateStr }) {
   }, [SLOT_COUNT]);
 
   // Parse all bookings into court-row segments
-  // Each booking row can have Court_Numbers like "1, 3, 5" — split into separate blocks per court
+  // Each entry row can have Court_Numbers like "1, 3, 5" — split into separate blocks per court
+  // Entries can be either guest bookings or coaching sessions (entryType field)
   const blocks = useMemo(() => {
     const out = [];
     if (!bookings) return out;
@@ -1871,16 +2285,23 @@ function Timeline({ bookings, dateStr }) {
       const slots = parseInt(b.slots) || 2;
       const courtNums = String(b.courtNumbers || "")
         .split(",").map(s => parseInt(s.trim())).filter(n => n >= 1 && n <= COURTS_COUNT);
+      const isCoaching = b.entryType === "coaching";
       for (const c of courtNums) {
         out.push({
           court: c,
           startIdx: startIdx,
           slots: slots,
-          name: b.name || "—",
+          name: isCoaching
+            ? "Coach: " + (b.coachName || b.name || "—")
+            : (b.name || "—"),
+          subtext: isCoaching
+            ? (b.studentName ? b.studentName : (b.sessionType || ""))
+            : b.time + "–" + b.timeEnd,
           time: b.time + "–" + b.timeEnd,
           total: b.total || 0,
-          status: derived,
+          status: isCoaching ? "coaching" : derived,
           isMember: !!(b.memberTier && b.memberTier.length > 0),
+          isCoaching: isCoaching,
           bookingId: b.bookingId
         });
       }
@@ -2012,10 +2433,10 @@ function ScreenDashboard() {
     const today = todayISO();
     const [d, b] = await Promise.all([
       api("adminDashboard"),
-      api("adminListBookings", { date: today })
+      api("adminListTimelineEntries", { date: today })
     ]);
     if (d.ok) setData(d);
-    if (b.ok) setBookings(b.bookings || []);
+    if (b.ok) setBookings(b.entries || []);
     setLastUpdated(new Date());
   }
 
@@ -2386,35 +2807,84 @@ const STATUS_LABELS = {
 };
 
 function ScreenBookings() {
+  const [view, setView] = useState("day"); // day | week | month
   const [date, setDate] = useState(todayISO());
   const [statusFilter, setStatusFilter] = useState("all");
-  const [bookings, setBookings] = useState(null);
+  const [entries, setEntries] = useState(null);
   const [loading, setLoading] = useState(true);
   const [detailBooking, setDetailBooking] = useState(null);
   const [showWalkIn, setShowWalkIn] = useState(false);
 
+  // Compute the date range we need to fetch based on view + selected date
+  const range = useMemo(() => {
+    const d = new Date(date + "T12:00:00");
+    if (view === "day") {
+      return { from: date, to: date };
+    } else if (view === "week") {
+      // 7 days starting from selected date
+      const out = [date];
+      for (let i = 1; i < 7; i++) {
+        const x = new Date(d);
+        x.setDate(x.getDate() + i);
+        out.push(x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0"));
+      }
+      return { from: out[0], to: out[6], all: out };
+    } else {
+      // Month containing the selected date
+      const y = d.getFullYear();
+      const m = d.getMonth();
+      const first = new Date(y, m, 1);
+      const last = new Date(y, m + 1, 0);
+      const fmt = (x) => x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0");
+      return { from: fmt(first), to: fmt(last) };
+    }
+  }, [view, date]);
+
   async function load() {
     setLoading(true);
-    const r = await api("adminListBookings", { date: date });
-    if (r.ok) setBookings(r.bookings || []);
+    const r = await api("adminListTimelineEntries", { dateFrom: range.from, dateTo: range.to });
+    if (r.ok) setEntries(r.entries || []);
     else showToast(r.error || "Failed to load", "error");
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, [date]);
+  useEffect(() => { load(); }, [range.from, range.to]);
 
   // Poll every 20s while on this screen
   useEffect(() => {
     const id = setInterval(load, 20000);
     return () => clearInterval(id);
-  }, [date]);
+  }, [range.from, range.to]);
 
-  const filtered = (bookings || []).filter(b => {
-    if (statusFilter === "all") return true;
-    return b.derivedStatus === statusFilter;
-  });
+  // For Day view: get just today's bookings (not coaching, since coaching has its own tab)
+  // Coaching sessions still show on the timeline visual, but the Booking ROW list is guest-only
+  const dayBookings = useMemo(() => {
+    if (!entries) return [];
+    return entries
+      .filter(e => e.date === date && e.entryType === "booking")
+      .filter(b => statusFilter === "all" ? true : b.derivedStatus === statusFilter);
+  }, [entries, date, statusFilter]);
 
-  // Quick date pills: yesterday, today, tomorrow, plus custom date input
+  // Coaching entries on day (for showing in the list separately)
+  const dayCoaching = useMemo(() => {
+    if (!entries) return [];
+    return entries.filter(e => e.date === date && e.entryType === "coaching");
+  }, [entries, date]);
+
+  // Status counts (guest bookings only)
+  const counts = useMemo(() => {
+    const c = { all: 0, awaiting: 0, at_risk: 0, paid: 0, no_show_freed: 0, no_show_kept: 0, completed: 0, cancelled: 0 };
+    if (!entries) return c;
+    for (const b of entries) {
+      if (b.entryType !== "booking") continue;
+      if (b.date !== date) continue;
+      c.all++;
+      if (c[b.derivedStatus] !== undefined) c[b.derivedStatus]++;
+    }
+    return c;
+  }, [entries, date]);
+
+  // Date pills (Day view only)
   const datePills = useMemo(() => {
     const out = [];
     const today = new Date();
@@ -2428,79 +2898,158 @@ function ScreenBookings() {
     return out;
   }, []);
 
-  // Status counts
-  const counts = useMemo(() => {
-    const c = { all: 0, awaiting: 0, at_risk: 0, paid: 0, no_show_freed: 0, no_show_kept: 0, completed: 0, cancelled: 0 };
-    for (const b of (bookings || [])) {
-      c.all++;
-      if (c[b.derivedStatus] !== undefined) c[b.derivedStatus]++;
+  // Title for the head
+  const title = useMemo(() => {
+    if (view === "day") return fmtDateLong(date);
+    if (view === "week") {
+      const start = new Date(range.from + "T12:00:00");
+      const end = new Date(range.to + "T12:00:00");
+      const MO = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      return start.getDate() + " " + MO[start.getMonth()] + " – " + end.getDate() + " " + MO[end.getMonth()] + " " + end.getFullYear();
     }
-    return c;
-  }, [bookings]);
+    const d = new Date(date + "T12:00:00");
+    const MO = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+    return MO[d.getMonth()] + " " + d.getFullYear();
+  }, [view, date, range]);
 
   return (
     <div className="main">
       <div className="main-head">
         <div>
-          <div className="title">{fmtDateLong(date)}</div>
+          <div className="title">{title}</div>
           <h1>Bookings</h1>
         </div>
-        <div>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <div className="range-toggle">
+            <button className={view === "day" ? "on" : ""} onClick={() => setView("day")}>Day</button>
+            <button className={view === "week" ? "on" : ""} onClick={() => setView("week")}>Week</button>
+            <button className={view === "month" ? "on" : ""} onClick={() => setView("month")}>Month</button>
+          </div>
           <button className="btn primary" onClick={() => setShowWalkIn(true)}>+ Walk-in</button>
         </div>
       </div>
 
-      {/* Date strip */}
-      <div className="bookings-toolbar">
-        <div className="date-strip">
-          {datePills.map(p => (
-            <button
-              key={p.iso}
-              className={"date-pill" + (date === p.iso ? " on" : "")}
-              onClick={() => setDate(p.iso)}
-            >
-              {p.label}<span className="num">{p.day}</span>
+      {/* Date strip — visible on Day view, simpler nav on Week/Month */}
+      {view === "day" && (
+        <div className="bookings-toolbar">
+          <div className="date-strip">
+            {datePills.map(p => (
+              <button
+                key={p.iso}
+                className={"date-pill" + (date === p.iso ? " on" : "")}
+                onClick={() => setDate(p.iso)}
+              >
+                {p.label}<span className="num">{p.day}</span>
+              </button>
+            ))}
+            <button className="date-pill">
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
             </button>
-          ))}
-          <button className="date-pill">
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </button>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Filter chips */}
-      <div className="filter-chips">
-        {Object.keys(STATUS_LABELS).map(s => (
-          <button
-            key={s}
-            className={"filter-chip" + (statusFilter === s ? " on" : "")}
-            onClick={() => setStatusFilter(s)}
-          >
-            {STATUS_LABELS[s]} · {counts[s] || 0}
-          </button>
-        ))}
-      </div>
+      {(view === "week" || view === "month") && (
+        <div className="bookings-toolbar">
+          <button className="date-pill" onClick={() => {
+            const d = new Date(date + "T12:00:00");
+            d.setDate(d.getDate() - (view === "week" ? 7 : 30));
+            setDate(d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"));
+          }}>← Prev</button>
+          <button className="date-pill" onClick={() => setDate(todayISO())}>Today</button>
+          <button className="date-pill" onClick={() => {
+            const d = new Date(date + "T12:00:00");
+            d.setDate(d.getDate() + (view === "week" ? 7 : 30));
+            setDate(d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"));
+          }}>Next →</button>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
+            style={{ padding: "8px 12px", border: "1.5px solid var(--ink)", borderRadius: 999, fontFamily: "var(--mono)", fontSize: 12 }} />
+        </div>
+      )}
 
-      {loading ? (
-        <div style={{ padding: 40, display: "flex", justifyContent: "center" }}>
-          <BouncingBall size="md" />
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="empty">
-          {statusFilter === "all"
-            ? "No bookings for this date"
-            : "No " + STATUS_LABELS[statusFilter].toLowerCase() + " bookings"}
-        </div>
-      ) : (
-        <div className="booking-list">
-          {filtered.map(b => (
-            <BookingRow key={b.bookingId} booking={b} onAction={load} onOpen={() => setDetailBooking(b)} />
-          ))}
-        </div>
+      {/* DAY VIEW */}
+      {view === "day" && (
+        <>
+          <div className="filter-chips">
+            {Object.keys(STATUS_LABELS).map(s => (
+              <button
+                key={s}
+                className={"filter-chip" + (statusFilter === s ? " on" : "")}
+                onClick={() => setStatusFilter(s)}
+              >
+                {STATUS_LABELS[s]} · {counts[s] || 0}
+              </button>
+            ))}
+          </div>
+
+          {loading ? (
+            <div style={{ padding: 40, display: "flex", justifyContent: "center" }}>
+              <BouncingBall size="md" />
+            </div>
+          ) : (
+            <>
+              {/* Coaching sessions for the day (separate from guest bookings) */}
+              {dayCoaching.length > 0 && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", fontWeight: 700, color: "var(--wood)", marginBottom: 8 }}>
+                    ★ Coaching sessions · {dayCoaching.length}
+                  </div>
+                  {dayCoaching.map(s => (
+                    <div key={s.bookingId} className="booking-row" style={{ borderLeft: "5px solid var(--wood)", background: "rgba(168,116,74,0.04)" }}>
+                      <div className="when">{s.time}<span className="endtime">→ {s.timeEnd}</span></div>
+                      <div className="who">
+                        <div className="name">
+                          ★ {s.coachName}
+                          {s.studentName && <span style={{ fontWeight: 400, opacity: 0.7, fontSize: 13 }}>· with {s.studentName}</span>}
+                        </div>
+                        <div className="meta">C·{s.courtNumbers} · {s.durationHours}h · {s.sessionType}</div>
+                        <div className="id">{s.bookingId}</div>
+                      </div>
+                      <div className="actions">
+                        <div className="total" style={{ color: "var(--wood)" }}>${(s.facilityEarns || 0).toFixed(2)}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Guest bookings */}
+              {dayBookings.length === 0 ? (
+                <div className="empty">
+                  {statusFilter === "all" ? "No guest bookings for this date" : "No " + STATUS_LABELS[statusFilter].toLowerCase() + " bookings"}
+                </div>
+              ) : (
+                <div className="booking-list">
+                  {dayBookings.map(b => (
+                    <BookingRow key={b.bookingId} booking={b} onAction={load} onOpen={() => setDetailBooking(b)} />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
+
+      {/* WEEK VIEW */}
+      {view === "week" && (
+        loading ? (
+          <div style={{ padding: 40, display: "flex", justifyContent: "center" }}>
+            <BouncingBall size="md" />
+          </div>
+        ) : (
+          <WeekView entries={entries || []} days={range.all || []} onDayClick={(iso) => { setView("day"); setDate(iso); }} />
+        )
+      )}
+
+      {/* MONTH VIEW */}
+      {view === "month" && (
+        loading ? (
+          <div style={{ padding: 40, display: "flex", justifyContent: "center" }}>
+            <BouncingBall size="md" />
+          </div>
+        ) : (
+          <MonthView entries={entries || []} centerDate={date} onDayClick={(iso) => { setView("day"); setDate(iso); }} />
+        )
       )}
 
       {detailBooking && (
@@ -2518,6 +3067,121 @@ function ScreenBookings() {
           onCreated={() => { load(); setShowWalkIn(false); }}
         />
       )}
+    </div>
+  );
+}
+
+/* Week view: 7 days stacked, each a mini timeline */
+function WeekView({ entries, days, onDayClick }) {
+  return (
+    <div className="week-grid">
+      {days.map(iso => {
+        const dayEntries = entries.filter(e => e.date === iso);
+        const guestCount = dayEntries.filter(e => e.entryType === "booking" && e.derivedStatus !== "cancelled").length;
+        const coachCount = dayEntries.filter(e => e.entryType === "coaching").length;
+        const totalRev = dayEntries.reduce((s, e) => s + (e.total || 0), 0);
+        const d = new Date(iso + "T12:00:00");
+        const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+        const isToday = iso === todayISO();
+        return (
+          <div className="week-day" key={iso}>
+            <div className={"week-day-head" + (isToday ? " is-today" : "")}>
+              <div className="label" onClick={() => onDayClick(iso)} style={{ cursor: "pointer" }}>
+                {DOW[d.getDay()]} <span className="num">{d.getDate()}</span>
+              </div>
+              <div className="stats">
+                {guestCount} bookings{coachCount > 0 ? ` · ${coachCount} coaching` : ""} · ${totalRev.toFixed(0)}
+              </div>
+            </div>
+            <Timeline bookings={dayEntries} dateStr={iso} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* Month view: calendar with daily counts */
+function MonthView({ entries, centerDate, onDayClick }) {
+  const d = new Date(centerDate + "T12:00:00");
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  const firstOfMonth = new Date(y, m, 1);
+  const lastOfMonth = new Date(y, m + 1, 0);
+  const daysInMonth = lastOfMonth.getDate();
+
+  // What weekday does month start on? (0 = Sun)
+  const startDow = firstOfMonth.getDay();
+
+  // Build cells: leading empties + days + trailing empties to fill weeks
+  const cells = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day++) cells.push(day);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  // Map of date -> stats
+  const byDate = {};
+  for (const e of entries) {
+    if (!byDate[e.date]) byDate[e.date] = { bookings: 0, coaching: 0, revenue: 0, slots: 0 };
+    if (e.entryType === "booking" && e.derivedStatus !== "cancelled") {
+      byDate[e.date].bookings++;
+      byDate[e.date].revenue += (e.total || 0);
+      const courtCount = String(e.courtNumbers || "").split(",").filter(Boolean).length;
+      byDate[e.date].slots += (e.slots || 0) * courtCount;
+    } else if (e.entryType === "coaching") {
+      byDate[e.date].coaching++;
+      byDate[e.date].revenue += (e.facilityEarns || 0);
+      const courtCount = String(e.courtNumbers || "").split(",").filter(Boolean).length;
+      byDate[e.date].slots += (e.slots || 0) * courtCount;
+    }
+  }
+
+  // Total court-slots in a full operating day: 32 slots × 8 courts = 256
+  const DAILY_CAPACITY = 32 * 8;
+
+  const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const today = todayISO();
+
+  return (
+    <div className="month-grid">
+      {DOW.map(d => <div key={d} className="month-dow-head">{d}</div>)}
+      {cells.map((day, i) => {
+        if (day === null) return <div key={"empty-" + i} className="month-cell empty" />;
+        const iso = y + "-" + String(m + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0");
+        const stats = byDate[iso] || { bookings: 0, coaching: 0, revenue: 0, slots: 0 };
+        const dt = new Date(y, m, day);
+        const isWknd = dt.getDay() === 0 || dt.getDay() === 6;
+        const isTodayCell = iso === today;
+        const utilPct = Math.min(100, Math.round((stats.slots / DAILY_CAPACITY) * 100));
+        const totalEvents = stats.bookings + stats.coaching;
+        return (
+          <div
+            key={iso}
+            className={"month-cell" + (isTodayCell ? " today" : "") + (isWknd ? " weekend" : "")}
+            onClick={() => onDayClick(iso)}
+          >
+            <div className="day-num">{day}</div>
+            {totalEvents > 0 ? (
+              <div className="day-stats">
+                <div className="ct">
+                  <span>BK</span><span className="v">{stats.bookings}</span>
+                </div>
+                {stats.coaching > 0 && (
+                  <div className="ct" style={{ color: "var(--wood)" }}>
+                    <span>★</span><span className="v">{stats.coaching}</span>
+                  </div>
+                )}
+                <div className="ct">
+                  <span>$</span><span className="v">{stats.revenue.toFixed(0)}</span>
+                </div>
+                <div className="util-mini">
+                  <div className="fill" style={{ transform: "scaleX(" + (utilPct / 100) + ")" }} />
+                </div>
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -3312,6 +3976,827 @@ function EditMemberModal({ member, onClose, onSaved }) {
 
 
 /* ====================================================================
+   COACHING TAB — coaches roster, sessions, payments due
+   ==================================================================== */
+
+function ScreenCoaching() {
+  const [tab, setTab] = useState("sessions"); // sessions | coaches | payments
+  const [coaches, setCoaches] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  async function loadCoaches() {
+    const r = await api("adminListCoaches");
+    if (r.ok) setCoaches(r.coaches || []);
+  }
+
+  useEffect(() => {
+    setLoading(true);
+    loadCoaches().finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div className="main">
+      <div className="main-head">
+        <div>
+          <div className="title">Coach roster & sessions</div>
+          <h1>Coaching</h1>
+        </div>
+      </div>
+
+      <div className="coaching-tabs">
+        <button className={tab === "sessions" ? "on" : ""} onClick={() => setTab("sessions")}>Sessions</button>
+        <button className={tab === "coaches" ? "on" : ""} onClick={() => setTab("coaches")}>Coaches</button>
+        <button className={tab === "payments" ? "on" : ""} onClick={() => setTab("payments")}>Payments Due</button>
+      </div>
+
+      {tab === "sessions" && <SessionsView coaches={coaches} loading={loading} />}
+      {tab === "coaches" && <CoachesView coaches={coaches} loading={loading} reload={loadCoaches} />}
+      {tab === "payments" && <PaymentsDueView />}
+    </div>
+  );
+}
+
+/* ----- Coaches subview ----- */
+
+function CoachesView({ coaches, loading, reload }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [editCoach, setEditCoach] = useState(null);
+
+  if (loading) {
+    return <div style={{ padding: 40, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>;
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", opacity: 0.6 }}>
+          {coaches.length} coach{coaches.length === 1 ? "" : "es"}
+        </div>
+        <button className="btn primary" onClick={() => setShowAdd(true)}>+ Add coach</button>
+      </div>
+
+      {coaches.length === 0 ? (
+        <div className="empty">No coaches yet — add one to start booking sessions</div>
+      ) : (
+        coaches.map(c => (
+          <div className="coach-card" key={c.coachId} onClick={() => setEditCoach(c)}>
+            <div className="coach-id">{c.coachId}</div>
+            <div>
+              <div className="coach-name">
+                {c.name}
+                {c.status !== "Active" && <span className="status-pill cancelled" style={{ marginLeft: 8 }}>{c.status}</span>}
+              </div>
+              <div className="coach-meta">
+                {c.phone} {c.specialty ? "· " + c.specialty : ""}
+              </div>
+            </div>
+            <div style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 11 }}>
+              {c.dealType === "flat_rent" && <div>${c.courtRate}/hr court</div>}
+              {c.dealType === "rev_share" && <div>{c.revSharePct}% rev share</div>}
+              {c.dealType === "hybrid" && <div>${c.courtRate}/hr + {c.revSharePct}%</div>}
+              {c.dealType === "custom" && <div style={{ fontStyle: "italic", opacity: 0.7 }}>Custom deal</div>}
+            </div>
+            <div className={"deal-tag " + c.dealType}>{c.dealType.replace("_", " ")}</div>
+          </div>
+        ))
+      )}
+
+      {showAdd && (
+        <CoachModal
+          coach={null}
+          onClose={() => setShowAdd(false)}
+          onSaved={() => { reload(); setShowAdd(false); }}
+        />
+      )}
+      {editCoach && (
+        <CoachModal
+          coach={editCoach}
+          onClose={() => setEditCoach(null)}
+          onSaved={() => { reload(); setEditCoach(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CoachModal({ coach, onClose, onSaved }) {
+  const isNew = !coach;
+  const [form, setForm] = useState({
+    name: coach ? coach.name : "",
+    phone: coach ? coach.phone : "",
+    email: coach ? coach.email : "",
+    specialty: coach ? coach.specialty : "",
+    status: coach ? coach.status : "Active",
+    dealType: coach ? coach.dealType : "rev_share",
+    courtRate: coach ? coach.courtRate : 8,
+    revSharePct: coach ? coach.revSharePct : 30,
+    dealNotes: coach ? coach.dealNotes : ""
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!form.name) return showToast("Name required", "error");
+    if (!form.phone) return showToast("Phone required", "error");
+    setSaving(true);
+    const action = isNew ? "adminCreateCoach" : "adminUpdateCoach";
+    const params = { ...form };
+    if (!isNew) params.coachId = coach.coachId;
+    const r = await api(action, params);
+    setSaving(false);
+    if (r.ok) {
+      showToast(isNew ? ("Coach " + r.coachId + " added") : "Saved", "success");
+      onSaved && onSaved();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">{isNew ? "New coach" : coach.coachId}</div>
+            <h2>{isNew ? "Add Coach" : coach.name}</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        <div className="field-row">
+          <div className="field">
+            <div className="field-label">Coach name</div>
+            <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          </div>
+          <div className="field">
+            <div className="field-label">Status</div>
+            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="field-row">
+          <div className="field">
+            <div className="field-label">Phone</div>
+            <input
+              type="tel"
+              inputMode="numeric"
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value.replace(/[^0-9]/g, "") })}
+            />
+          </div>
+          <div className="field">
+            <div className="field-label">Email (optional)</div>
+            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="field-label">Specialty</div>
+          <input
+            type="text"
+            value={form.specialty}
+            placeholder="e.g. Junior, Adult beginners, Advanced singles"
+            onChange={(e) => setForm({ ...form, specialty: e.target.value })}
+          />
+        </div>
+
+        <div className="field" style={{ marginTop: 18 }}>
+          <div className="field-label" style={{ marginBottom: 10 }}>Deal Type · Default</div>
+          <select value={form.dealType} onChange={(e) => setForm({ ...form, dealType: e.target.value })}>
+            <option value="flat_rent">Flat court rent — coach pays $X/hr</option>
+            <option value="rev_share">Revenue share — facility takes % of lesson fee</option>
+            <option value="hybrid">Hybrid — court rent + revenue share</option>
+            <option value="custom">Custom — set per session</option>
+          </select>
+        </div>
+
+        {(form.dealType === "flat_rent" || form.dealType === "hybrid") && (
+          <div className="field">
+            <div className="field-label">Court rate · $/hr</div>
+            <input
+              type="number"
+              min="0"
+              step="0.5"
+              value={form.courtRate}
+              onChange={(e) => setForm({ ...form, courtRate: parseFloat(e.target.value) || 0 })}
+            />
+          </div>
+        )}
+        {(form.dealType === "rev_share" || form.dealType === "hybrid") && (
+          <div className="field">
+            <div className="field-label">Facility revenue share · %</div>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              value={form.revSharePct}
+              onChange={(e) => setForm({ ...form, revSharePct: parseInt(e.target.value) || 0 })}
+            />
+          </div>
+        )}
+
+        <div className="field">
+          <div className="field-label">Deal notes</div>
+          <textarea
+            value={form.dealNotes}
+            placeholder="e.g. Free court Mon-Thu 6-9am, $10/hr peak. Renew yearly."
+            onChange={(e) => setForm({ ...form, dealNotes: e.target.value })}
+          />
+        </div>
+
+        <div className="modal-warning">
+          These are the <b>default deal terms</b>. Each session uses these by default but staff can override per-session if needed.
+        </div>
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn primary" onClick={save} disabled={saving}>
+            {saving ? "Saving…" : isNew ? "Add coach" : "Save changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ----- Sessions subview ----- */
+
+function SessionsView({ coaches }) {
+  const today = todayISO();
+  const weekFromNow = (() => {
+    const d = new Date(); d.setDate(d.getDate() + 7);
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  })();
+  const [dateFrom, setDateFrom] = useState(today);
+  const [dateTo, setDateTo] = useState(weekFromNow);
+  const [coachFilter, setCoachFilter] = useState("");
+  const [paymentFilter, setPaymentFilter] = useState("");
+  const [sessions, setSessions] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [editSession, setEditSession] = useState(null);
+
+  async function load() {
+    const r = await api("adminListCoachingSessions", {
+      dateFrom: dateFrom, dateTo: dateTo,
+      coachId: coachFilter, paymentStatus: paymentFilter
+    });
+    if (r.ok) setSessions(r.sessions || []);
+  }
+  useEffect(() => { load(); }, [dateFrom, dateTo, coachFilter, paymentFilter]);
+
+  async function duplicate(s) {
+    if (!confirm("Duplicate this session to one week from now?")) return;
+    const r = await api("adminDuplicateCoachingSession", { sessionId: s.sessionId, offsetDays: 7 });
+    if (r.ok) {
+      showToast("Duplicated to next week (" + r.sessionId + ")", "success");
+      load();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700 }}>From</div>
+        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+          style={{ padding: "6px 10px", border: "1.5px solid var(--ink)", borderRadius: 4, fontFamily: "var(--mono)" }} />
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700 }}>To</div>
+        <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+          style={{ padding: "6px 10px", border: "1.5px solid var(--ink)", borderRadius: 4, fontFamily: "var(--mono)" }} />
+        <select value={coachFilter} onChange={(e) => setCoachFilter(e.target.value)}
+          style={{ padding: "6px 10px", border: "1.5px solid var(--ink)", borderRadius: 4, fontFamily: "var(--mono)", fontSize: 12 }}>
+          <option value="">All coaches</option>
+          {coaches.map(c => <option key={c.coachId} value={c.coachId}>{c.coachId} · {c.name}</option>)}
+        </select>
+        <select value={paymentFilter} onChange={(e) => setPaymentFilter(e.target.value)}
+          style={{ padding: "6px 10px", border: "1.5px solid var(--ink)", borderRadius: 4, fontFamily: "var(--mono)", fontSize: 12 }}>
+          <option value="">Any payment</option>
+          <option value="pending">Pending</option>
+          <option value="paid">Paid</option>
+          <option value="waived">Waived</option>
+        </select>
+        <button className="btn primary" style={{ marginLeft: "auto" }}
+          onClick={() => setShowAdd(true)}
+          disabled={coaches.filter(c => c.status === "Active").length === 0}
+        >+ Add session</button>
+      </div>
+
+      {coaches.length === 0 && (
+        <div className="modal-warning" style={{ margin: "0 0 16px" }}>
+          Add at least one coach (on the Coaches tab) before booking sessions.
+        </div>
+      )}
+
+      {sessions === null ? (
+        <div style={{ padding: 40, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
+      ) : sessions.length === 0 ? (
+        <div className="empty">No sessions in this range</div>
+      ) : (
+        sessions.map(s => (
+          <div
+            key={s.sessionId}
+            className={"session-card " + s.paymentStatus.toLowerCase()}
+            onClick={() => setEditSession(s)}
+          >
+            <div className="when">
+              <span className="date">{s.date}</span>
+              {s.time}
+              <div style={{ fontSize: 9, fontWeight: 500, opacity: 0.5, letterSpacing: "0.14em", textTransform: "uppercase", marginTop: 2 }}>
+                {s.durationHours}h · C·{s.courtNumbers}
+              </div>
+            </div>
+            <div className="who">
+              <div className="coach">
+                {s.coachName}
+                <span className={"deal-tag " + s.dealTypeUsed}>{s.dealTypeUsed.replace("_", " ")}</span>
+                <span className={"status-pill " + (s.paymentStatus.toLowerCase() === "paid" ? "paid" : s.paymentStatus.toLowerCase() === "waived" ? "cancelled" : "at_risk")}>
+                  {s.paymentStatus}
+                </span>
+              </div>
+              <div className={"student-line" + (!s.studentName ? " empty" : "")}>
+                {s.studentName ? (s.studentName + (s.studentPhone ? " · " + s.studentPhone : "")) : "No student recorded"}
+              </div>
+              <div className="meta-line">
+                {s.sessionType}{s.groupSize > 1 ? " · " + s.groupSize + " students" : ""}{s.manualOverride ? " · MANUAL" : ""} · {s.sessionId}
+              </div>
+            </div>
+            <div className="amounts">
+              <div className="facility">${s.facilityEarns.toFixed(2)}</div>
+              <div className="coach-take">Coach: ${s.coachTakes.toFixed(2)}</div>
+              <div className="lesson">Lesson: ${s.lessonFee.toFixed(2)}</div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <button className="btn-sm" onClick={(e) => { e.stopPropagation(); duplicate(s); }} title="Duplicate to next week">↻ +1wk</button>
+            </div>
+          </div>
+        ))
+      )}
+
+      {showAdd && (
+        <CoachingSessionModal
+          session={null}
+          coaches={coaches}
+          dateDefault={today}
+          onClose={() => setShowAdd(false)}
+          onSaved={() => { load(); setShowAdd(false); }}
+        />
+      )}
+      {editSession && (
+        <CoachingSessionModal
+          session={editSession}
+          coaches={coaches}
+          onClose={() => setEditSession(null)}
+          onSaved={() => { load(); setEditSession(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved }) {
+  const isNew = !session;
+  const activeCoaches = coaches.filter(c => c.status === "Active");
+
+  const [form, setForm] = useState({
+    coachId: session ? session.coachId : (activeCoaches[0] ? activeCoaches[0].coachId : ""),
+    date: session ? session.date : (dateDefault || todayISO()),
+    time: session ? session.time : "18:00",
+    durationHours: session ? session.durationHours : 1,
+    courts: session ? String(session.courtNumbers).split(",").map(x => parseInt(x.trim())).filter(Boolean) : [1],
+    sessionType: session ? session.sessionType : "private",
+    studentName: session ? session.studentName : "",
+    studentPhone: session ? session.studentPhone : "",
+    groupSize: session ? session.groupSize : 1,
+    lessonFee: session ? session.lessonFee : 0,
+    manualOverride: session ? session.manualOverride : false,
+    facilityEarnsOverride: session ? session.facilityEarns : 0,
+    coachTakesOverride: session ? session.coachTakes : 0,
+    paymentStatus: session ? session.paymentStatus : "Pending",
+    paymentMethod: session ? session.paymentMethod : "",
+    paymentDate: session ? session.paymentDate : "",
+    notes: session ? session.notes : ""
+  });
+  const [submitting, setSubmitting] = useState(false);
+
+  const selectedCoach = coaches.find(c => c.coachId === form.coachId);
+
+  // Compute facility earns + coach takes from coach's deal terms
+  const auto = useMemo(() => {
+    if (!selectedCoach) return { facilityEarns: 0, coachTakes: 0, formula: "" };
+    const fee = parseFloat(form.lessonFee) || 0;
+    const rate = parseFloat(selectedCoach.courtRate) || 0;
+    const pct = parseFloat(selectedCoach.revSharePct) || 0;
+    const hrs = parseFloat(form.durationHours) || 0;
+    let facility = 0;
+    let formula = "";
+    if (selectedCoach.dealType === "flat_rent") {
+      facility = rate * hrs;
+      formula = `$${rate}/hr × ${hrs}h = $${facility.toFixed(2)}`;
+    } else if (selectedCoach.dealType === "rev_share") {
+      facility = fee * (pct / 100);
+      formula = `$${fee.toFixed(2)} × ${pct}% = $${facility.toFixed(2)}`;
+    } else if (selectedCoach.dealType === "hybrid") {
+      const rent = rate * hrs;
+      const share = fee * (pct / 100);
+      facility = rent + share;
+      formula = `$${rate}/hr × ${hrs}h + $${fee.toFixed(2)} × ${pct}% = $${facility.toFixed(2)}`;
+    } else {
+      facility = 0;
+      formula = "Custom deal — enter amounts manually";
+    }
+    facility = Math.round(facility * 100) / 100;
+    const coachTakes = Math.round((fee - facility) * 100) / 100;
+    return { facilityEarns: facility, coachTakes: coachTakes, formula: formula };
+  }, [selectedCoach, form.lessonFee, form.durationHours]);
+
+  const facilityEarns = form.manualOverride ? parseFloat(form.facilityEarnsOverride) || 0 : auto.facilityEarns;
+  const coachTakes = form.manualOverride ? parseFloat(form.coachTakesOverride) || 0 : auto.coachTakes;
+
+  function toggleCourt(c) {
+    setForm(f => {
+      const set = new Set(f.courts);
+      if (set.has(c)) set.delete(c);
+      else set.add(c);
+      return { ...f, courts: Array.from(set).sort() };
+    });
+  }
+
+  async function submit() {
+    if (!form.coachId) return showToast("Coach required", "error");
+    if (!form.courts.length) return showToast("Pick at least one court", "error");
+    if (!form.durationHours || form.durationHours <= 0) return showToast("Duration required", "error");
+
+    setSubmitting(true);
+    if (isNew) {
+      const r = await api("adminCreateCoachingSession", {
+        coachId: form.coachId,
+        date: form.date,
+        time: form.time,
+        durationHours: form.durationHours,
+        courts: form.courts.join(","),
+        sessionType: form.sessionType,
+        studentName: form.studentName,
+        studentPhone: form.studentPhone,
+        groupSize: form.groupSize,
+        lessonFee: form.lessonFee,
+        manualOverride: form.manualOverride ? "true" : "false",
+        facilityEarns: facilityEarns,
+        coachTakes: coachTakes,
+        paymentStatus: form.paymentStatus,
+        paymentMethod: form.paymentMethod,
+        notes: form.notes
+      });
+      setSubmitting(false);
+      if (r.ok) {
+        showToast("Session " + r.sessionId + " booked", "success");
+        onSaved && onSaved();
+      } else {
+        showToast(r.error || "Failed", "error");
+      }
+    } else {
+      // Edit: only mutable fields
+      const r = await api("adminUpdateCoachingSession", {
+        sessionId: session.sessionId,
+        studentName: form.studentName,
+        studentPhone: form.studentPhone,
+        groupSize: form.groupSize,
+        lessonFee: form.lessonFee,
+        manualOverride: form.manualOverride ? "true" : "false",
+        facilityEarns: facilityEarns,
+        coachTakes: coachTakes,
+        paymentStatus: form.paymentStatus,
+        paymentMethod: form.paymentMethod,
+        paymentDate: form.paymentDate,
+        notes: form.notes
+      });
+      setSubmitting(false);
+      if (r.ok) {
+        showToast("Saved", "success");
+        onSaved && onSaved();
+      } else {
+        showToast(r.error || "Failed", "error");
+      }
+    }
+  }
+
+  async function cancelSession() {
+    if (!confirm("Cancel this session? Court slots will be released.")) return;
+    setSubmitting(true);
+    const r = await api("adminCancelCoachingSession", { sessionId: session.sessionId });
+    setSubmitting(false);
+    if (r.ok) {
+      showToast("Cancelled", "success");
+      onSaved && onSaved();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  const timeOptions = useMemo(() => {
+    const out = [];
+    for (let h = OPEN_HOUR; h < CLOSE_HOUR; h++) {
+      for (const m of [0, 30]) {
+        const t = String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+        out.push(t);
+      }
+    }
+    return out;
+  }, []);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">{isNew ? "New coaching session" : session.sessionId}</div>
+            <h2>{isNew ? "Book Session" : selectedCoach ? selectedCoach.name : "Session"}</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        {isNew && (
+          <>
+            <div className="field">
+              <div className="field-label">Coach</div>
+              <select value={form.coachId} onChange={(e) => setForm({ ...form, coachId: e.target.value })}>
+                {activeCoaches.length === 0 && <option>(no active coaches)</option>}
+                {activeCoaches.map(c => (
+                  <option key={c.coachId} value={c.coachId}>
+                    {c.coachId} · {c.name} · {c.dealType.replace("_", " ")}
+                  </option>
+                ))}
+              </select>
+              {selectedCoach && (
+                <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.12em", opacity: 0.55, marginTop: 4 }}>
+                  Default: {selectedCoach.dealType === "flat_rent" ? "$" + selectedCoach.courtRate + "/hr court" : ""}
+                  {selectedCoach.dealType === "rev_share" ? selectedCoach.revSharePct + "% rev share" : ""}
+                  {selectedCoach.dealType === "hybrid" ? "$" + selectedCoach.courtRate + "/hr + " + selectedCoach.revSharePct + "%" : ""}
+                  {selectedCoach.dealType === "custom" ? "Custom — manual amounts" : ""}
+                </div>
+              )}
+            </div>
+
+            <div className="field-row three">
+              <div className="field">
+                <div className="field-label">Date</div>
+                <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+              </div>
+              <div className="field">
+                <div className="field-label">Time</div>
+                <select value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })}>
+                  {timeOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <div className="field-label">Duration</div>
+                <select value={form.durationHours} onChange={(e) => setForm({ ...form, durationHours: parseFloat(e.target.value) })}>
+                  <option value={0.5}>30 min</option>
+                  <option value={1}>1h</option>
+                  <option value={1.5}>1h 30m</option>
+                  <option value={2}>2h</option>
+                  <option value={2.5}>2h 30m</option>
+                  <option value={3}>3h</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="field">
+              <div className="field-label">Courts {form.courts.length > 0 && <span style={{ opacity: 0.5 }}>· {form.courts.join(", ")}</span>}</div>
+              <div className="court-picker">
+                {[1, 2, 3, 4, 5, 6, 7, 8].map(c => (
+                  <div
+                    key={c}
+                    className={"ct" + (form.courts.includes(c) ? " on" : "")}
+                    onClick={() => toggleCourt(c)}
+                  >C·{c}</div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="field-row">
+          <div className="field">
+            <div className="field-label">Session type</div>
+            <select value={form.sessionType} onChange={(e) => setForm({ ...form, sessionType: e.target.value })}>
+              <option value="private">Private (1 student)</option>
+              <option value="group">Group (2–4)</option>
+              <option value="clinic">Clinic (5+)</option>
+              <option value="practice">Coach practice (no student)</option>
+            </select>
+          </div>
+          {form.sessionType !== "practice" && (
+            <div className="field">
+              <div className="field-label">Group size</div>
+              <input
+                type="number"
+                min="1"
+                value={form.groupSize}
+                onChange={(e) => setForm({ ...form, groupSize: parseInt(e.target.value) || 1 })}
+              />
+            </div>
+          )}
+        </div>
+
+        {form.sessionType !== "practice" && (
+          <div className="field-row">
+            <div className="field">
+              <div className="field-label">Student name</div>
+              <input type="text" value={form.studentName}
+                onChange={(e) => setForm({ ...form, studentName: e.target.value })} />
+            </div>
+            <div className="field">
+              <div className="field-label">Student phone</div>
+              <input type="tel" inputMode="numeric" value={form.studentPhone}
+                onChange={(e) => setForm({ ...form, studentPhone: e.target.value.replace(/[^0-9]/g, "") })} />
+            </div>
+          </div>
+        )}
+
+        <div className="field">
+          <div className="field-label">Lesson fee charged · $</div>
+          <input
+            type="number"
+            min="0"
+            step="0.5"
+            value={form.lessonFee}
+            onChange={(e) => setForm({ ...form, lessonFee: parseFloat(e.target.value) || 0 })}
+            placeholder="What coach charged the student"
+          />
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.1em", opacity: 0.55, marginTop: 4 }}>
+            Used to calculate revenue split. Leave at 0 if coach is renting court for practice.
+          </div>
+        </div>
+
+        {/* Math preview */}
+        <div className="math-preview">
+          <div className="row">
+            <span className="k">Lesson fee</span>
+            <span className="v">${(parseFloat(form.lessonFee) || 0).toFixed(2)}</span>
+          </div>
+          <div className="row total facility">
+            <span className="k">Facility earns</span>
+            <span className="v">${facilityEarns.toFixed(2)}</span>
+          </div>
+          <div className="row total coach">
+            <span className="k">Coach takes</span>
+            <span className="v">${coachTakes.toFixed(2)}</span>
+          </div>
+          {auto.formula && !form.manualOverride && (
+            <div className="formula">{auto.formula}</div>
+          )}
+          <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              type="checkbox"
+              id="override"
+              checked={form.manualOverride}
+              onChange={(e) => setForm({
+                ...form,
+                manualOverride: e.target.checked,
+                facilityEarnsOverride: e.target.checked ? facilityEarns : 0,
+                coachTakesOverride: e.target.checked ? coachTakes : 0
+              })}
+            />
+            <label htmlFor="override" style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 600, cursor: "pointer" }}>
+              Override default split for this session
+            </label>
+          </div>
+          {form.manualOverride && (
+            <div className="field-row" style={{ marginTop: 10 }}>
+              <div className="field">
+                <div className="field-label">Facility earns</div>
+                <input type="number" step="0.5" value={form.facilityEarnsOverride}
+                  onChange={(e) => setForm({ ...form, facilityEarnsOverride: parseFloat(e.target.value) || 0 })} />
+              </div>
+              <div className="field">
+                <div className="field-label">Coach takes</div>
+                <input type="number" step="0.5" value={form.coachTakesOverride}
+                  onChange={(e) => setForm({ ...form, coachTakesOverride: parseFloat(e.target.value) || 0 })} />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="field-row">
+          <div className="field">
+            <div className="field-label">Payment status</div>
+            <select value={form.paymentStatus} onChange={(e) => setForm({ ...form, paymentStatus: e.target.value })}>
+              <option value="Pending">Pending</option>
+              <option value="Paid">Paid</option>
+              <option value="Waived">Waived</option>
+            </select>
+          </div>
+          <div className="field">
+            <div className="field-label">Payment method</div>
+            <select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
+              <option value="">—</option>
+              <option value="Cash">Cash</option>
+              <option value="Bank Transfer">Bank Transfer</option>
+              <option value="ABA">ABA</option>
+              <option value="Wing">Wing</option>
+              <option value="Net from coach earnings">Net from coach earnings</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="field-label">Notes (optional)</div>
+          <textarea value={form.notes}
+            placeholder="e.g. Make-up session, monthly clinic, etc."
+            onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+        </div>
+
+        <div className="actions">
+          {!isNew && (
+            <button
+              className="btn ghost"
+              style={{ color: "var(--clay)", marginRight: "auto" }}
+              onClick={cancelSession}
+              disabled={submitting}
+            >Cancel session</button>
+          )}
+          <button className="btn ghost" onClick={onClose} disabled={submitting}>Close</button>
+          <button className="btn primary" onClick={submit} disabled={submitting || !form.coachId || (isNew && form.courts.length === 0)}>
+            {submitting ? "Saving…" : isNew ? "Book session" : "Save changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ----- Payments Due subview ----- */
+
+function PaymentsDueView() {
+  const [data, setData] = useState(null);
+
+  async function load() {
+    const r = await api("adminListCoachPayments");
+    if (r.ok) setData(r.summary || []);
+  }
+  useEffect(() => { load(); }, []);
+
+  if (data === null) {
+    return <div style={{ padding: 40, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>;
+  }
+
+  const totalOwed = data.reduce((s, c) => s + c.pendingAmount, 0);
+  const totalPaid = data.reduce((s, c) => s + c.paidAmount, 0);
+  const totalCoachTakes = data.reduce((s, c) => s + c.coachTakesPending, 0);
+
+  return (
+    <div>
+      <div className="stat-grid" style={{ marginBottom: 24 }}>
+        <div className="stat-card accent-clay">
+          <div className="label">Coaches owe us</div>
+          <div className="value">${totalOwed.toFixed(2)}</div>
+          <div className="sub">Across all unpaid sessions</div>
+        </div>
+        <div className="stat-card accent-green">
+          <div className="label">Already collected</div>
+          <div className="value">${totalPaid.toFixed(2)}</div>
+          <div className="sub">All-time paid sessions</div>
+        </div>
+        <div className="stat-card accent-wood">
+          <div className="label">Coaches haven't taken</div>
+          <div className="value">${totalCoachTakes.toFixed(2)}</div>
+          <div className="sub">Their earnings on unpaid sessions</div>
+        </div>
+      </div>
+
+      <div className="section-label">
+        <span><span className="num">01</span><span className="name">By Coach</span></span>
+        <span className="right">{data.length} coach{data.length === 1 ? "" : "es"}</span>
+      </div>
+      {data.length === 0 ? (
+        <div className="empty">No coaches in system</div>
+      ) : (
+        data.map(c => (
+          <div key={c.coachId} className={"coach-pay-card" + (c.pendingAmount > 0 ? " has-debt" : "")}>
+            <div>
+              <div className="name">{c.name}</div>
+              <div className="meta">{c.coachId} · {c.phone}</div>
+            </div>
+            <div style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.12em", opacity: 0.6 }}>
+              <div>{c.pendingSessions} unpaid · {c.paidSessions} paid</div>
+              <div style={{ marginTop: 2 }}>Lifetime $ {c.paidAmount.toFixed(2)} collected</div>
+            </div>
+            <div className="owes">
+              <div className="v">${c.pendingAmount.toFixed(2)}</div>
+              <div className="label">{c.pendingAmount > 0 ? "Owes us" : "All settled"}</div>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+
+/* ====================================================================
    SETTINGS
    ==================================================================== */
 function ScreenSettings() {
@@ -3521,6 +5006,7 @@ function App() {
     { id: "bookings",  label: "Bookings",  ready: true },
     { id: "pos",       label: "POS",       ready: false },
     { id: "members",   label: "Members",   ready: true },
+    { id: "coaching",  label: "Coaching",  ready: true },
     { id: "customers", label: "Customers", ready: false },
     { id: "sms",       label: "SMS Log",   ready: false },
     { id: "settings",  label: "Settings",  ready: true }
@@ -3537,10 +5023,11 @@ function App() {
     case "dashboard": body = <ScreenDashboard />; break;
     case "bookings":  body = <ScreenBookings />; break;
     case "members":   body = <ScreenMembers />; break;
+    case "coaching":  body = <ScreenCoaching />; break;
     case "settings":  body = <ScreenSettings />; break;
-    case "pos":       body = <ScreenSoon title="Point of Sale" message="Drinks + Pro Shop POS with inventory, custom discounts, and payment methods. Coming in Phase 2." />; break;
-    case "customers": body = <ScreenSoon title="Customers" message="Guest list with booking history and quick member-conversion. Coming in Phase 2." />; break;
-    case "sms":       body = <ScreenSoon title="SMS Log" message="Searchable SMS log with cost tracking. Coming in Phase 2." />; break;
+    case "pos":       body = <ScreenSoon title="Point of Sale" message="Drinks + Pro Shop POS with inventory, custom discounts, and payment methods. Coming in Drop B." />; break;
+    case "customers": body = <ScreenSoon title="Customers" message="Guest list with booking history and quick member-conversion. Coming in Drop B." />; break;
+    case "sms":       body = <ScreenSoon title="SMS Log" message="Searchable SMS log with cost tracking. Coming in Drop B." />; break;
     default:          body = <ScreenDashboard />;
   }
 
