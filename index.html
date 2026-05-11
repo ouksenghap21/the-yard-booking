@@ -1,0 +1,2683 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#F1EAD6" />
+  <title>The Yard — Book a Court</title>
+  <meta name="description" content="The Yard · Pickleball · Toul Kork, Phnom Penh. Book a court online." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..700&family=Manrope:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&family=Noto+Sans+Khmer:wght@400;500;600;700&family=Noto+Serif+Khmer:wght@400;500;700&display=swap" />
+
+  <style>
+/* ====================================================================
+   THE YARD — BRAND STYLESHEET v01
+   Ported 1:1 from the Claude Design React prototype.
+   Brand: Cream / Ink / Court Green / Clay / Wood / Concrete
+   Type:  Fraunces (display italic) + Manrope (sans) + DM Mono (numbers)
+   ==================================================================== */
+
+:root{
+  /* Palette */
+  --cream:#F1EAD6;
+  --cream-2:#E5DBBE;
+  --paper:#F7F0DC;
+  --green:#3D7A4F;
+  --green-2:#2B5938;
+  --green-3:#1E4126;
+  --clay:#C64F3A;
+  --clay-2:#A53D2C;
+  --wood:#A8744A;
+  --wood-2:#7A5436;
+  --concrete:#C9C6BD;
+  --ink:#1A1A1A;
+  --peach:#D9785C;
+
+  /* Aliases used inside components */
+  --bone:var(--cream);
+  --bone-2:var(--cream-2);
+  --jade:var(--green);
+  --jade-2:var(--green-2);
+  --coral:var(--clay);
+  --coral-2:var(--clay-2);
+  --gold:var(--wood);
+  --gold-2:var(--wood-2);
+
+  /* Type stacks — Khmer-aware */
+  --sans:'Manrope','Noto Sans Khmer',ui-sans-serif,system-ui,sans-serif;
+  --serif:'Fraunces','Noto Serif Khmer',ui-serif,Georgia,serif;
+  --mono:'DM Mono',ui-monospace,monospace;
+}
+
+*{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html,body{ margin:0; padding:0; }
+body{
+  font-family:var(--sans);
+  color:var(--ink);
+  background:var(--cream);
+  min-height:100vh;
+  min-height:100dvh;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  overflow-x:hidden;
+}
+
+/* When Khmer is selected, swap to Khmer fonts seamlessly */
+body[lang="km"]{ font-family:'Noto Sans Khmer','Manrope',sans-serif; }
+body[lang="km"] .h-display,
+body[lang="km"] .serif,
+body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
+  font-family:'Noto Serif Khmer','Fraunces',serif;
+}
+
+/* ========== App shell ========== */
+#root{
+  width:100%;
+  max-width:520px;
+  margin:0 auto;
+  background:var(--cream);
+  position:relative;
+  min-height:100vh;
+  min-height:100dvh;
+}
+
+.screen{ padding:8px 22px 120px; position:relative; }
+.scr-pad-top{ padding-top:8px; }
+
+/* ========== Top utility bar (date + lang toggle) ========== */
+.topbar{
+  position:sticky; top:0; z-index:50;
+  height:42px;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 22px;
+  background:var(--cream);
+  border-bottom:1px dashed rgba(26,26,26,0.18);
+  font-family:var(--mono);
+  font-size:10.5px; letter-spacing:0.14em; text-transform:uppercase;
+  font-weight:500;
+}
+.topbar .now{ opacity:0.8; }
+.topbar .lang{
+  display:flex; gap:0; align-items:stretch;
+  border:1.5px solid var(--ink);
+  border-radius:999px; overflow:hidden;
+}
+.topbar .lang button{
+  background:transparent; border:0;
+  padding:4px 10px;
+  font-family:var(--mono); font-weight:500;
+  font-size:10px; letter-spacing:0.16em;
+  color:var(--ink); cursor:pointer;
+}
+.topbar .lang button.on{ background:var(--ink); color:var(--cream); }
+
+/* ========== Type ========== */
+.h-display{
+  font-family:var(--serif); font-weight:400; font-style:italic;
+  line-height:0.92; letter-spacing:-0.02em;
+}
+.h-sans{
+  font-family:var(--sans); font-weight:800;
+  letter-spacing:-0.01em; line-height:1.0;
+}
+.mono{ font-family:var(--mono); font-variant-numeric:tabular-nums; }
+.serif{ font-family:var(--serif); }
+
+/* ========== Buttons (CTA) ========== */
+.btn{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  width:100%; min-height:58px; padding:0 22px;
+  background:var(--green); color:var(--cream);
+  border:1.5px solid var(--ink);
+  border-radius:999px;
+  font-family:var(--sans); font-weight:700; font-size:15px;
+  letter-spacing:0.06em; text-transform:uppercase;
+  cursor:pointer; transition:transform .08s ease, background .12s ease;
+  font-family:var(--sans);
+}
+.btn:active{ transform:translateY(1px); }
+.btn.coral{ background:var(--clay); color:var(--cream); }
+.btn.ink{ background:var(--ink); color:var(--cream); }
+.btn.ghost{ background:transparent; color:var(--ink); border:1.5px solid var(--ink); }
+.btn .arrow{ font-family:var(--mono); font-size:18px; font-weight:500; }
+.btn:disabled{ opacity:0.45; cursor:not-allowed; }
+
+/* ========== Inputs ========== */
+.input{
+  width:100%; min-height:56px;
+  background:var(--paper);
+  border:1.5px solid var(--ink);
+  border-radius:14px;
+  padding:0 18px;
+  font-family:var(--mono); font-size:18px;
+  color:var(--ink);
+  outline:none;
+  transition:background .12s ease, border-color .12s ease;
+}
+.input:focus{ background:#fff; border-color:var(--green); }
+
+/* ========== Section label ========== */
+.label{
+  font-family:var(--sans); font-weight:800;
+  font-size:11px; letter-spacing:0.16em; text-transform:uppercase;
+  color:var(--ink);
+  display:flex; align-items:center; gap:8px;
+  margin:4px 0 10px;
+}
+.label .num{
+  font-family:var(--mono); font-size:10px; font-weight:500;
+  background:var(--ink); color:var(--cream);
+  padding:2px 5px;
+}
+.label .right{
+  margin-left:auto;
+  font-family:var(--mono); font-size:10px; font-weight:500;
+  letter-spacing:0.12em; opacity:0.6;
+}
+
+/* ========== Rules ========== */
+.rule{ height:1.5px; background:var(--ink); width:100%; }
+.rule-thin{ height:1px; background:var(--ink); opacity:0.22; }
+
+/* ========== Pill / sticker ========== */
+.pill{
+  display:inline-flex; align-items:center; gap:5px;
+  font-family:var(--mono); font-weight:500;
+  font-size:10.5px; letter-spacing:0.12em; text-transform:uppercase;
+  padding:5px 10px; border:1.5px solid var(--ink); background:var(--paper);
+  border-radius:999px;
+}
+.sticker{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:5px 10px;
+  border:1.5px solid var(--ink);
+  background:var(--cream);
+  border-radius:999px;
+  font-family:var(--mono); font-weight:500;
+  font-size:10.5px; letter-spacing:0.12em; text-transform:uppercase;
+}
+.sticker.clay{ background:var(--clay); color:var(--cream); border-color:var(--clay); }
+.sticker.green{ background:var(--green); color:var(--cream); border-color:var(--green); }
+.sticker.ink{ background:var(--ink); color:var(--cream); border-color:var(--ink); }
+
+/* ========== Hint text ========== */
+.hint{
+  font-family:var(--sans); font-size:13px; color:var(--ink);
+  opacity:0.65; line-height:1.45;
+}
+
+/* ========== Helpers ========== */
+.row{ display:flex; align-items:center; gap:8px; }
+.row-between{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+
+/* ========== Court line motif (dink trajectory) ========== */
+.trajectory{
+  position:relative; height:32px; width:100%; margin:6px 0;
+}
+.trajectory svg{ width:100%; height:100%; display:block; overflow:visible; }
+
+/* ========== Date strip ========== */
+.date-strip{
+  display:flex; gap:10px; overflow-x:auto;
+  padding:2px 2px 8px;
+  scrollbar-width:none;
+  margin:0 -22px; padding-left:22px; padding-right:22px;
+}
+.date-strip::-webkit-scrollbar{ display:none; }
+.date-card{
+  flex:0 0 66px; height:86px;
+  border:1.5px solid var(--ink); background:var(--paper);
+  border-radius:14px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:2px; cursor:pointer;
+  font-family:var(--sans); font-weight:700;
+  transition:background .12s ease, color .12s ease;
+  position:relative;
+}
+.date-card .dow{ font-size:10.5px; letter-spacing:0.12em; text-transform:uppercase; opacity:0.7; }
+.date-card .dnum{ font-family:var(--mono); font-weight:500; font-size:28px; line-height:1; }
+.date-card .mo{ font-size:10px; letter-spacing:0.1em; text-transform:uppercase; opacity:0.6; }
+.date-card:hover{ background:var(--cream-2); }
+.date-card.active{ background:var(--green); color:var(--cream); border-color:var(--green); }
+.date-card.active .dow,
+.date-card.active .mo{ opacity:0.85; }
+.date-card.today::after{
+  content:"TODAY"; position:absolute; top:-12px; left:50%; transform:translateX(-50%);
+  font-family:var(--mono); font-size:8px; font-weight:500;
+  background:var(--clay); color:var(--cream);
+  padding:2px 5px; letter-spacing:0.1em;
+  border-radius:4px;
+}
+
+/* ========== Time wheel picker (iOS-style) ========== */
+.wheel{
+  position:relative;
+  border:1.5px solid var(--ink);
+  border-radius:18px;
+  background:var(--paper);
+  overflow:hidden;
+}
+.wheel .wheel-mask-top,
+.wheel .wheel-mask-bot{
+  position:absolute; left:0; right:0; height:56px; pointer-events:none; z-index:2;
+}
+.wheel .wheel-mask-top{ top:0; background:linear-gradient(to bottom, var(--paper) 30%, rgba(247,240,220,0)); }
+.wheel .wheel-mask-bot{ bottom:0; background:linear-gradient(to top, var(--paper) 30%, rgba(247,240,220,0)); }
+.wheel .wheel-center{
+  position:absolute; left:8px; right:8px; top:50%; transform:translateY(-50%);
+  height:52px; border-top:1.5px solid var(--ink); border-bottom:1.5px solid var(--ink);
+  pointer-events:none; z-index:1;
+}
+.wheel .wheel-center::before,
+.wheel .wheel-center::after{
+  content:""; position:absolute; top:50%; width:8px; height:8px;
+  background:var(--clay); border-radius:50%; transform:translateY(-50%);
+}
+.wheel .wheel-center::before{ left:-12px; }
+.wheel .wheel-center::after{ right:-12px; }
+.wheel .wheel-scroll{
+  position:relative;
+  overflow-y:auto;
+  overflow-x:hidden;
+  scroll-snap-type:y mandatory;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+  mask-image:linear-gradient(to bottom, transparent 0, #000 30%, #000 70%, transparent 100%);
+  -webkit-mask-image:linear-gradient(to bottom, transparent 0, #000 30%, #000 70%, transparent 100%);
+}
+.wheel .wheel-scroll::-webkit-scrollbar{ display:none; }
+.wheel .wheel-item{
+  scroll-snap-align:center;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 22px;
+  font-family:var(--mono); font-size:26px; font-weight:500;
+  letter-spacing:-0.01em;
+  color:var(--ink);
+  transition:opacity .15s ease, transform .15s ease;
+  cursor:pointer;
+}
+.wheel .wheel-item.dim{ opacity:0.35; font-size:21px; }
+.wheel .wheel-item.far{ opacity:0.15; font-size:19px; }
+.wheel .wheel-item .meta{
+  font-family:var(--sans); font-size:11px; font-weight:700;
+  letter-spacing:0.12em; text-transform:uppercase;
+  opacity:0.7;
+}
+.wheel .wheel-item.dim .meta,
+.wheel .wheel-item.far .meta{ opacity:0.5; }
+.wheel .wheel-item.full{ color:var(--ink); }
+.wheel .wheel-item.full .meta{ color:var(--clay); opacity:1; font-weight:800; }
+.wheel .wheel-item.hot .meta{ color:var(--clay); opacity:1; font-weight:800; }
+
+/* ========== Stepper (duration / courts) ========== */
+.stepper{
+  display:flex; align-items:stretch;
+  border:1.5px solid var(--ink); border-radius:18px;
+  overflow:hidden; background:var(--paper);
+  min-height:74px;
+}
+.stepper .btn-step{
+  width:60px; flex:none;
+  background:transparent; border:0;
+  cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  font-family:var(--serif); font-style:italic; font-weight:400;
+  font-size:32px; color:var(--ink);
+  transition:background .12s ease, color .12s ease;
+}
+.stepper .btn-step:hover:not(:disabled){ background:var(--cream-2); }
+.stepper .btn-step:disabled{ opacity:0.25; cursor:not-allowed; }
+.stepper .btn-step.minus{ border-right:1.5px solid var(--ink); }
+.stepper .btn-step.plus{ border-left:1.5px solid var(--ink); background:var(--green); color:var(--cream); }
+.stepper .btn-step.plus:hover:not(:disabled){ background:var(--green-2); }
+.stepper .val{
+  flex:1; display:flex; align-items:center; justify-content:center; gap:8px;
+  padding:0 12px;
+}
+.stepper .val .num{
+  font-family:var(--mono); font-weight:500; font-size:36px; line-height:1;
+  letter-spacing:-0.02em;
+}
+.stepper .val .sub{
+  font-family:var(--sans); font-size:10px; font-weight:800;
+  letter-spacing:0.14em; text-transform:uppercase;
+  opacity:0.65;
+  align-self:flex-end; padding-bottom:9px;
+}
+.stepper .pips{
+  display:flex; gap:3px; align-self:flex-end; padding-bottom:10px;
+  margin-left:4px;
+}
+.stepper .pips i{
+  width:5px; height:5px; border-radius:50%;
+  background:var(--ink); opacity:0.18;
+  display:block;
+}
+.stepper .pips i.on{ background:var(--clay); opacity:1; }
+
+/* ========== Court rail ========== */
+.court-rail{
+  display:flex; gap:6px; padding:14px;
+  border:1.5px solid var(--ink); border-radius:14px;
+  background:var(--paper);
+  overflow-x:auto; scrollbar-width:none;
+}
+.court-rail::-webkit-scrollbar{ display:none; }
+.court-pill{
+  flex:0 0 auto;
+  min-width:52px;
+  padding:10px 8px;
+  border:1.5px solid var(--ink);
+  border-radius:10px;
+  background:var(--cream);
+  font-family:var(--mono); font-weight:500;
+  display:flex; flex-direction:column; align-items:center; gap:2px;
+  cursor:pointer;
+  transition:background .12s ease;
+}
+.court-pill .id{ font-size:14px; }
+.court-pill .lbl{
+  font-family:var(--sans); font-size:9px; font-weight:800; letter-spacing:0.1em;
+  text-transform:uppercase; opacity:0.55;
+}
+.court-pill.sel{ background:var(--green); color:var(--cream); border-color:var(--green); }
+.court-pill.sel .lbl{ opacity:0.85; }
+.court-pill.unavail{
+  opacity:0.35; cursor:not-allowed;
+  background:repeating-linear-gradient(45deg, transparent 0 5px, rgba(26,26,26,0.18) 5px 6px);
+}
+.court-pill:hover:not(.sel):not(.unavail){ background:var(--cream-2); }
+
+/* ========== Member strip ========== */
+.member-strip{
+  position:relative;
+  border:1.5px solid var(--ink);
+  border-radius:18px;
+  background:var(--green); color:var(--cream);
+  padding:18px;
+  margin-bottom:20px;
+  overflow:hidden;
+}
+.member-strip::after{
+  content:"";
+  position:absolute; right:-30px; top:-30px;
+  width:160px; height:160px;
+  border:1.5px solid rgba(241,234,214,0.2);
+  border-radius:50%;
+  pointer-events:none;
+}
+.member-strip .top{
+  display:flex; justify-content:space-between; align-items:center;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:0.12em; text-transform:uppercase;
+  opacity:0.85; font-weight:500;
+}
+.member-strip .name{
+  font-family:var(--serif); font-style:italic; font-weight:400;
+  font-size:34px; line-height:1; margin:8px 0 12px;
+  letter-spacing:-0.02em;
+}
+.member-strip .row-end{
+  display:flex; justify-content:space-between; align-items:flex-end; gap:8px;
+}
+.tier{
+  display:inline-flex; align-items:center; gap:6px;
+  border:1.5px solid var(--cream);
+  background:transparent; color:var(--cream);
+  font-family:var(--mono); font-weight:500;
+  font-size:10.5px; letter-spacing:0.12em; text-transform:uppercase;
+  padding:5px 10px; border-radius:999px;
+}
+.member-strip.founding{ background:var(--wood); color:var(--cream); }
+.member-strip.founding::after{ border-color:rgba(241,234,214,0.25); }
+
+/* ========== Guest hello (mirror member strip but cream) ========== */
+.guest-hello{
+  position:relative;
+  border:1.5px solid var(--ink);
+  border-radius:18px;
+  background:var(--paper);
+  padding:18px;
+  margin-bottom:20px;
+}
+.guest-hello .top{
+  display:flex; justify-content:space-between; align-items:center;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:0.12em; text-transform:uppercase;
+  opacity:0.65; font-weight:500;
+}
+.guest-hello .h{
+  font-family:var(--serif); font-style:italic; font-weight:400;
+  font-size:28px; line-height:1; margin:8px 0 12px; letter-spacing:-0.02em;
+}
+.guest-hello input{
+  width:100%; min-height:48px;
+  background:#fff;
+  border:1.5px solid var(--ink);
+  border-radius:12px;
+  padding:0 14px;
+  font-family:var(--sans); font-size:16px; font-weight:600;
+  color:var(--ink); outline:none;
+}
+.guest-hello input:focus{ border-color:var(--green); }
+
+/* ========== Birthday gift card ========== */
+.gift{
+  position:relative;
+  border:1.5px solid var(--ink);
+  border-radius:18px;
+  background:var(--clay);
+  color:var(--cream);
+  padding:22px 20px 20px;
+  margin-bottom:20px;
+  overflow:hidden;
+}
+.gift .kicker{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:0.18em; text-transform:uppercase;
+  font-weight:500; opacity:0.92;
+}
+.gift h3{
+  font-family:var(--serif); font-style:italic; font-weight:400;
+  font-size:36px; line-height:1; margin:8px 0; letter-spacing:-0.02em;
+}
+.gift p{ margin:0 0 16px; font-size:14px; line-height:1.5; max-width:30ch; opacity:0.92; }
+.gift.claimed{ background:var(--cream-2); color:var(--ink); }
+.gift.claimed::after{
+  content:"CLAIMED";
+  position:absolute; right:18px; top:18px;
+  background:var(--green); color:var(--cream);
+  font-family:var(--mono); font-weight:500;
+  font-size:10.5px; letter-spacing:0.16em;
+  padding:5px 10px; border-radius:999px;
+}
+.gift .claim-btn{
+  background:var(--cream); color:var(--clay);
+  border:0;
+  padding:10px 16px;
+  border-radius:999px;
+  font-family:var(--sans); font-weight:800;
+  font-size:12px; letter-spacing:0.12em; text-transform:uppercase;
+  cursor:pointer;
+}
+
+/* ========== Guest promo card (inverted ink) ========== */
+.promo{
+  position:relative;
+  border:1.5px solid var(--ink);
+  border-radius:18px;
+  background:var(--ink); color:var(--cream);
+  margin-bottom:20px; overflow:hidden;
+}
+.promo .head{
+  padding:16px 18px 10px;
+  border-bottom:1.5px solid var(--clay);
+  display:flex; justify-content:space-between; align-items:center;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:0.14em; text-transform:uppercase;
+  font-weight:500;
+}
+.promo .body{ padding:16px 18px 18px; }
+.promo h3{
+  font-family:var(--serif); font-style:italic; font-weight:400;
+  font-size:30px; line-height:1; margin:0 0 10px;
+  color:var(--cream); letter-spacing:-0.02em;
+}
+.promo h3 .save{ color:var(--clay); }
+.promo .tiers{
+  display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:14px 0;
+}
+.promo .tier-card{
+  border:1.5px solid rgba(241,234,214,0.4);
+  padding:10px 12px;
+  border-radius:12px;
+}
+.promo .tier-card .name{
+  font-size:10.5px; letter-spacing:0.12em; text-transform:uppercase;
+  font-weight:600; opacity:0.7;
+}
+.promo .tier-card .pct{
+  font-family:var(--serif); font-style:italic; font-weight:400; font-size:30px;
+  line-height:1; margin-top:4px; color:var(--cream);
+}
+.promo .tier-card .pct b{ color:var(--clay); font-weight:400; }
+.promo .tier-card.gold{ border-color:rgba(168,116,74,0.6); }
+.promo .tier-card.gold .pct b{ color:var(--wood); }
+.promo .cta-row{
+  display:flex; align-items:center; justify-content:space-between;
+  border-top:1px dashed rgba(241,234,214,0.3);
+  padding-top:14px; margin-top:4px;
+}
+.promo .seats{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:0.12em; text-transform:uppercase;
+  font-weight:500;
+}
+.promo .learn{
+  font-family:var(--sans); font-weight:700; font-size:12.5px;
+  letter-spacing:0.1em; text-transform:uppercase;
+  color:var(--clay); text-decoration:none;
+  border-bottom:1.5px solid var(--clay);
+  padding-bottom:1px; cursor:pointer; background:transparent; border-top:0; border-left:0; border-right:0;
+}
+
+/* ========== Price block ========== */
+.priceblock{
+  border-top:1.5px solid var(--ink);
+  padding:16px 0 8px;
+}
+.price-row{
+  display:flex; justify-content:space-between; align-items:baseline;
+  padding:6px 0;
+  font-family:var(--sans);
+}
+.price-row .k{ font-size:13.5px; }
+.price-row .v{ font-family:var(--mono); font-size:15px; font-weight:500; }
+.price-row.total .k{ font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:0.12em; }
+.price-row.total .v{ font-family:var(--serif); font-style:italic; font-weight:400; font-size:38px; line-height:1; }
+.price-row.discount{ color:var(--clay); }
+.price-row.discount .v::before{ content:"− "; }
+.price-row.strike .v{ text-decoration:line-through; opacity:0.5; }
+
+/* ========== OTP boxes ========== */
+.otp-row{ display:grid; grid-template-columns:repeat(6, 1fr); gap:8px; }
+.otp-box{
+  aspect-ratio:1/1.18;
+  border:1.5px solid var(--ink); background:var(--paper);
+  border-radius:12px;
+  display:flex; align-items:center; justify-content:center;
+  font-family:var(--mono); font-size:28px; font-weight:500;
+  position:relative;
+}
+.otp-box.filled{ background:var(--ink); color:var(--cream); }
+.otp-box.active{
+  background:#fff;
+  border-color:var(--green); border-width:2px;
+}
+.otp-box input{
+  position:absolute; inset:0; opacity:0; border:0;
+  font-size:24px; text-align:center; width:100%; height:100%;
+  background:transparent; cursor:pointer;
+}
+.otp-box .caret{
+  width:2px; height:24px; background:var(--ink);
+  animation:blink 1s steps(2) infinite;
+}
+@keyframes blink{ 0%,49%{opacity:1;} 50%,100%{opacity:0;} }
+
+/* ========== Court diagram (top-down) ========== */
+.court-svg{
+  width:100%; border:1.5px solid var(--ink);
+  border-radius:14px; background:var(--green);
+  display:block;
+}
+
+/* ========== Confirmation stamp ========== */
+.stamp-wrap{ position:relative; padding:18px 0 6px; }
+.stamp{
+  display:inline-flex; align-items:flex-start; gap:14px;
+  font-family:var(--serif); font-style:italic; font-weight:400;
+  font-size:54px; line-height:0.9;
+  letter-spacing:-0.02em;
+}
+.stamp .dot{
+  width:14px; height:14px; border-radius:50%;
+  background:var(--clay); margin-top:18px; flex:none;
+}
+.bookingid{
+  font-family:var(--mono); font-size:22px; font-weight:500;
+  letter-spacing:-0.01em;
+  display:flex; align-items:center; gap:10px;
+  flex-wrap:wrap;
+}
+.bookingid .copy{
+  font-family:var(--sans); font-size:10.5px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase;
+  background:var(--ink); color:var(--cream); padding:5px 10px;
+  border:0; border-radius:999px; cursor:pointer;
+}
+
+/* ========== Detail rows (confirmation) ========== */
+.detail-row{
+  display:flex; justify-content:space-between; align-items:baseline;
+  padding:12px 0;
+  border-bottom:1px dashed rgba(26,26,26,0.18);
+  font-family:var(--sans); font-size:13.5px;
+}
+.detail-row:last-child{ border-bottom:0; }
+.detail-row .k{
+  text-transform:uppercase; letter-spacing:0.12em; font-size:10.5px; font-weight:800; opacity:0.65;
+}
+.detail-row .v{ font-family:var(--mono); font-weight:500; font-size:14px; text-align:right; }
+
+/* ========== My bookings list ========== */
+.booking-card{
+  border:1.5px solid var(--ink);
+  border-radius:14px;
+  background:var(--paper);
+  padding:14px;
+  margin-bottom:10px;
+  cursor:pointer;
+  position:relative;
+}
+.booking-card:hover{ background:var(--cream-2); }
+.booking-card .top{
+  display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:0.12em; text-transform:uppercase;
+  font-weight:500; opacity:0.7;
+}
+.booking-card .date{
+  font-family:var(--serif); font-style:italic; font-weight:400;
+  font-size:22px; line-height:1.1; letter-spacing:-0.01em; margin-bottom:2px;
+}
+.booking-card .meta{ font-family:var(--mono); font-size:13px; font-weight:500; opacity:0.85; }
+.booking-card.cancelled{ opacity:0.5; }
+.booking-card.past{ opacity:0.7; }
+
+/* ========== Empty state ========== */
+.empty{
+  text-align:center; padding:40px 20px;
+  font-family:var(--sans); color:var(--ink); opacity:0.65;
+  border:1.5px dashed var(--ink); border-radius:14px;
+}
+.empty .icon{ font-size:36px; margin-bottom:8px; opacity:0.5; }
+
+/* ========== Loading overlay ========== */
+.spinner{
+  width:32px; height:32px; border:3px solid var(--ink); border-top-color:transparent;
+  border-radius:50%; animation:spin 0.8s linear infinite;
+}
+@keyframes spin{ to { transform:rotate(360deg); } }
+
+.loading-overlay{
+  position:fixed; inset:0;
+  background:rgba(241,234,214,0.85);
+  display:flex; align-items:center; justify-content:center;
+  z-index:200;
+  backdrop-filter:blur(2px);
+}
+
+/* ========== Toast ========== */
+.toast{
+  position:fixed; left:50%; bottom:24px; transform:translateX(-50%);
+  background:var(--ink); color:var(--cream);
+  padding:12px 20px; border-radius:999px;
+  font-family:var(--sans); font-weight:600; font-size:13px;
+  z-index:300; max-width:90vw;
+  animation:toastIn 0.2s ease-out;
+}
+.toast.error{ background:var(--clay); }
+.toast.success{ background:var(--green); }
+@keyframes toastIn{ from { transform:translate(-50%, 20px); opacity:0; } to { transform:translate(-50%, 0); opacity:1; } }
+
+/* ========== Footer / nav ========== */
+.foot-nav{
+  display:flex; gap:0;
+  border-top:1.5px solid var(--ink);
+  background:var(--cream);
+  position:fixed;
+  bottom:0; left:0; right:0;
+  max-width:520px; margin:0 auto;
+  z-index:30;
+}
+.foot-nav button{
+  flex:1;
+  background:transparent; border:0;
+  padding:14px 8px;
+  font-family:var(--sans); font-weight:700;
+  font-size:10.5px; letter-spacing:0.14em; text-transform:uppercase;
+  color:var(--ink); cursor:pointer;
+  border-right:1.5px solid var(--ink);
+}
+.foot-nav button:last-child{ border-right:0; }
+.foot-nav button.on{ background:var(--ink); color:var(--cream); }
+
+/* ========== Footer note ========== */
+.footer-note{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:0.12em;
+  font-weight:500;
+  text-align:center; opacity:0.55; margin-top:14px; text-transform:uppercase;
+}
+
+/* ========== Underline link ========== */
+a.ulink, button.ulink{
+  color:var(--ink); border-bottom:1.5px solid var(--ink);
+  text-decoration:none; padding-bottom:1px; font-weight:700;
+  background:transparent; border-top:0; border-left:0; border-right:0; cursor:pointer;
+}
+
+/* ========== Modal ========== */
+.modal-backdrop{
+  position:fixed; inset:0; background:rgba(26,26,26,0.6);
+  z-index:400; display:flex; align-items:flex-end; justify-content:center;
+  animation:fadeIn 0.2s ease-out;
+}
+@keyframes fadeIn{ from { opacity:0; } to { opacity:1; } }
+.modal{
+  width:100%; max-width:520px;
+  background:var(--cream);
+  border-top:1.5px solid var(--ink);
+  border-radius:18px 18px 0 0;
+  padding:24px 22px;
+  animation:slideUp 0.25s ease-out;
+}
+@keyframes slideUp{ from { transform:translateY(100%); } to { transform:translateY(0); } }
+.modal h3{
+  font-family:var(--serif); font-style:italic; font-weight:400;
+  font-size:28px; margin:0 0 8px; letter-spacing:-0.02em;
+}
+.modal p{ font-size:14px; line-height:1.5; margin:0 0 16px; }
+.modal .actions{ display:flex; gap:10px; }
+.modal .actions .btn{ flex:1; }
+
+/* ========== Membership tier cards ========== */
+.tier-block{
+  border:1.5px solid var(--ink); border-radius:18px;
+  padding:20px; margin-bottom:12px;
+}
+.tier-block.founding{ background:var(--wood); color:var(--cream); }
+.tier-block.standard{ background:var(--paper); }
+.tier-block .label-row{
+  display:flex; justify-content:space-between; align-items:center;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:0.14em; text-transform:uppercase;
+  font-weight:500;
+}
+.tier-block h3{
+  font-family:var(--serif); font-style:italic; font-weight:400;
+  font-size:36px; line-height:1; margin:6px 0; letter-spacing:-0.02em;
+}
+.tier-block .price{
+  font-family:var(--mono); font-size:24px; font-weight:500; margin-bottom:12px;
+}
+.tier-block ul{
+  list-style:none; padding:0; margin:0;
+  font-family:var(--sans); font-size:14px; line-height:1.55;
+}
+.tier-block li{
+  padding:6px 0;
+  display:flex; align-items:flex-start; gap:8px;
+}
+.tier-block li::before{ content:"·"; opacity:0.6; }
+.tier-block .seats{
+  margin-top:12px; padding-top:12px; border-top:1px dashed currentColor;
+  font-family:var(--mono); font-size:11px; letter-spacing:0.14em; text-transform:uppercase; font-weight:500;
+  opacity:0.85;
+}
+
+/* ========== Brand wordmark line ========== */
+.brand-hero{
+  display:flex; align-items:center; gap:10px;
+}
+.brand-hero .mark{ width:38px; height:35px; }
+.brand-hero .word-row{
+  display:flex; flex-direction:column; line-height:1;
+}
+.brand-hero .it{
+  font-family:var(--serif); font-style:italic; font-weight:400;
+  font-size:22px; letter-spacing:-0.02em;
+}
+.brand-hero .sub{
+  font-family:var(--mono); font-weight:500;
+  font-size:9px; letter-spacing:0.18em;
+  opacity:0.6; margin-top:4px; text-transform:uppercase;
+}
+
+/* ========== Mobile tweaks ========== */
+@media (max-width:520px){
+  .topbar{ padding:0 18px; }
+  .screen{ padding:8px 18px 120px; }
+}
+
+  </style>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+/* ====================================================================
+   THE YARD — BOOKING APP
+   Production frontend wired to the live Apps Script backend.
+   Single-file React app via CDN + in-browser Babel.
+   ==================================================================== */
+
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
+const { createRoot } = ReactDOM;
+
+/* ====================================================================
+   1. CONFIG
+   ==================================================================== */
+
+// IMPORTANT: paste your Apps Script Web App URL between the quotes below.
+// Get it from: Apps Script → Deploy → Manage deployments → Web app URL.
+const API_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
+
+const COURTS_COUNT = 8;
+const SLOT_MINUTES = 30;          // backend slot size
+const MIN_SLOTS = 2;              // 60 minutes minimum
+const MAX_SLOTS = 8;              // 4 hours maximum
+const BOOKING_WINDOW_DAYS = 30;
+const FOUNDING_CAP = 20;
+
+/* ====================================================================
+   2. I18N — English + Khmer
+   ==================================================================== */
+
+const STRINGS = {
+  en: {
+    // Top bar
+    open_hours: "06:00 — 22:00",
+
+    // Phone screen
+    p_h1_a: "Drop in.",
+    p_h1_b: "Dink on.",
+    p_lede: "A neighborhood pickleball club in Toul Kork. Eight courts.",
+    p_lede_em: "Book one.",
+    p_label_phone: "Phone number",
+    p_phone_placeholder: "12 345 678",
+    p_phone_hint: "We'll text you a 6-digit code. Standard SMS rates apply.",
+    p_cta: "Send me a code",
+    p_label_members: "Members of the dink line",
+    p_members_right: "MEMBERSHIPS",
+    p_standard: "STANDARD",
+    p_standard_sub: "Every court, every day.",
+    p_founding_year: "FOUNDING · 2026",
+    p_founding_sub: "Birthday session free.",
+    p_founding_progress: "FOUNDING · {n} OF {cap} CLAIMED",
+    p_learn: "Learn",
+    p_footer: "THE YARD · ST. 315 · TOUL KORK · PHNOM PENH",
+
+    // OTP screen
+    o_back: "← BACK",
+    o_step: "STEP 2 / 2",
+    o_sent_to: "CODE SENT TO +855 {phone}",
+    o_h1_a: "Check your",
+    o_h1_b: "phone.",
+    o_sub: "We just texted a six-digit code. Tap it in — auto-advance is on.",
+    o_label: "Enter code",
+    o_resend_in: "Resend in {s}s",
+    o_resend: "Resend code",
+    o_remember: "This device stays signed in for 30 days.",
+    o_verifying: "Verifying…",
+
+    // Booking form
+    b_title: "BOOK A COURT",
+    b_welcome: "WELCOME BACK",
+    b_member_no: "MEMBER",
+    b_expires: "EXPIRES",
+    b_guest_top: "FIRST TIME HERE",
+    b_guest_h: "Tell us your name.",
+    b_guest_placeholder: "Sophanara Chan",
+    b_label_date: "Pick a day",
+    b_date_right: "{n} DAYS OUT",
+    b_label_time: "Pick a time",
+    b_label_duration: "How long?",
+    b_duration_right: "30-MIN STEPS · MIN 1H",
+    b_duration_hint: "Slots are 30 minutes. Minimum booking is 1 hour.",
+    b_locked_gift: "LOCKED · GIFT",
+    b_label_courts: "Which courts?",
+    b_courts_right: "TAP TO TOGGLE",
+    b_court_open: "Open",
+    b_court_yours: "Yours",
+    b_court_taken: "Taken",
+    b_court_hint_one: "1 court selected.",
+    b_court_hint_many: "{n} courts selected.",
+    b_court_lock_hint: "Your gift includes one court.",
+    b_dur_lock_hint: "Birthday gift is exactly 2 hours.",
+    b_label_summary: "Summary",
+    b_pay_at_counter: "Pay cash or card at counter. No online payment.",
+    b_cta_confirm: "Confirm booking",
+    b_cta_claim: "Claim free session",
+    b_cta_add_name: "Add your name",
+    b_total: "Total",
+    b_standard_rate: "Standard rate",
+    b_birthday_gift: "Birthday gift",
+    b_founding_disc: "Founding −50%",
+    b_member_disc: "Member −30%",
+    b_peak: "PEAK · $15/HR",
+    b_offpeak: "OFF-PEAK · $13/HR",
+    b_mixed: "MIXED RATE",
+    b_peak_pip_hint: "Prime = peak rate. Weekday after 5pm and all weekend.",
+    b_no_slots: "No more open slots today. Try tomorrow.",
+
+    // Birthday gift card
+    g_kicker: "BIRTHDAY WEEK",
+    g_h_unclaimed: "Your gift, on us.",
+    g_h_claimed: "Gift claimed.",
+    g_p_founding: "Two hours, one court, no charge. Once per year.",
+    g_p_standard: "Two hours, one court, half price. Once per year.",
+    g_claim: "Claim it",
+    g_claimed_note: "We'll lock duration to 2 hours and one court.",
+
+    // Guest promo card
+    pr_head: "BECOME A MEMBER",
+    pr_h_save: "Save",
+    pr_h_today: "on this booking.",
+    pr_standard: "STANDARD · $150/yr",
+    pr_founding: "FOUNDING · $200/yr",
+    pr_off: "OFF",
+    pr_seats: "FOUNDING · {n} SEATS LEFT",
+    pr_learn: "Membership →",
+
+    // Confirmation
+    c_back: "← Back to home",
+    c_stamp: "Booked.",
+    c_sub: "See you on the court.",
+    c_booking_id: "Booking ID",
+    c_copy: "Copy",
+    c_copied: "Copied",
+    c_date: "DATE",
+    c_time: "TIME",
+    c_court: "COURT",
+    c_courts: "COURTS",
+    c_duration: "DURATION",
+    c_player: "PLAYER",
+    c_total: "TOTAL",
+    c_sms: "Confirmation sent to ***{p}",
+    c_reminder: "We'll send a reminder 2 hours before.",
+    c_book_another: "Book another →",
+    c_view_my: "View my bookings →",
+
+    // My bookings
+    mb_title: "My bookings",
+    mb_kicker: "YOUR YARD",
+    mb_upcoming: "Upcoming",
+    mb_past: "Past",
+    mb_empty_upcoming_h: "No upcoming bookings.",
+    mb_empty_upcoming_p: "Tap below to book your next session.",
+    mb_book_now: "Book a court",
+    mb_empty_past: "Nothing in the past yet.",
+    mb_cancel: "Cancel",
+    mb_confirm_cancel: "Cancel this booking?",
+    mb_confirm_cancel_sub: "This will free your court time and notify you by SMS.",
+    mb_keep: "Keep it",
+    mb_confirm_cancel_yes: "Yes, cancel",
+
+    // Membership
+    m_title: "Membership",
+    m_kicker: "TWO TIERS · ANNUAL",
+    m_lede: "We don't sell memberships online. Visit the counter to sign up. Once you're in, your phone number unlocks the discount automatically.",
+    m_standard_h: "Standard",
+    m_standard_price: "$150 / year",
+    m_founding_h: "Founding",
+    m_founding_price: "$200 / year (life-locked)",
+    m_seats_left: "{n} of {cap} Founding seats left",
+    m_visit: "Visit us in Toul Kork to sign up.",
+
+    // Generic
+    loading: "Loading…",
+    error: "Something went wrong",
+    retry: "Try again",
+    back: "Back",
+    close: "Close",
+  },
+  km: {
+    open_hours: "០៦:០០ — ២២:០០",
+
+    p_h1_a: "មក​លេង។",
+    p_h1_b: "ដិកនៅទីនេះ។",
+    p_lede: "ក្លឹប​ភីខលបល​នៅ​ទួលគោក។ ប្រាំបី​កួត។",
+    p_lede_em: "កក់​មួយ។",
+    p_label_phone: "លេខ​ទូរស័ព្ទ",
+    p_phone_placeholder: "12 345 678",
+    p_phone_hint: "យើង​នឹង​ផ្ញើ​លេខ​សម្ងាត់​៦​ខ្ទង់​ទៅ​អ្នក។",
+    p_cta: "ផ្ញើ​លេខ​សម្ងាត់",
+    p_label_members: "សមាជិក​នៃ​បន្ទាត់​ដិក",
+    p_members_right: "សមាជិកភាព",
+    p_standard: "ស្តង់ដារ",
+    p_standard_sub: "គ្រប់​កួត​ គ្រប់​ថ្ងៃ។",
+    p_founding_year: "ស្ថាបនិក · ២០២៦",
+    p_founding_sub: "សម័យ​កើត​ឥត​គិត​ថ្លៃ។",
+    p_founding_progress: "ស្ថាបនិក · {n} នៃ {cap} បាន​ទាមទារ",
+    p_learn: "មើល",
+    p_footer: "THE YARD · ផ្លូវ​៣១៥ · ទួលគោក · ភ្នំពេញ",
+
+    o_back: "← ត្រឡប់",
+    o_step: "ជំហាន ២ / ២",
+    o_sent_to: "បាន​ផ្ញើ​ទៅ +855 {phone}",
+    o_h1_a: "ពិនិត្យ​មើល",
+    o_h1_b: "ទូរស័ព្ទ។",
+    o_sub: "យើង​ទើបតែ​ផ្ញើ​លេខ​សម្ងាត់​៦​ខ្ទង់។ ចុច​បញ្ចូល។",
+    o_label: "បញ្ចូល​លេខ​សម្ងាត់",
+    o_resend_in: "ផ្ញើ​ឡើងវិញ​ក្នុង {s}វិ",
+    o_resend: "ផ្ញើ​ឡើងវិញ",
+    o_remember: "ឧបករណ៍​នេះ​នៅ​ភ្ជាប់​៣០​ថ្ងៃ។",
+    o_verifying: "កំពុង​ផ្ទៀងផ្ទាត់…",
+
+    b_title: "កក់​កួត",
+    b_welcome: "សួស្តី​ត្រឡប់​មក​វិញ",
+    b_member_no: "សមាជិក",
+    b_expires: "ផុត​កំណត់",
+    b_guest_top: "មក​ដំបូង",
+    b_guest_h: "ប្រាប់​ឈ្មោះ​អ្នក។",
+    b_guest_placeholder: "ឈ្មោះ​ពេញ",
+    b_label_date: "ជ្រើស​ថ្ងៃ",
+    b_date_right: "{n} ថ្ងៃ​ខាង​មុខ",
+    b_label_time: "ជ្រើស​ម៉ោង",
+    b_label_duration: "រយៈពេល?",
+    b_duration_right: "ជំហាន​៣០​នាទី · យ៉ាង​តិច​១​ម៉ោង",
+    b_duration_hint: "កួត​ស្លុត​ ៣០​នាទី។ យ៉ាង​តិច​១​ម៉ោង។",
+    b_locked_gift: "ចាក់សោ · អំណោយ",
+    b_label_courts: "កួត​មួយ​ណា?",
+    b_courts_right: "ចុច​ដើម្បី​ជ្រើស",
+    b_court_open: "ទំនេរ",
+    b_court_yours: "របស់​អ្នក",
+    b_court_taken: "ពេញ",
+    b_court_hint_one: "១ កួត​បាន​ជ្រើស។",
+    b_court_hint_many: "{n} កួត​បាន​ជ្រើស។",
+    b_court_lock_hint: "អំណោយ​មាន​១​កួត។",
+    b_dur_lock_hint: "អំណោយ​ខួប​កំណើត​គឺ ២​ម៉ោង​ច្បាស់។",
+    b_label_summary: "សង្ខេប",
+    b_pay_at_counter: "បង់​សាច់​ប្រាក់ ឬ​ប័ណ្ណ​នៅ​បញ្ជរ។ មិន​មាន​ការ​បង់​តាម​អ៊ីនធឺណិត។",
+    b_cta_confirm: "បញ្ជាក់​ការ​កក់",
+    b_cta_claim: "ទាមទារ​សម័យ​ឥត​គិត​ថ្លៃ",
+    b_cta_add_name: "បន្ថែម​ឈ្មោះ",
+    b_total: "សរុប",
+    b_standard_rate: "តម្លៃ​ស្តង់ដារ",
+    b_birthday_gift: "អំណោយ​ខួប​កំណើត",
+    b_founding_disc: "ស្ថាបនិក −៥០%",
+    b_member_disc: "សមាជិក −៣០%",
+    b_peak: "ម៉ោង​ខ្ពស់ · $15/ម៉ោង",
+    b_offpeak: "ម៉ោង​ទាប · $13/ម៉ោង",
+    b_mixed: "តម្លៃ​ចម្រុះ",
+    b_peak_pip_hint: "Prime = តម្លៃ​ម៉ោង​ខ្ពស់។ ថ្ងៃ​ធ្វើ​ការ​ក្រោយ​ម៉ោង​៥​ល្ងាច និង​ចុង​សប្តាហ៍។",
+    b_no_slots: "គ្មាន​ស្លុត​ទំនេរ​ថ្ងៃ​នេះ​ទេ។",
+
+    g_kicker: "សប្តាហ៍​ខួប​កំណើត",
+    g_h_unclaimed: "អំណោយ​សម្រាប់​អ្នក។",
+    g_h_claimed: "បាន​ទាមទារ។",
+    g_p_founding: "ពីរ​ម៉ោង មួយ​កួត ឥត​គិត​ថ្លៃ។ ម្តង​ក្នុង​មួយ​ឆ្នាំ។",
+    g_p_standard: "ពីរ​ម៉ោង មួយ​កួត ៥០%​នៃ​តម្លៃ។ ម្តង​ក្នុង​មួយ​ឆ្នាំ។",
+    g_claim: "ទាមទារ",
+    g_claimed_note: "យើង​នឹង​កំណត់​២​ម៉ោង និង​១​កួត។",
+
+    pr_head: "ក្លាយ​ជា​សមាជិក",
+    pr_h_save: "សន្សំ",
+    pr_h_today: "លើ​ការ​កក់​នេះ។",
+    pr_standard: "ស្តង់ដារ · $150/ឆ្នាំ",
+    pr_founding: "ស្ថាបនិក · $200/ឆ្នាំ",
+    pr_off: "បញ្ចុះ",
+    pr_seats: "ស្ថាបនិក · សល់ {n} កៅអី",
+    pr_learn: "សមាជិកភាព →",
+
+    c_back: "← ត្រឡប់​ទៅ​ដើម",
+    c_stamp: "បាន​កក់។",
+    c_sub: "ជួប​គ្នា​នៅ​កួត។",
+    c_booking_id: "លេខ​កក់",
+    c_copy: "ចម្លង",
+    c_copied: "បាន​ចម្លង",
+    c_date: "ថ្ងៃ",
+    c_time: "ម៉ោង",
+    c_court: "កួត",
+    c_courts: "កួត",
+    c_duration: "រយៈពេល",
+    c_player: "អ្នក​លេង",
+    c_total: "សរុប",
+    c_sms: "បាន​ផ្ញើ​ការ​បញ្ជាក់​ទៅ ***{p}",
+    c_reminder: "យើង​នឹង​រំលឹក ២​ម៉ោង​មុន។",
+    c_book_another: "កក់​មួយ​ទៀត →",
+    c_view_my: "មើល​ការ​កក់​របស់​ខ្ញុំ →",
+
+    mb_title: "ការ​កក់​របស់​ខ្ញុំ",
+    mb_kicker: "YARD របស់​អ្នក",
+    mb_upcoming: "ខាង​មុខ",
+    mb_past: "កន្លង​មក",
+    mb_empty_upcoming_h: "គ្មាន​ការ​កក់​ខាង​មុខ​ទេ។",
+    mb_empty_upcoming_p: "ចុច​ខាង​ក្រោម​ដើម្បី​កក់។",
+    mb_book_now: "កក់​កួត",
+    mb_empty_past: "មិន​មាន​ប្រវត្តិ​ទេ។",
+    mb_cancel: "បោះបង់",
+    mb_confirm_cancel: "បោះបង់​ការ​កក់​នេះ?",
+    mb_confirm_cancel_sub: "នឹង​បាន​ដោះ​លែង​កួត​និង​ផ្ញើ SMS។",
+    mb_keep: "រក្សា​ទុក",
+    mb_confirm_cancel_yes: "បាទ បោះបង់",
+
+    m_title: "សមាជិកភាព",
+    m_kicker: "ពីរ​កម្រិត · ប្រចាំ​ឆ្នាំ",
+    m_lede: "យើង​មិន​លក់​សមាជិកភាព​តាម​អ៊ីនធឺណិត​ទេ។ មក​បញ្ជរ​ដើម្បី​ចុះ​ឈ្មោះ។ បន្ទាប់​មក លេខ​ទូរស័ព្ទ​របស់​អ្នក​នឹង​ដោះ​សោ​ការ​បញ្ចុះ​តម្លៃ​ដោយ​ស្វ័យ​ប្រវត្តិ។",
+    m_standard_h: "ស្តង់ដារ",
+    m_standard_price: "$150 / ឆ្នាំ",
+    m_founding_h: "ស្ថាបនិក",
+    m_founding_price: "$200 / ឆ្នាំ (ចាក់​សោ​មួយ​ជីវិត)",
+    m_seats_left: "សល់ {n} នៃ​ {cap} កៅអី​ស្ថាបនិក",
+    m_visit: "មក​ទួលគោក​ដើម្បី​ចុះ​ឈ្មោះ។",
+
+    loading: "កំពុង​ផ្ទុក…",
+    error: "មាន​បញ្ហា",
+    retry: "ព្យាយាម​ម្តង​ទៀត",
+    back: "ត្រឡប់",
+    close: "បិទ",
+  }
+};
+
+function t(key, vars, lang) {
+  const dict = STRINGS[lang || "en"] || STRINGS.en;
+  let s = dict[key] || STRINGS.en[key] || key;
+  if (vars) {
+    Object.keys(vars).forEach(k => {
+      s = s.replace(new RegExp("\\{" + k + "\\}", "g"), vars[k]);
+    });
+  }
+  return s;
+}
+
+/* ====================================================================
+   3. API CLIENT
+   ==================================================================== */
+
+async function api(action, params) {
+  if (!API_URL || API_URL.includes("PASTE_YOUR")) {
+    return { ok: false, error: "API_URL not configured. Edit index.html line 17." };
+  }
+
+  const url = new URL(API_URL);
+  url.searchParams.set("action", action);
+  for (const k in (params || {})) {
+    if (params[k] !== undefined && params[k] !== null) {
+      url.searchParams.set(k, params[k]);
+    }
+  }
+
+  try {
+    const resp = await fetch(url.toString(), { method: "GET" });
+    if (!resp.ok) return { ok: false, error: "HTTP " + resp.status };
+    const data = await resp.json();
+    return data;
+  } catch (err) {
+    return { ok: false, error: err.message || "Network error" };
+  }
+}
+
+/* ====================================================================
+   4. LOCAL STORAGE (auth token)
+   ==================================================================== */
+
+const TOKEN_KEY = "yard.token";
+const PHONE_KEY = "yard.phone";
+const LANG_KEY = "yard.lang";
+
+function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } }
+function setToken(t) { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch (e) {} }
+function getStoredPhone() { try { return localStorage.getItem(PHONE_KEY) || ""; } catch (e) { return ""; } }
+function setStoredPhone(p) { try { p ? localStorage.setItem(PHONE_KEY, p) : localStorage.removeItem(PHONE_KEY); } catch (e) {} }
+function getLang() { try { return localStorage.getItem(LANG_KEY) || "en"; } catch (e) { return "en"; } }
+function setLang(l) { try { localStorage.setItem(LANG_KEY, l); } catch (e) {} document.body.setAttribute("lang", l); }
+
+/* ====================================================================
+   5. HELPERS
+   ==================================================================== */
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+function todayISO() {
+  const d = new Date();
+  return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+}
+function ymd(d) {
+  return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+}
+function addDays(date, n) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+function isWeekend(d) {
+  const x = (d instanceof Date ? d : new Date(d)).getDay();
+  return x === 0 || x === 6;
+}
+function isPeakHour(date, timeStr) {
+  const hr = parseInt((timeStr || "06:00").split(":")[0], 10);
+  return isWeekend(date) || hr >= 17;
+}
+
+// Format duration (slots in 30-min increments) → "2h" / "2h 30m" / "30m"
+function formatDuration(slots) {
+  const mins = slots * SLOT_MINUTES;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return m + "m";
+  if (m === 0) return h + "h";
+  return h + "h " + m + "m";
+}
+
+// Format duration in Khmer
+function formatDurationKm(slots) {
+  const mins = slots * SLOT_MINUTES;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return m + "នាទី";
+  if (m === 0) return h + "ម៉ោង";
+  return h + "ម៉ោង " + m + "នាទី";
+}
+
+function normalizePhone(p) {
+  if (!p) return "";
+  let s = String(p).replace(/[\s\-\(\)\+]/g, "");
+  if (s.startsWith("855")) s = s.substring(3);
+  if (s.startsWith("0")) s = s.substring(1);
+  return s.replace(/\D/g, "");
+}
+
+function maskPhone(p) {
+  const n = normalizePhone(p);
+  if (n.length < 3) return n;
+  return "***" + n.slice(-3);
+}
+
+function fmtDateLong(dateStr, lang) {
+  const d = new Date(dateStr + "T12:00:00");
+  if (lang === "km") {
+    const DOW = ["អា", "ច", "អ", "ព", "ព្រ", "សុ", "ស"];
+    const MO = ["មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា", "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"];
+    return DOW[d.getDay()] + " " + d.getDate() + " " + MO[d.getMonth()];
+  }
+  const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MO = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return DOW[d.getDay()] + " " + d.getDate() + " " + MO[d.getMonth()] + " " + d.getFullYear();
+}
+
+/* ====================================================================
+   6. BRAND COMPONENTS (1:1 from prototype)
+   ==================================================================== */
+
+function BrandMark({ size = 36, onDark = false }) {
+  const ink = onDark ? "#F1EAD6" : "#1A1A1A";
+  const stripe = onDark ? "#3D7A4F" : "#F1EAD6";
+  return (
+    <svg width={size} height={size * (260 / 280)} viewBox="0 0 280 260" aria-hidden>
+      <g transform="translate(20,20)">
+        <rect x="40" y="20" width="160" height="180" fill="none" stroke={ink} strokeWidth="10" />
+        <line x1="120" y1="20" x2="120" y2="72" stroke={ink} strokeWidth="6" />
+        <line x1="120" y1="148" x2="120" y2="200" stroke={ink} strokeWidth="6" />
+        <line x1="40" y1="72" x2="200" y2="72" stroke={ink} strokeWidth="6" />
+        <line x1="40" y1="148" x2="200" y2="148" stroke={ink} strokeWidth="6" />
+        <rect x="40" y="94" width="160" height="32" fill={ink} />
+        <text x="120" y="117" textAnchor="middle" fill={stripe}
+              fontFamily="Manrope, sans-serif" fontWeight="800"
+              fontSize="22" letterSpacing="3.6">THE YARD</text>
+        <path d="M 70 86 Q 120 56 170 134" stroke="#C64F3A" strokeWidth="4"
+              fill="none" strokeDasharray="3.5 6" />
+        <circle cx="170" cy="134" r="7" fill="#C64F3A" />
+      </g>
+    </svg>
+  );
+}
+
+function Lockup({ size = 1, onDark = false }) {
+  const ink = onDark ? "var(--cream)" : "var(--ink)";
+  return (
+    <div className="brand-hero">
+      <BrandMark size={32 * size} onDark={onDark} />
+      <div className="word-row">
+        <span className="it" style={{ color: ink, fontSize: 22 * size }}>The Yard.</span>
+        <span className="sub" style={{ color: ink, fontSize: 9 * size }}>PICKLEBALL · TOUL KORK</span>
+      </div>
+    </div>
+  );
+}
+
+function CourtLine() {
+  return (
+    <div className="trajectory" aria-hidden>
+      <svg width="100%" height="32" viewBox="0 0 360 32" preserveAspectRatio="none">
+        <line x1="0" y1="28" x2="360" y2="28" stroke="var(--ink)" strokeWidth="1.5" />
+        <path d="M 4 26 Q 180 -10, 340 24"
+              stroke="var(--clay)" strokeWidth="2" fill="none" strokeLinecap="round" />
+        <circle cx="340" cy="24" r="3.5" fill="var(--clay)" />
+        <line x1="4" y1="22" x2="4" y2="30" stroke="var(--ink)" strokeWidth="1.5" />
+      </svg>
+    </div>
+  );
+}
+
+function SectionLabel({ n, children, right }) {
+  return (
+    <div className="label">
+      <span className="num">{n}</span>
+      <span>{children}</span>
+      {right ? <span className="right">{right}</span> : null}
+    </div>
+  );
+}
+
+function CTA({ children, onClick, tone = "green", disabled }) {
+  const cls = "btn " + (tone === "coral" ? "coral" : tone === "ink" ? "ink" : tone === "ghost" ? "ghost" : "");
+  return (
+    <button className={cls} onClick={onClick} disabled={disabled}>
+      <span>{children}</span>
+      <span className="arrow">→</span>
+    </button>
+  );
+}
+
+function TierBadge({ tier, number }) {
+  return (
+    <span className="tier">
+      <span>{tier}</span>
+      {number ? <span className="mono" style={{ fontWeight: 500 }}>· {number}</span> : null}
+    </span>
+  );
+}
+
+/* ============== DateStrip — horizontal scroll of days ============== */
+function DateStrip({ value, onChange, daysAhead = 14, lang }) {
+  const today = useMemo(() => new Date(), []);
+  const days = useMemo(() => {
+    const arr = [];
+    for (let i = 0; i < daysAhead; i++) arr.push(addDays(today, i));
+    return arr;
+  }, [today, daysAhead]);
+
+  const DOW_EN = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+  const MO_EN = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const DOW_KM = ["អា", "ច", "អ", "ព", "ព្រ", "សុ", "ស"];
+  const MO_KM = ["ម.ក", "កុ", "មី", "មេ", "ឧ", "មិ", "ក.ក", "សី", "ក", "តុ", "វិ", "ធ្នូ"];
+  const DOW = lang === "km" ? DOW_KM : DOW_EN;
+  const MO = lang === "km" ? MO_KM : MO_EN;
+
+  return (
+    <div className="date-strip">
+      {days.map((d, i) => {
+        const k = ymd(d);
+        const active = value === k;
+        const isToday = i === 0;
+        return (
+          <button
+            key={k}
+            type="button"
+            className={"date-card" + (active ? " active" : "") + (isToday ? " today" : "")}
+            onClick={() => onChange(k)}
+            style={isToday ? { marginTop: 14 } : null}
+          >
+            <span className="dow">{DOW[d.getDay()]}</span>
+            <span className="dnum">{pad2(d.getDate())}</span>
+            <span className="mo">{MO[d.getMonth()]}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ============== WheelPicker — iOS-style scrolling time picker ============== */
+function WheelPicker({ value, onChange, slots, lang }) {
+  const scrollRef = useRef(null);
+  const ITEM_H = 52;
+  const userScrollingRef = useRef(false);
+  const mountedRef = useRef(false);
+
+  const idx = Math.max(0, slots.findIndex(s => s.t === value));
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      let targetIdx = idx;
+      const cur = slots[targetIdx];
+      if (!cur || cur.left <= 0) {
+        for (let step = 1; step < slots.length; step++) {
+          const down = targetIdx + step;
+          const up = targetIdx - step;
+          if (down < slots.length && slots[down].left > 0) { targetIdx = down; break; }
+          if (up >= 0 && slots[up].left > 0) { targetIdx = up; break; }
+        }
+        if (slots[targetIdx] && slots[targetIdx].t !== value) {
+          setTimeout(() => onChange(slots[targetIdx].t), 0);
+        }
+      }
+      el.scrollTop = targetIdx * ITEM_H;
+      return;
+    }
+
+    if (userScrollingRef.current) return;
+    el.scrollTo({ top: idx * ITEM_H, behavior: "smooth" });
+  }, [idx, slots.length]);
+
+  function markUserScroll() { userScrollingRef.current = true; }
+
+  function onScroll() {
+    const el = scrollRef.current;
+    if (!el || !userScrollingRef.current) return;
+    clearTimeout(el._t);
+    el._t = setTimeout(() => {
+      const i = Math.round(el.scrollTop / ITEM_H);
+      const clamped = Math.max(0, Math.min(slots.length - 1, i));
+      const slot = slots[clamped];
+      const isFull = (s) => !s || s.left <= 0;
+      if (slot && !isFull(slot)) {
+        if (slot.t !== value) onChange(slot.t);
+      } else {
+        let target = -1;
+        for (let step = 1; step < slots.length; step++) {
+          const up = clamped - step;
+          const down = clamped + step;
+          if (down < slots.length && !isFull(slots[down])) { target = down; break; }
+          if (up >= 0 && !isFull(slots[up])) { target = up; break; }
+        }
+        if (target >= 0) {
+          onChange(slots[target].t);
+          el.scrollTo({ top: target * ITEM_H, behavior: "smooth" });
+        }
+      }
+      setTimeout(() => { userScrollingRef.current = false; }, 120);
+    }, 110);
+  }
+
+  return (
+    <div className="wheel" style={{ height: ITEM_H * 5 }}>
+      <div className="wheel-mask-top" />
+      <div className="wheel-mask-bot" />
+      <div className="wheel-center" />
+      <div
+        className="wheel-scroll"
+        ref={scrollRef}
+        onScroll={onScroll}
+        onPointerDown={markUserScroll}
+        onTouchStart={markUserScroll}
+        onWheel={markUserScroll}
+        onKeyDown={markUserScroll}
+        tabIndex={0}
+        style={{ height: "100%", paddingTop: ITEM_H * 2, paddingBottom: ITEM_H * 2 }}
+      >
+        {slots.map((s, i) => {
+          const isCenter = i === idx;
+          const dist = Math.abs(i - idx);
+          const cls = isCenter ? "" : dist === 1 ? "dim" : "far";
+          const isFull = s.left <= 0;
+          return (
+            <div
+              key={s.t}
+              className={"wheel-item " + cls + (isFull ? " full" : "") + (s.hot ? " hot" : "")}
+              style={{ height: ITEM_H }}
+              onClick={() => {
+                if (isFull) return;
+                onChange(s.t);
+                const el = scrollRef.current;
+                if (el) el.scrollTo({ top: i * ITEM_H, behavior: "smooth" });
+              }}
+            >
+              <span>{s.label}</span>
+              <span className="meta">
+                {isFull
+                  ? (lang === "km" ? "ពេញ" : "Full")
+                  : s.hot
+                    ? (lang === "km" ? "Prime" : "Prime")
+                    : (lang === "km" ? (s.left + " ទំនេរ") : (s.left + " left"))}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ============== Stepper — for duration in 30-min slots ============== */
+function Stepper({ value, onChange, min, max, unitLabel }) {
+  // value is in SLOTS; render as duration string
+  return (
+    <div className="stepper">
+      <button className="btn-step minus" disabled={value <= min}
+        onClick={() => onChange(Math.max(min, value - 1))}>−</button>
+      <div className="val">
+        <span className="num">{formatDuration(value)}</span>
+        <span className="sub">{unitLabel}</span>
+        <span className="pips">
+          {Array.from({ length: max }).map((_, i) => (
+            <i key={i} className={i < value ? "on" : ""} />
+          ))}
+        </span>
+      </div>
+      <button className="btn-step plus" disabled={value >= max}
+        onClick={() => onChange(Math.min(max, value + 1))}>+</button>
+    </div>
+  );
+}
+
+/* ============== CourtRail — horizontal court selector ============== */
+function CourtRail({ value, onChange, count = 8, unavailable = [], lang }) {
+  return (
+    <div className="court-rail">
+      {Array.from({ length: count }).map((_, i) => {
+        const num = i + 1;
+        const isUnavail = unavailable.includes(num);
+        const isSel = value.includes(num);
+        return (
+          <button
+            key={num}
+            type="button"
+            className={"court-pill" + (isSel ? " sel" : "") + (isUnavail ? " unavail" : "")}
+            disabled={isUnavail}
+            onClick={() => {
+              if (isUnavail) return;
+              if (isSel) {
+                const next = value.filter(v => v !== num);
+                onChange(next.length === 0 ? [num] : next);
+              } else {
+                onChange([...value, num].sort((a, b) => a - b));
+              }
+            }}
+          >
+            <span className="id">C{pad2(num)}</span>
+            <span className="lbl">
+              {isUnavail ? t("b_court_taken", null, lang)
+                : isSel ? t("b_court_yours", null, lang)
+                  : t("b_court_open", null, lang)}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ============== Loading / Toast ============== */
+function Loading({ message }) {
+  return (
+    <div className="loading-overlay">
+      <div style={{ textAlign: "center" }}>
+        <div className="spinner" style={{ margin: "0 auto" }} />
+        {message ? <div style={{ marginTop: 12, fontFamily: "var(--mono)", fontSize: 12, letterSpacing: "0.14em", textTransform: "uppercase" }}>{message}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+let toastTimeout = null;
+function showToast(msg, kind) {
+  let el = document.getElementById("toast-host");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast-host";
+    document.body.appendChild(el);
+  }
+  el.className = "toast " + (kind || "");
+  el.textContent = msg;
+  if (toastTimeout) clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => { el.remove(); }, 3000);
+}
+
+/* ====================================================================
+   7. SCREENS
+   ==================================================================== */
+
+/* ===================== SCREEN 1: PHONE ===================== */
+function ScreenPhone({ state, setState, go, lang }) {
+  const [phone, setPhone] = useState(state.phone || "");
+  const [founding, setFounding] = useState(null);
+  const [sending, setSending] = useState(false);
+
+  const valid = normalizePhone(phone).length >= 8;
+
+  useEffect(() => {
+    api("getFoundingStatus").then(r => {
+      if (r.ok) setFounding(r);
+    });
+  }, []);
+
+  async function onContinue() {
+    if (!valid || sending) return;
+    setSending(true);
+    const norm = normalizePhone(phone);
+    setStoredPhone(norm);
+    const r = await api("sendOTP", { phone: norm });
+    setSending(false);
+    if (!r.ok) {
+      showToast(r.error || t("error", null, lang), "error");
+      return;
+    }
+    setState(s => ({ ...s, phone: norm }));
+    go("otp");
+  }
+
+  return (
+    <>
+      <div className="screen scr-pad-top">
+        <div className="row-between" style={{ marginTop: 6 }}>
+          <Lockup size={1.05} />
+          <span className="pill" style={{ background: "var(--clay)", color: "var(--cream)", borderColor: "var(--clay)" }}>
+            {t("open_hours", null, lang)}
+          </span>
+        </div>
+
+        <div style={{ marginTop: 18 }}><CourtLine /></div>
+
+        <div style={{ position: "relative", marginTop: 22 }}>
+          <h1 className="h-display" style={{ fontSize: 72, margin: "0 0 0 -2px" }}>
+            {t("p_h1_a", null, lang)}<br />{t("p_h1_b", null, lang)}
+          </h1>
+        </div>
+
+        <p style={{ fontSize: 15, lineHeight: 1.45, margin: "14px 0 22px", maxWidth: "30ch" }}>
+          {t("p_lede", null, lang)}{" "}
+          <span style={{ fontFamily: "var(--serif)", fontStyle: "italic" }}>{t("p_lede_em", null, lang)}</span>
+        </p>
+
+        <SectionLabel n="01">{t("p_label_phone", null, lang)}</SectionLabel>
+        <div style={{ display: "flex", gap: 8 }}>
+          <div className="input" style={{
+            width: 88, flex: "0 0 88px",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: "var(--ink)", color: "var(--cream)",
+            fontWeight: 500, borderColor: "var(--ink)"
+          }}>
+            +855
+          </div>
+          <input
+            className="input mono"
+            inputMode="numeric"
+            placeholder={t("p_phone_placeholder", null, lang)}
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+          />
+        </div>
+        <div className="hint" style={{ margin: "10px 2px 22px" }}>
+          {t("p_phone_hint", null, lang)}
+        </div>
+
+        <CTA onClick={onContinue} disabled={!valid || sending} tone="green">
+          {sending ? t("loading", null, lang) : t("p_cta", null, lang)}
+        </CTA>
+
+        {/* Membership tease */}
+        <div style={{ marginTop: 30 }}>
+          <SectionLabel n="02" right={t("p_members_right", null, lang)}>{t("p_label_members", null, lang)}</SectionLabel>
+          <div style={{ border: "1.5px solid var(--ink)", background: "var(--paper)", borderRadius: 18, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+              <div style={{ padding: "14px 14px 16px", borderRight: "1.5px solid var(--ink)" }}>
+                <div className="mono" style={{ fontSize: 10, letterSpacing: "0.14em", fontWeight: 500 }}>{t("p_standard", null, lang)}</div>
+                <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 36, fontWeight: 400, lineHeight: 1, marginTop: 4, letterSpacing: "-0.02em" }}>
+                  −30<span style={{ fontSize: 18 }}>%</span>
+                </div>
+                <div className="hint" style={{ marginTop: 6, fontSize: 12 }}>{t("p_standard_sub", null, lang)}</div>
+              </div>
+              <div style={{ padding: "14px 14px 16px", background: "var(--wood)", color: "var(--cream)" }}>
+                <div className="mono" style={{ fontSize: 10, letterSpacing: "0.14em", fontWeight: 500 }}>{t("p_founding_year", null, lang)}</div>
+                <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 36, fontWeight: 400, lineHeight: 1, marginTop: 4, letterSpacing: "-0.02em" }}>
+                  −50<span style={{ fontSize: 18 }}>%</span>
+                </div>
+                <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>{t("p_founding_sub", null, lang)}</div>
+              </div>
+            </div>
+            <div style={{ padding: "12px 14px", borderTop: "1.5px solid var(--ink)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div className="mono" style={{ fontSize: 10.5, letterSpacing: "0.12em", fontWeight: 500 }}>
+                {t("p_founding_progress", { n: founding ? founding.founding : "·", cap: FOUNDING_CAP }, lang)}
+              </div>
+              <button className="ulink" style={{ fontSize: 12 }}
+                onClick={(e) => { e.preventDefault(); go("membership"); }}>
+                {t("p_learn", null, lang)}
+              </button>
+            </div>
+            {founding && (
+              <div style={{ height: 6, borderTop: "1.5px solid var(--ink)", display: "flex" }}>
+                <div style={{ flex: founding.founding || 1, background: "var(--wood)" }} />
+                <div style={{ flex: (FOUNDING_CAP - (founding.founding || 0)) || 1, background: "var(--cream-2)" }} />
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="footer-note" style={{ marginTop: 24 }}>
+          {t("p_footer", null, lang)}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ===================== SCREEN 2: OTP ===================== */
+function ScreenOTP({ state, setState, go, lang }) {
+  const [code, setCode] = useState("");
+  const [resendIn, setResendIn] = useState(28);
+  const [verifying, setVerifying] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const id = setInterval(() => setResendIn(s => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(id);
+  }, [resendIn]);
+
+  function setDigit(i, v) {
+    v = v.replace(/\D/g, "").slice(-1);
+    const arr = code.padEnd(6, " ").split("");
+    arr[i] = v || " ";
+    const next = arr.join("").trimEnd();
+    setCode(next);
+    setError("");
+
+    if (v && i < 5) {
+      const el = document.getElementById("otp-" + (i + 1));
+      el && el.focus();
+    }
+
+    if (next.replace(/\s/g, "").length === 6) {
+      tryVerify(next.trim());
+    }
+  }
+
+  async function tryVerify(c) {
+    setVerifying(true);
+    const r = await api("verifyOTP", {
+      phone: state.phone,
+      code: c,
+      device: navigator.userAgent.substring(0, 80)
+    });
+    setVerifying(false);
+    if (!r.ok || !r.verified) {
+      setError(r.error || t("error", null, lang));
+      setCode("");
+      return;
+    }
+    setToken(r.token);
+    setState(s => ({
+      ...s,
+      token: r.token,
+      isMember: r.isMember,
+      member: r.member
+    }));
+    go("booking");
+  }
+
+  async function resend() {
+    if (resendIn > 0) return;
+    setResendIn(30);
+    const r = await api("sendOTP", { phone: state.phone });
+    if (!r.ok) showToast(r.error || t("error", null, lang), "error");
+    else showToast(lang === "km" ? "បាន​ផ្ញើ" : "Sent", "success");
+  }
+
+  const last3 = state.phone ? state.phone.slice(-3) : "···";
+
+  return (
+    <div className="screen scr-pad-top">
+      <div className="row-between">
+        <button onClick={() => go("phone")}
+          style={{ background: "transparent", border: "1.5px solid var(--ink)", padding: "6px 10px", cursor: "pointer", borderRadius: 999, fontFamily: "var(--mono)", fontWeight: 500, fontSize: 11, letterSpacing: "0.1em" }}>
+          {t("o_back", null, lang)}
+        </button>
+        <span className="pill">{t("o_step", null, lang)}</span>
+      </div>
+
+      <div style={{ position: "relative", marginTop: 22 }}>
+        <div className="mono" style={{ fontSize: 11, letterSpacing: "0.16em" }}>
+          {t("o_sent_to", { phone: state.phone ? state.phone.slice(0, 2) + " ··· " + last3 : "··· ···" }, lang)}
+        </div>
+        <h1 className="h-display" style={{ fontSize: 60, margin: "6px 0" }}>
+          {t("o_h1_a", null, lang)}<br />{t("o_h1_b", null, lang)}
+        </h1>
+        <p style={{ fontSize: 14, lineHeight: 1.45, maxWidth: "32ch", margin: "6px 0 22px" }}>
+          {t("o_sub", null, lang)}
+        </p>
+      </div>
+
+      <SectionLabel n="01">{t("o_label", null, lang)}</SectionLabel>
+      <div className="otp-row">
+        {Array.from({ length: 6 }).map((_, i) => {
+          const ch = code[i];
+          const filled = ch && ch !== " ";
+          const isActive = !filled && code.length === i;
+          return (
+            <label key={i}
+              className={"otp-box" + (filled ? " filled" : "") + (isActive ? " active" : "")}
+              htmlFor={"otp-" + i}>
+              {filled ? ch : (isActive ? <span className="caret" /> : "")}
+              <input
+                id={"otp-" + i}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={filled ? ch : ""}
+                onChange={(e) => setDigit(i, e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Backspace" && !ch) {
+                    const prev = document.getElementById("otp-" + Math.max(0, i - 1));
+                    prev && prev.focus();
+                  }
+                }}
+              />
+            </label>
+          );
+        })}
+      </div>
+
+      {error ? (
+        <div className="hint" style={{ marginTop: 14, color: "var(--clay)", fontWeight: 600 }}>{error}</div>
+      ) : null}
+
+      <div className="hint" style={{ marginTop: 18, display: "flex", justifyContent: "space-between" }}>
+        <span>{t("o_remember", null, lang)}</span>
+        {resendIn > 0
+          ? <span className="mono" style={{ fontWeight: 500 }}>{t("o_resend_in", { s: resendIn }, lang)}</span>
+          : <button className="ulink" onClick={resend} style={{ fontSize: 12 }}>{t("o_resend", null, lang)}</button>}
+      </div>
+
+      {verifying ? <Loading message={t("o_verifying", null, lang)} /> : null}
+    </div>
+  );
+}
+
+/* ===================== SCREEN 3: BOOKING ===================== */
+function ScreenBooking({ state, setState, go, lang }) {
+  const isMember = !!state.isMember;
+  const isGuest = !isMember;
+  const member = state.member;
+  const isFounding = member && String(member.tier).toLowerCase() === "founding";
+  const memberName = (member && member.name) ? member.name.split(" ")[0] : "";
+
+  // Booking state
+  const [date, setDate] = useState(state.date || todayISO());
+  const [time, setTime] = useState(state.time || "18:00");
+  const [slots, setSlots] = useState(state.slots || 2);   // 30-min slots; 2 = 1 hour
+  const [pickedCourts, setPickedCourts] = useState(state.pickedCourts || [1]);
+  const [guestName, setGuestName] = useState(state.guestName || (member ? member.name : ""));
+
+  // Live data
+  const [availLoading, setAvailLoading] = useState(true);
+  const [availSlots, setAvailSlots] = useState([]);
+  const [foundingStatus, setFoundingStatus] = useState(null);
+  const [pricing, setPricing] = useState(null);
+
+  // Birthday gift state
+  const [bdayClaimed, setBdayClaimed] = useState(false);
+  const [bdayEligible, setBdayEligible] = useState(false);
+
+  // Submit state
+  const [submitting, setSubmitting] = useState(false);
+
+  /* Load availability whenever date changes */
+  useEffect(() => {
+    let cancelled = false;
+    setAvailLoading(true);
+    api("getAvailability", { date }).then(r => {
+      if (cancelled) return;
+      setAvailLoading(false);
+      if (!r.ok) {
+        showToast(r.error || t("error", null, lang), "error");
+        setAvailSlots([]);
+        return;
+      }
+      setAvailSlots(r.slots || []);
+      // Pick first available time if current isn't available
+      const cur = (r.slots || []).find(s => s.time === time);
+      if (!cur || cur.availableCount <= 0) {
+        const firstFree = (r.slots || []).find(s => s.availableCount > 0);
+        if (firstFree) setTime(firstFree.time);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [date]);
+
+  /* Load Founding status (for guest promo card) */
+  useEffect(() => {
+    api("getFoundingStatus").then(r => { if (r.ok) setFoundingStatus(r); });
+  }, []);
+
+  /* Recalculate price whenever the choice changes */
+  useEffect(() => {
+    let cancelled = false;
+    api("calculatePrice", {
+      date, time, slots,
+      courts: pickedCourts.length,
+      phone: state.phone || "",
+      useBirthday: bdayClaimed ? 1 : 0
+    }).then(r => {
+      if (cancelled) return;
+      if (r.ok) {
+        setPricing(r);
+        setBdayEligible(!!r.isBirthdayEligible);
+        if (r.isBirthdaySession !== bdayClaimed) {
+          // server may decline birthday if conditions not met
+          setBdayClaimed(!!r.isBirthdaySession);
+        }
+      }
+    });
+    return () => { cancelled = true; };
+  }, [date, time, slots, pickedCourts.length, state.phone, bdayClaimed]);
+
+  /* Convert backend slots → wheel format */
+  const wheelSlots = useMemo(() => {
+    return (availSlots || [])
+      .filter(s => s.availableCount > 0 || true) // keep full slots visible as 'full'
+      .map(s => {
+        const dObj = new Date(date + "T12:00:00");
+        const hr = parseInt(s.time.split(":")[0], 10);
+        const peak = isWeekend(dObj) || hr >= 17;
+        return {
+          t: s.time,
+          label: s.time,
+          left: s.availableCount,
+          hot: peak && s.availableCount > 0
+        };
+      });
+  }, [availSlots, date]);
+
+  /* Court availability for the *selected* time + duration */
+  const courtAvailability = useMemo(() => {
+    // Find the slot index for `time`. If not found, no courts available.
+    const startIdx = (availSlots || []).findIndex(s => s.time === time);
+    if (startIdx < 0) return { available: [], unavailable: [1, 2, 3, 4, 5, 6, 7, 8] };
+    const unavailable = [];
+    const available = [];
+    for (let c = 0; c < COURTS_COUNT; c++) {
+      let ok = true;
+      for (let s = 0; s < slots; s++) {
+        const row = availSlots[startIdx + s];
+        if (!row || !row.courts || !row.courts[c]) { ok = false; break; }
+      }
+      if (ok) available.push(c + 1);
+      else unavailable.push(c + 1);
+    }
+    return { available, unavailable };
+  }, [availSlots, time, slots]);
+
+  /* If selected courts become unavailable after duration change, prune */
+  useEffect(() => {
+    const valid = pickedCourts.filter(n => courtAvailability.available.includes(n));
+    if (valid.length === 0 && courtAvailability.available.length > 0) {
+      setPickedCourts([courtAvailability.available[0]]);
+    } else if (valid.length !== pickedCourts.length) {
+      setPickedCourts(valid.length ? valid : [courtAvailability.available[0] || 1]);
+    }
+  }, [courtAvailability.unavailable.join(",")]);
+
+  /* Force 2 slots + 1 court when birthday session claimed */
+  useEffect(() => {
+    if (bdayClaimed) {
+      if (slots !== 4) setSlots(4); // 4 × 30min = 2 hours
+      if (pickedCourts.length !== 1) setPickedCourts([pickedCourts[0] || courtAvailability.available[0] || 1]);
+    }
+  }, [bdayClaimed]);
+
+  const peakLabel = useMemo(() => {
+    const dObj = new Date(date + "T12:00:00");
+    const [h, m] = time.split(":").map(Number);
+    let peak = 0, off = 0;
+    for (let i = 0; i < slots; i++) {
+      const totalMin = h * 60 + m + i * SLOT_MINUTES;
+      const hr = Math.floor(totalMin / 60);
+      if (isWeekend(dObj) || hr >= 17) peak++; else off++;
+    }
+    if (peak > 0 && off === 0) return t("b_peak", null, lang);
+    if (off > 0 && peak === 0) return t("b_offpeak", null, lang);
+    return t("b_mixed", null, lang);
+  }, [date, time, slots, lang]);
+
+  const guestSavings = useMemo(() => {
+    if (!isGuest || !pricing) return 0;
+    return Math.round(pricing.subtotal * 0.5);
+  }, [pricing, isGuest]);
+
+  function ctaLabel() {
+    if (isGuest && !guestName.trim()) return t("b_cta_add_name", null, lang);
+    if (bdayClaimed) return t("b_cta_claim", null, lang);
+    return t("b_cta_confirm", null, lang);
+  }
+  function ctaTone() {
+    return bdayClaimed ? "coral" : "ink";
+  }
+  function ctaDisabled() {
+    if (isGuest && !guestName.trim()) return true;
+    if (submitting) return true;
+    if (courtAvailability.available.length === 0) return true;
+    return false;
+  }
+
+  async function submit() {
+    if (ctaDisabled()) return;
+    setSubmitting(true);
+    const r = await api("createBooking", {
+      token: state.token || "",
+      phone: state.phone,
+      name: guestName || (member ? member.name : ""),
+      email: (member && member.email) || "",
+      date, time, slots,
+      courts: pickedCourts.length,
+      useBirthday: bdayClaimed ? 1 : 0,
+      source: "Web"
+    });
+    setSubmitting(false);
+    if (!r.ok) {
+      showToast(r.error || t("error", null, lang), "error");
+      return;
+    }
+    setState(s => ({ ...s, confirmation: r.confirmation }));
+    go("confirm");
+  }
+
+  const lockedDuration = bdayClaimed;
+  const lockedCourts = bdayClaimed;
+
+  return (
+    <div className="screen scr-pad-top">
+      <div className="row-between" style={{ marginBottom: 14 }}>
+        <Lockup size={0.92} />
+        <span className="pill">{t("b_title", null, lang)}</span>
+      </div>
+
+      {/* Member or guest strip */}
+      {isMember && (
+        <div className={"member-strip" + (isFounding ? " founding" : "")}>
+          <div className="top">
+            <span>{t("b_welcome", null, lang)}</span>
+            <span>{t("b_member_no", null, lang)} {member.memberNumber}</span>
+          </div>
+          <div className="name">{memberName}</div>
+          <div className="row-end">
+            <TierBadge tier={isFounding ? "FOUNDING" : "STANDARD"} number={member.memberNumber} />
+            <span className="mono" style={{ fontSize: 10.5, letterSpacing: "0.12em", opacity: 0.8 }}>
+              {t("b_expires", null, lang)} {member.expiryDate || "—"}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {isGuest && (
+        <div className="guest-hello">
+          <div className="top">
+            <span>{t("b_guest_top", null, lang)}</span>
+            <span>+855 {maskPhone(state.phone)}</span>
+          </div>
+          <div className="h">{t("b_guest_h", null, lang)}</div>
+          <input
+            value={guestName}
+            placeholder={t("b_guest_placeholder", null, lang)}
+            onChange={(e) => setGuestName(e.target.value)}
+          />
+        </div>
+      )}
+
+      {/* Birthday gift card for eligible members */}
+      {isMember && bdayEligible && (
+        <div className={"gift" + (bdayClaimed ? " claimed" : "")}>
+          <div className="kicker">{t("g_kicker", null, lang)}</div>
+          <h3>{bdayClaimed ? t("g_h_claimed", null, lang) : t("g_h_unclaimed", null, lang)}</h3>
+          <p>{isFounding ? t("g_p_founding", null, lang) : t("g_p_standard", null, lang)}</p>
+          {!bdayClaimed
+            ? <button className="claim-btn" onClick={() => setBdayClaimed(true)}>{t("g_claim", null, lang)}</button>
+            : <div className="hint" style={{ color: "inherit", opacity: 0.8 }}>{t("g_claimed_note", null, lang)}</div>}
+        </div>
+      )}
+
+      {/* DATE */}
+      <SectionLabel n="01" right={t("b_date_right", { n: BOOKING_WINDOW_DAYS }, lang)}>
+        {t("b_label_date", null, lang)}
+      </SectionLabel>
+      <DateStrip value={date} onChange={setDate} daysAhead={14} lang={lang} />
+
+      {/* TIME */}
+      <div style={{ marginTop: 18 }}>
+        <SectionLabel n="02" right={peakLabel}>{t("b_label_time", null, lang)}</SectionLabel>
+        {availLoading
+          ? <div className="wheel" style={{ height: 260, display: "flex", alignItems: "center", justifyContent: "center" }}><div className="spinner" /></div>
+          : wheelSlots.length === 0
+            ? <div className="empty"><div>{t("b_no_slots", null, lang)}</div></div>
+            : <WheelPicker value={time} onChange={setTime} slots={wheelSlots} lang={lang} />}
+        <div className="hint" style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ display: "inline-block", width: 8, height: 8, background: "var(--coral)", border: "2px solid var(--ink)" }} />
+          <span>{t("b_peak_pip_hint", null, lang)}</span>
+        </div>
+      </div>
+
+      {/* DURATION — 30-min steps */}
+      <div style={{ marginTop: 22 }}>
+        <SectionLabel n="03" right={lockedDuration ? t("b_locked_gift", null, lang) : t("b_duration_right", null, lang)}>
+          {t("b_label_duration", null, lang)}
+        </SectionLabel>
+        <Stepper
+          value={lockedDuration ? 4 : slots}
+          onChange={(v) => !lockedDuration && setSlots(v)}
+          min={MIN_SLOTS}
+          max={MAX_SLOTS}
+          unitLabel={lang === "km" ? "រយៈពេល" : "DURATION"}
+        />
+        <div className="hint" style={{ marginTop: 8 }}>
+          {lockedDuration ? t("b_dur_lock_hint", null, lang) : t("b_duration_hint", null, lang)}
+        </div>
+      </div>
+
+      {/* COURTS */}
+      <div style={{ marginTop: 22 }}>
+        <SectionLabel n="04" right={lockedCourts ? t("b_locked_gift", null, lang) : t("b_courts_right", null, lang)}>
+          {t("b_label_courts", null, lang)}
+        </SectionLabel>
+        <CourtRail
+          value={pickedCourts}
+          onChange={setPickedCourts}
+          count={COURTS_COUNT}
+          unavailable={courtAvailability.unavailable}
+          lang={lang}
+        />
+        <div className="hint" style={{ marginTop: 8 }}>
+          {lockedCourts
+            ? t("b_court_lock_hint", null, lang)
+            : (pickedCourts.length === 1
+                ? t("b_court_hint_one", null, lang)
+                : t("b_court_hint_many", { n: pickedCourts.length }, lang))}
+        </div>
+      </div>
+
+      {/* GUEST PROMO */}
+      {isGuest && pricing && (
+        <div className="promo" style={{ marginTop: 20 }}>
+          <div className="head">
+            <span>{t("pr_head", null, lang)}</span>
+            <span>{t("pr_seats", { n: foundingStatus ? foundingStatus.foundingRemaining : "·" }, lang)}</span>
+          </div>
+          <div className="body">
+            <h3>
+              {t("pr_h_save", null, lang)} <span className="save">${guestSavings}</span> {t("pr_h_today", null, lang)}
+            </h3>
+            <div className="tiers">
+              <div className="tier-card">
+                <div className="name">{t("pr_standard", null, lang)}</div>
+                <div className="pct"><b>−30</b>%</div>
+              </div>
+              <div className="tier-card gold">
+                <div className="name">{t("pr_founding", null, lang)}</div>
+                <div className="pct"><b>−50</b>%</div>
+              </div>
+            </div>
+            <div className="cta-row">
+              <span className="seats">$200/yr · {t("m_visit", null, lang)}</span>
+              <button className="learn" onClick={() => go("membership")}>{t("pr_learn", null, lang)}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PRICE */}
+      <div style={{ marginTop: 24 }}>
+        <div className="label">
+          <span className="num">05</span>
+          <span>{t("b_label_summary", null, lang)}</span>
+        </div>
+        <div className="priceblock">
+          {pricing ? (
+            <>
+              <div className="price-row">
+                <span className="k">
+                  {formatDuration(slots)} × {pickedCourts.length} {pickedCourts.length > 1 ? t("c_courts", null, lang).toLowerCase() : t("c_court", null, lang).toLowerCase()} · {peakLabel.toLowerCase()}
+                </span>
+                <span className="v">${pricing.subtotal.toFixed(2)}</span>
+              </div>
+
+              {pricing.discountPct > 0 && pricing.discountPct < 100 && (
+                <div className="price-row discount">
+                  <span className="k">
+                    {isFounding ? t("b_founding_disc", null, lang) : t("b_member_disc", null, lang)}
+                  </span>
+                  <span className="v">${pricing.discountAmount.toFixed(2)}</span>
+                </div>
+              )}
+
+              {pricing.discountPct === 100 && (
+                <>
+                  <div className="price-row strike">
+                    <span className="k">{t("b_standard_rate", null, lang)}</span>
+                    <span className="v">${pricing.subtotal.toFixed(2)}</span>
+                  </div>
+                  <div className="price-row discount" style={{ color: "var(--green-2)" }}>
+                    <span className="k">{t("b_birthday_gift", null, lang)}</span>
+                    <span className="v">${pricing.subtotal.toFixed(2)}</span>
+                  </div>
+                </>
+              )}
+
+              <div className="rule" style={{ margin: "10px 0 6px" }} />
+
+              <div className="price-row total">
+                <span className="k">{t("b_total", null, lang)}</span>
+                <span className="v">${pricing.total.toFixed(0)}</span>
+              </div>
+              <div className="hint" style={{ margin: "4px 0 10px", display: "flex", alignItems: "center", gap: 6 }}>
+                <span className="mono" style={{
+                  fontSize: 10, padding: "2px 5px",
+                  background: "var(--ink)", color: "var(--cream)",
+                  letterSpacing: "0.14em", fontWeight: 500
+                }}>USD</span>
+                <span>{t("b_pay_at_counter", null, lang)}</span>
+              </div>
+            </>
+          ) : (
+            <div style={{ padding: 20, textAlign: "center", opacity: 0.5 }}>
+              <div className="spinner" style={{ margin: "0 auto" }} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* CTA */}
+      <div style={{ marginTop: 14 }}>
+        <CTA tone={ctaTone()} disabled={ctaDisabled()} onClick={submit}>
+          {submitting ? t("loading", null, lang) : ctaLabel()}
+        </CTA>
+      </div>
+
+      <div className="footer-note" style={{ marginTop: 18 }}>
+        THE YARD · TOUL KORK · PHNOM PENH
+      </div>
+
+      {submitting && <Loading message={t("loading", null, lang)} />}
+    </div>
+  );
+}
+
+/* ===================== SCREEN 4: CONFIRMATION ===================== */
+function ScreenConfirm({ state, setState, go, lang }) {
+  const c = state.confirmation;
+  const [copied, setCopied] = useState(false);
+
+  if (!c) {
+    return (
+      <div className="screen scr-pad-top">
+        <p>{t("error", null, lang)}</p>
+        <CTA onClick={() => go("booking")} tone="ink">{t("back", null, lang)}</CTA>
+      </div>
+    );
+  }
+
+  function copy() {
+    navigator.clipboard.writeText(c.bookingId).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  const isFounding = c.memberTier && String(c.memberTier).toLowerCase() === "founding";
+
+  return (
+    <div className="screen scr-pad-top">
+      <div className="row-between">
+        <button onClick={() => go("booking")}
+          style={{ background: "transparent", border: "1.5px solid var(--ink)", padding: "6px 10px", cursor: "pointer", borderRadius: 999, fontFamily: "var(--mono)", fontWeight: 500, fontSize: 11, letterSpacing: "0.1em" }}>
+          {t("c_back", null, lang)}
+        </button>
+        <Lockup size={0.85} />
+      </div>
+
+      <div className="stamp-wrap">
+        <div className="stamp">
+          {t("c_stamp", null, lang)}
+          <span className="dot"></span>
+        </div>
+        <p style={{ fontSize: 15, lineHeight: 1.5, margin: "8px 0 22px", maxWidth: "30ch" }}>{t("c_sub", null, lang)}</p>
+      </div>
+
+      <div className="label"><span className="num">01</span><span>{t("c_booking_id", null, lang)}</span></div>
+      <div className="bookingid" style={{ marginBottom: 16 }}>
+        <span>{c.bookingId}</span>
+        <button className="copy" onClick={copy}>{copied ? t("c_copied", null, lang) : t("c_copy", null, lang)}</button>
+      </div>
+
+      {/* Court diagram */}
+      <svg viewBox="0 0 360 220" className="court-svg" preserveAspectRatio="none" style={{ marginBottom: 20 }}>
+        <rect x="0" y="0" width="360" height="220" fill="#F1EAD6" />
+        <rect x="20" y="20" width="320" height="180" fill="#3D7A4F" />
+        <rect x="140" y="20" width="80" height="180" fill="#C64F3A" />
+        <rect x="20" y="20" width="320" height="180" fill="none" stroke="#F1EAD6" strokeWidth="2.5" />
+        <line x1="140" y1="20" x2="140" y2="200" stroke="#F1EAD6" strokeWidth="2.5" />
+        <line x1="220" y1="20" x2="220" y2="200" stroke="#F1EAD6" strokeWidth="2.5" />
+        <line x1="20" y1="110" x2="140" y2="110" stroke="#F1EAD6" strokeWidth="2.5" />
+        <line x1="220" y1="110" x2="340" y2="110" stroke="#F1EAD6" strokeWidth="2.5" />
+        <line x1="180" y1="14" x2="180" y2="206" stroke="#1A1A1A" strokeWidth="3" strokeDasharray="3 3" />
+        <circle cx="180" cy="14" r="4" fill="#1A1A1A" />
+        <circle cx="180" cy="206" r="4" fill="#1A1A1A" />
+        <g transform="translate(180,110)">
+          <rect x="-30" y="-19" width="60" height="38" rx="6" fill="#F1EAD6" stroke="#1A1A1A" strokeWidth="1.5" />
+          <text x="0" y="6" textAnchor="middle" fontFamily="DM Mono, monospace" fontWeight="500" fontSize="13" fill="#1A1A1A">{"C" + String(c.courtNumbers).split(",")[0].trim().padStart(2, "0")}</text>
+        </g>
+        <path d="M 60 160 Q 180 60, 300 150"
+              stroke="#F1EAD6" strokeWidth="1.5" fill="none" strokeLinecap="round"
+              opacity="0.55" strokeDasharray="2 4" />
+      </svg>
+
+      <div className="label"><span className="num">02</span><span>Details</span></div>
+      <div style={{ marginBottom: 18 }}>
+        <div className="detail-row">
+          <span className="k">{t("c_date", null, lang)}</span>
+          <span className="v">{fmtDateLong(c.date, lang)}</span>
+        </div>
+        <div className="detail-row">
+          <span className="k">{t("c_time", null, lang)}</span>
+          <span className="v">{c.time} — {c.timeEnd}</span>
+        </div>
+        <div className="detail-row">
+          <span className="k">{c.courts > 1 ? t("c_courts", null, lang) : t("c_court", null, lang)}</span>
+          <span className="v">{c.courtNumbers}</span>
+        </div>
+        <div className="detail-row">
+          <span className="k">{t("c_duration", null, lang)}</span>
+          <span className="v">{lang === "km" ? formatDurationKm(c.slots) : formatDuration(c.slots)}</span>
+        </div>
+        <div className="detail-row">
+          <span className="k">{t("c_player", null, lang)}</span>
+          <span className="v">{c.name}{c.memberNumber ? " · " + c.memberNumber : ""}</span>
+        </div>
+        <div className="detail-row">
+          <span className="k">{t("c_total", null, lang)}</span>
+          <span className="v" style={{ color: c.total === 0 ? "var(--green)" : "var(--ink)", fontWeight: 700 }}>
+            {c.total === 0 ? (lang === "km" ? "ឥត​គិត​ថ្លៃ" : "FREE") : "$" + c.total.toFixed(2)}
+          </span>
+        </div>
+      </div>
+
+      <div className="hint" style={{ marginBottom: 16 }}>
+        📱 {t("c_sms", { p: maskPhone(c.phone) }, lang).replace("***", "")} · {t("c_reminder", null, lang)}
+      </div>
+
+      <CTA tone="green" onClick={() => { setState(s => ({ ...s, confirmation: null })); go("booking"); }}>
+        {t("c_book_another", null, lang)}
+      </CTA>
+
+      <div style={{ marginTop: 10 }}>
+        <CTA tone="ghost" onClick={() => go("myBookings")}>
+          {t("c_view_my", null, lang)}
+        </CTA>
+      </div>
+
+      <div className="footer-note" style={{ marginTop: 18 }}>
+        THE YARD · BOOKING {c.bookingId}
+      </div>
+    </div>
+  );
+}
+
+/* ===================== SCREEN 5: MY BOOKINGS ===================== */
+function ScreenMyBookings({ state, setState, go, lang }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [cancelTarget, setCancelTarget] = useState(null);
+  const [cancelling, setCancelling] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    const r = await api("getMyBookings", {
+      token: state.token || "",
+      phone: state.phone || ""
+    });
+    setLoading(false);
+    if (r.ok) setData({ upcoming: r.upcoming || [], past: r.past || [] });
+    else { setData({ upcoming: [], past: [] }); showToast(r.error || t("error", null, lang), "error"); }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function doCancel() {
+    if (!cancelTarget) return;
+    setCancelling(true);
+    const r = await api("cancelBooking", {
+      bookingId: cancelTarget.bookingId,
+      token: state.token || "",
+      phone: state.phone || ""
+    });
+    setCancelling(false);
+    setCancelTarget(null);
+    if (!r.ok) { showToast(r.error || t("error", null, lang), "error"); return; }
+    showToast(lang === "km" ? "បាន​បោះបង់" : "Cancelled", "success");
+    load();
+  }
+
+  return (
+    <div className="screen scr-pad-top">
+      <div className="row-between" style={{ marginBottom: 12 }}>
+        <Lockup size={0.92} />
+        <span className="pill">{t("mb_kicker", null, lang)}</span>
+      </div>
+      <h1 className="h-display" style={{ fontSize: 48, margin: "10px 0 18px" }}>
+        {t("mb_title", null, lang)}
+      </h1>
+
+      {loading ? (
+        <div style={{ padding: 40, textAlign: "center" }}><div className="spinner" style={{ margin: "0 auto" }} /></div>
+      ) : (
+        <>
+          <SectionLabel n="01">{t("mb_upcoming", null, lang)}</SectionLabel>
+          {data && data.upcoming.length > 0 ? (
+            data.upcoming.map(b => (
+              <div key={b.bookingId} className="booking-card">
+                <div className="top">
+                  <span>{b.bookingId}</span>
+                  <span>{b.memberTier || "GUEST"}</span>
+                </div>
+                <div className="date">{fmtDateLong(b.date, lang)}</div>
+                <div className="meta">
+                  {b.time} — {b.timeEnd} · {b.courts > 1 ? "Courts " : "Court "}{b.courtNumbers} · {lang === "km" ? formatDurationKm(b.slots) : formatDuration(b.slots)}
+                </div>
+                <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span className="mono" style={{ fontSize: 14, fontWeight: 500 }}>
+                    {b.total === 0 ? "FREE" : "$" + Number(b.total).toFixed(0)}
+                  </span>
+                  <button className="ulink" style={{ fontSize: 12, color: "var(--clay)", borderColor: "var(--clay)" }}
+                    onClick={() => setCancelTarget(b)}>
+                    {t("mb_cancel", null, lang)}
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="empty">
+              <div className="icon">🏓</div>
+              <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 24, marginBottom: 6 }}>{t("mb_empty_upcoming_h", null, lang)}</div>
+              <div style={{ marginBottom: 14 }}>{t("mb_empty_upcoming_p", null, lang)}</div>
+              <CTA tone="green" onClick={() => go("booking")}>{t("mb_book_now", null, lang)}</CTA>
+            </div>
+          )}
+
+          {data && data.past.length > 0 && (
+            <>
+              <SectionLabel n="02">{t("mb_past", null, lang)}</SectionLabel>
+              {data.past.map(b => (
+                <div key={b.bookingId} className="booking-card past">
+                  <div className="top">
+                    <span>{b.bookingId}</span>
+                    <span>{b.memberTier || "GUEST"}</span>
+                  </div>
+                  <div className="date">{fmtDateLong(b.date, lang)}</div>
+                  <div className="meta">
+                    {b.time} — {b.timeEnd} · {b.courts > 1 ? "Courts " : "Court "}{b.courtNumbers}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </>
+      )}
+
+      {cancelTarget && (
+        <div className="modal-backdrop" onClick={() => !cancelling && setCancelTarget(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>{t("mb_confirm_cancel", null, lang)}</h3>
+            <p>{t("mb_confirm_cancel_sub", null, lang)}</p>
+            <div className="actions">
+              <button className="btn ghost" onClick={() => setCancelTarget(null)} disabled={cancelling}>
+                {t("mb_keep", null, lang)}
+              </button>
+              <button className="btn coral" onClick={doCancel} disabled={cancelling}>
+                {cancelling ? t("loading", null, lang) : t("mb_confirm_cancel_yes", null, lang)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ===================== SCREEN 6: MEMBERSHIP INFO ===================== */
+function ScreenMembership({ state, setState, go, lang }) {
+  const [foundingStatus, setFoundingStatus] = useState(null);
+  useEffect(() => {
+    api("getFoundingStatus").then(r => { if (r.ok) setFoundingStatus(r); });
+  }, []);
+
+  return (
+    <div className="screen scr-pad-top">
+      <div className="row-between" style={{ marginBottom: 12 }}>
+        <Lockup size={0.92} />
+        <span className="pill">{t("m_kicker", null, lang)}</span>
+      </div>
+      <h1 className="h-display" style={{ fontSize: 48, margin: "10px 0 14px" }}>{t("m_title", null, lang)}</h1>
+      <p style={{ fontSize: 15, lineHeight: 1.5, marginBottom: 22, maxWidth: "34ch" }}>{t("m_lede", null, lang)}</p>
+
+      {/* Founding */}
+      <div className="tier-block founding">
+        <div className="label-row">
+          <span>{t("p_founding_year", null, lang)}</span>
+          <span>${200}</span>
+        </div>
+        <h3>{t("m_founding_h", null, lang)}</h3>
+        <div className="price">{t("m_founding_price", null, lang)}</div>
+        <ul>
+          <li>50% off court rental, every day</li>
+          <li>10% off pro shop</li>
+          <li>Free 2hr birthday-week session</li>
+          <li>Free paddle rental every visit</li>
+          <li>Free entry to member tournaments</li>
+          <li>Name on Founding Wall</li>
+          <li>$200/year renewal locked for life</li>
+        </ul>
+        {foundingStatus && (
+          <div className="seats">{t("m_seats_left", { n: foundingStatus.foundingRemaining, cap: FOUNDING_CAP }, lang)}</div>
+        )}
+      </div>
+
+      {/* Standard */}
+      <div className="tier-block standard">
+        <div className="label-row">
+          <span>{t("p_standard", null, lang)}</span>
+          <span>${150}</span>
+        </div>
+        <h3>{t("m_standard_h", null, lang)}</h3>
+        <div className="price">{t("m_standard_price", null, lang)}</div>
+        <ul>
+          <li>30% off court rental, every day</li>
+          <li>10% off pro shop</li>
+          <li>50% off one 2hr birthday-week session</li>
+          <li>Free paddle rental every visit</li>
+          <li>Free entry to member tournaments</li>
+        </ul>
+      </div>
+
+      <div className="footer-note" style={{ marginTop: 18 }}>
+        {t("m_visit", null, lang)}
+      </div>
+    </div>
+  );
+}
+
+/* ====================================================================
+   8. APP SHELL — top bar, language toggle, screen routing, foot nav
+   ==================================================================== */
+
+function App() {
+  const [lang, setLangState] = useState(getLang());
+  const [state, setState] = useState({
+    phone: getStoredPhone(),
+    token: getToken(),
+    isMember: false,
+    member: null,
+    confirmation: null
+  });
+
+  const [screen, setScreen] = useState("phone");
+  const [bootLoading, setBootLoading] = useState(true);
+
+  // On first load: validate existing token if any
+  useEffect(() => {
+    document.body.setAttribute("lang", lang);
+    const token = getToken();
+    if (!token) { setBootLoading(false); return; }
+
+    api("validateToken", { token }).then(r => {
+      setBootLoading(false);
+      if (r.ok && r.valid) {
+        setState(s => ({
+          ...s,
+          token,
+          phone: r.phone || s.phone,
+          isMember: !!r.isMember,
+          member: r.member || null
+        }));
+        // Skip phone+otp screens; jump straight to booking
+        const hash = (location.hash || "").replace("#", "");
+        const validHashes = ["booking", "myBookings", "membership", "confirm"];
+        setScreen(validHashes.includes(hash) ? hash : "booking");
+      } else {
+        setToken("");
+      }
+    });
+  }, []);
+
+  function go(s) {
+    setScreen(s);
+    try { location.hash = s; } catch (e) {}
+    window.scrollTo(0, 0);
+  }
+
+  function switchLang(l) {
+    setLangState(l);
+    setLang(l);
+  }
+
+  function logout() {
+    setToken("");
+    setStoredPhone("");
+    setState({ phone: "", token: "", isMember: false, member: null, confirmation: null });
+    go("phone");
+  }
+
+  const isSignedIn = !!state.token;
+
+  if (bootLoading) {
+    return <Loading message={t("loading", null, lang)} />;
+  }
+
+  let body = null;
+  if (screen === "phone") body = <ScreenPhone state={state} setState={setState} go={go} lang={lang} />;
+  else if (screen === "otp") body = <ScreenOTP state={state} setState={setState} go={go} lang={lang} />;
+  else if (screen === "booking") body = <ScreenBooking state={state} setState={setState} go={go} lang={lang} />;
+  else if (screen === "confirm") body = <ScreenConfirm state={state} setState={setState} go={go} lang={lang} />;
+  else if (screen === "myBookings") body = <ScreenMyBookings state={state} setState={setState} go={go} lang={lang} />;
+  else if (screen === "membership") body = <ScreenMembership state={state} setState={setState} go={go} lang={lang} />;
+  else body = <ScreenPhone state={state} setState={setState} go={go} lang={lang} />;
+
+  return (
+    <>
+      <div className="topbar">
+        <span className="now">{t("open_hours", null, lang)} · TOUL KORK</span>
+        <div className="lang">
+          <button className={lang === "en" ? "on" : ""} onClick={() => switchLang("en")}>EN</button>
+          <button className={lang === "km" ? "on" : ""} onClick={() => switchLang("km")}>ខ្មែរ</button>
+        </div>
+      </div>
+
+      {body}
+
+      {/* Foot nav appears only after sign-in */}
+      {isSignedIn && screen !== "phone" && screen !== "otp" && screen !== "confirm" && (
+        <div className="foot-nav">
+          <button className={screen === "booking" ? "on" : ""} onClick={() => go("booking")}>
+            {lang === "km" ? "កក់" : "Book"}
+          </button>
+          <button className={screen === "myBookings" ? "on" : ""} onClick={() => go("myBookings")}>
+            {lang === "km" ? "របស់​ខ្ញុំ" : "Mine"}
+          </button>
+          <button className={screen === "membership" ? "on" : ""} onClick={() => go("membership")}>
+            {lang === "km" ? "សមាជិក" : "Members"}
+          </button>
+          <button onClick={logout}>
+            {lang === "km" ? "ចេញ" : "Sign out"}
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+const root = createRoot(document.getElementById("root"));
+root.render(<App />);
+
+  </script>
+</body>
+</html>
