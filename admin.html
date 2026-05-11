@@ -839,7 +839,674 @@ button { font-family: inherit; cursor: pointer; }
 }
 .settings-warning b { color: var(--clay); }
 
-/* ============== TOAST ============== */
+/* ============== ACTION QUEUE + PULSE (Dashboard panels) ============== */
+.two-col {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 18px;
+  margin-bottom: 28px;
+}
+@media (max-width: 900px) {
+  .two-col { grid-template-columns: 1fr; }
+}
+
+.panel {
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  padding: 18px 20px;
+}
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed rgba(26,26,26,0.2);
+}
+.panel-head h3 {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 22px;
+  margin: 0;
+  line-height: 1;
+}
+.panel-head .count {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--clay);
+}
+.panel-head .count.zero { color: var(--ink); opacity: 0.4; }
+.panel-head .count.green { color: var(--green); }
+
+/* Action items */
+.action-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(26,26,26,0.08);
+}
+.action-item:last-child { border-bottom: none; }
+.action-item .badge {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 3px;
+  border: 1.5px solid var(--ink);
+  white-space: nowrap;
+}
+.action-item .badge.urgent { background: var(--clay); color: var(--cream); border-color: var(--clay); }
+.action-item .badge.warn   { background: var(--warn); color: var(--ink); border-color: var(--ink); }
+.action-item .badge.info   { background: var(--paper); color: var(--ink); }
+.action-item .badge.wood   { background: var(--wood); color: var(--cream); border-color: var(--wood); }
+
+.action-item .body .title {
+  font-family: var(--sans);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.action-item .body .meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  opacity: 0.6;
+  margin-top: 2px;
+}
+.action-item .body .meta.amount {
+  color: var(--clay);
+  opacity: 1;
+  font-weight: 700;
+}
+.action-item .right {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.section-group {
+  margin-bottom: 16px;
+}
+.section-group:last-child { margin-bottom: 0; }
+.section-group .head {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.section-group .head .count {
+  font-size: 11px;
+  background: var(--ink);
+  color: var(--cream);
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.section-group .head .count.zero { background: var(--concrete); color: var(--ink); opacity: 0.6; }
+.section-group .head .count.urgent { background: var(--clay); }
+.section-group .head .count.warn { background: var(--warn); color: var(--ink); }
+.section-group .head .count.wood { background: var(--wood); }
+
+.empty-mini {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.4;
+  padding: 8px 0;
+}
+
+/* Pulse metrics */
+.pulse-metric {
+  margin-bottom: 18px;
+}
+.pulse-metric:last-child { margin-bottom: 0; }
+.pulse-metric .label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+.pulse-metric .value {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 30px;
+  line-height: 1;
+  font-weight: 400;
+}
+.pulse-metric .value .unit {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-left: 6px;
+  opacity: 0.55;
+  font-weight: 500;
+}
+.pulse-metric .delta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  margin-top: 6px;
+}
+.pulse-metric .delta.up { color: var(--green); }
+.pulse-metric .delta.down { color: var(--clay); }
+.pulse-metric .delta.flat { color: var(--ink); opacity: 0.5; }
+
+/* Utilization bar */
+.util-bar {
+  position: relative;
+  height: 10px;
+  background: var(--concrete);
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.util-bar .fill {
+  position: absolute;
+  inset: 0;
+  background: var(--green);
+  transform-origin: left center;
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.util-bar .fill.peak { background: var(--clay); }
+.util-bar .fill.warn { background: var(--warn); }
+
+
+/* ============== BOOKINGS TAB ============== */
+.bookings-toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.date-strip {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.date-pill {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 8px 14px;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  background: var(--cream);
+  cursor: pointer;
+  font-weight: 600;
+}
+.date-pill .num {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 16px;
+  margin-left: 4px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.date-pill.on {
+  background: var(--ink);
+  color: var(--cream);
+}
+.date-pill input[type=date] {
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  color: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  width: 110px;
+}
+
+.filter-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.filter-chip {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  background: var(--cream);
+  cursor: pointer;
+  font-weight: 600;
+}
+.filter-chip.on { background: var(--clay); color: var(--cream); border-color: var(--clay); }
+
+.booking-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.booking-row {
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
+  align-items: center;
+}
+@media (max-width: 600px) {
+  .booking-row { grid-template-columns: 1fr; gap: 8px; }
+  .booking-row .actions { justify-content: flex-start !important; }
+}
+.booking-row .when {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  min-width: 100px;
+}
+.booking-row .when .endtime {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  opacity: 0.5;
+  font-weight: 500;
+  margin-top: 2px;
+}
+.booking-row .who .name {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.booking-row .who .meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  opacity: 0.6;
+  margin-top: 3px;
+}
+.booking-row .who .id {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  opacity: 0.4;
+  margin-top: 2px;
+}
+.booking-row .actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+}
+.booking-row .total {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  margin-right: 8px;
+}
+.booking-row.is-member { border-left: 5px solid var(--wood); }
+.booking-row.is-at-risk { background: rgba(199,162,74,0.12); }
+
+.status-pill {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 3px;
+  border: 1.5px solid var(--ink);
+  display: inline-block;
+}
+.status-pill.awaiting    { background: var(--concrete-2); color: var(--ink); }
+.status-pill.at_risk     { background: var(--warn); color: var(--ink); }
+.status-pill.paid        { background: var(--green); color: var(--cream); border-color: var(--green); }
+.status-pill.no_show_freed { background: var(--clay); color: var(--cream); border-color: var(--clay); opacity: 0.8; }
+.status-pill.no_show_kept  { background: var(--clay-2); color: var(--cream); border-color: var(--clay); }
+.status-pill.completed   { background: var(--ink); color: var(--cream); opacity: 0.7; }
+.status-pill.cancelled   { background: var(--concrete); color: var(--ink); opacity: 0.5; text-decoration: line-through; }
+
+.tier-pill {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 3px 7px;
+  border-radius: 3px;
+}
+.tier-pill.Founding { background: var(--wood); color: var(--cream); }
+.tier-pill.Standard { background: var(--ink); color: var(--cream); }
+
+.btn-sm {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 7px 12px;
+  border-radius: 4px;
+  border: 1.5px solid var(--ink);
+  background: var(--cream);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  white-space: nowrap;
+}
+.btn-sm:hover { background: var(--ink); color: var(--cream); }
+.btn-sm.primary { background: var(--ink); color: var(--cream); }
+.btn-sm.primary:hover { background: var(--clay); border-color: var(--clay); }
+.btn-sm.danger { background: var(--clay); color: var(--cream); border-color: var(--clay); }
+.btn-sm.danger:hover { background: var(--ink); border-color: var(--ink); }
+.btn-sm.ghost { background: transparent; }
+.btn-sm:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ============== MODAL ============== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(26,26,26,0.55);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.18s ease-out;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.modal {
+  background: var(--cream);
+  border: 1.5px solid var(--ink);
+  border-radius: 6px;
+  width: 100%;
+  max-width: 540px;
+  max-height: 92vh;
+  overflow-y: auto;
+  padding: 24px 26px;
+  animation: modalIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes modalIn {
+  from { transform: translateY(12px) scale(0.96); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 14px;
+  border-bottom: 1.5px solid var(--ink);
+  margin-bottom: 20px;
+}
+.modal-head h2 {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 30px;
+  margin: 0;
+  line-height: 1;
+}
+.modal-head .kicker {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+.modal-head .x {
+  background: transparent;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--ink);
+  padding: 0 4px;
+  line-height: 1;
+  align-self: flex-start;
+}
+.modal-head .x:hover { color: var(--clay); }
+
+.modal .field {
+  margin-bottom: 14px;
+}
+.modal .field-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.modal input[type=text],
+.modal input[type=number],
+.modal input[type=email],
+.modal input[type=date],
+.modal input[type=time],
+.modal input[type=tel],
+.modal select,
+.modal textarea {
+  font-family: var(--sans);
+  font-size: 14px;
+  padding: 10px 12px;
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  background: var(--paper);
+  width: 100%;
+  font-weight: 500;
+}
+.modal input:focus, .modal select:focus, .modal textarea:focus {
+  outline: none;
+  border-color: var(--clay);
+}
+.modal textarea { min-height: 70px; resize: vertical; font-family: var(--sans); }
+.modal .field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.modal .field-row.three { grid-template-columns: 1fr 1fr 1fr; }
+
+.modal .actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dashed rgba(26,26,26,0.2);
+}
+
+.modal-detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(26,26,26,0.08);
+  font-size: 13.5px;
+}
+.modal-detail-row .k {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+.modal-detail-row .v { font-weight: 600; font-family: var(--mono); }
+.modal-detail-row.total { padding: 14px 0 4px; border-bottom: none; }
+.modal-detail-row.total .v { font-size: 22px; font-family: var(--serif); font-style: italic; }
+
+/* Court picker for walk-in modal */
+.court-picker {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+}
+@media (max-width: 480px) {
+  .court-picker { grid-template-columns: repeat(4, 1fr); }
+}
+.court-picker .ct {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--ink);
+  background: var(--paper);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.court-picker .ct.on {
+  background: var(--ink);
+  color: var(--cream);
+}
+.court-picker .ct.unavail {
+  opacity: 0.3;
+  cursor: not-allowed;
+  background: var(--concrete);
+}
+
+.modal-warning {
+  background: rgba(199,79,58,0.08);
+  border: 1px solid var(--clay);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  margin: 12px 0;
+}
+
+/* ============== MEMBERS TAB ============== */
+.member-header {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.member-counter {
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  padding: 14px 18px;
+  border-radius: 4px;
+  flex: 1;
+  min-width: 200px;
+}
+.member-counter .label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+.member-counter .big {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 32px;
+  line-height: 1;
+}
+.member-counter .big .of {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  opacity: 0.5;
+  margin-left: 4px;
+  font-weight: 500;
+}
+.member-counter.founding { border-left: 5px solid var(--wood); }
+.member-counter.standard { border-left: 5px solid var(--ink); }
+.member-counter.full {
+  background: rgba(168,116,74,0.12);
+  border-color: var(--wood);
+}
+
+.member-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.member-row {
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  padding: 12px 16px;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 14px;
+  align-items: center;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.member-row:hover { background: var(--cream); }
+.member-row.founding { border-left: 5px solid var(--wood); }
+.member-row .num {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.member-row .name {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 14px;
+}
+.member-row .meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  opacity: 0.6;
+  margin-top: 2px;
+}
+.member-row .bday {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+.member-row .bday .label {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.5;
+  display: block;
+  margin-bottom: 1px;
+}
+
+/* Search input */
+.search-input {
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 8px 14px;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  background: var(--paper);
+  width: 100%;
+  max-width: 320px;
+  letter-spacing: 0.04em;
+}
+.search-input:focus { outline: none; border-color: var(--clay); }
+
 .toast {
   position: fixed;
   left: 50%;
@@ -1370,14 +2037,6 @@ function ScreenDashboard() {
   const today = todayISO();
   const todayLong = fmtDateLong(today);
 
-  // Upcoming next 2 hrs (from bookings list)
-  const upcoming = (bookings || [])
-    .filter(b => {
-      const m = countdownMins(b.date, b.time);
-      return m > 0 && m <= 120 && b.derivedStatus !== "cancelled" && b.derivedStatus !== "no_show_freed";
-    })
-    .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
-
   return (
     <div className="main">
       <div className="main-head">
@@ -1454,59 +2113,1203 @@ function ScreenDashboard() {
         <Timeline bookings={bookings} dateStr={today} />
       )}
 
-      {/* Upcoming next 2 hrs */}
-      <div className="section-label">
-        <span><span className="num">02</span><span className="name">Arriving Next 2 Hours</span></span>
-        <span className="right">{upcoming.length} bookings</span>
+      {/* Action Queue + Today's Pulse */}
+      <div className="two-col">
+        <ActionQueuePanel data={data} onMarkPaid={refresh} />
+        <TodaysPulsePanel data={data} />
       </div>
-      {upcoming.length === 0 ? (
-        <div className="empty">No bookings in the next 2 hours</div>
-      ) : (
-        <div className="upcoming-list">
-          {upcoming.map(b => {
-            const mins = countdownMins(b.date, b.time);
-            const atRisk = b.derivedStatus === "at_risk";
-            return (
-              <div
-                key={b.bookingId}
-                className={"upcoming-card" + (b.memberTier ? " member" : "") + (atRisk ? " at-risk" : "")}
-              >
-                <div className="when">
-                  {b.time}
-                  <span className="countdown">{fmtCountdown(mins)}</span>
-                </div>
-                <div className="who">
-                  <div className="name">
-                    {b.name}
-                    {b.memberTier && (
-                      <span style={{
-                        marginLeft: 8,
-                        fontFamily: "var(--mono)",
-                        fontSize: 9,
-                        letterSpacing: "0.16em",
-                        textTransform: "uppercase",
-                        background: "var(--wood)",
-                        color: "var(--cream)",
-                        padding: "2px 6px",
-                        borderRadius: 3
-                      }}>
-                        {b.memberTier}
-                      </span>
-                    )}
-                  </div>
-                  <div className="meta">
-                    {b.phone} · C·{b.courtNumbers} · {b.slots * 0.5}h
-                  </div>
-                </div>
-                <div className="total">${(b.total || 0).toFixed(2)}</div>
-              </div>
-            );
-          })}
+    </div>
+  );
+}
+
+/* ====================================================================
+   ACTION QUEUE PANEL
+   ==================================================================== */
+function ActionQueuePanel({ data, onMarkPaid }) {
+  const aq = data.actionQueue || {};
+  const payments = aq.paymentsToCollect || [];
+  const atRisk = aq.atRisk || [];
+  const lowStock = aq.lowStock || [];
+  const birthdayWeek = aq.birthdayThisWeek || [];
+
+  const total =
+    payments.length +
+    atRisk.length +
+    lowStock.length +
+    birthdayWeek.filter(m => !m.alreadyUsed).length;
+
+  async function markPaid(bookingId) {
+    const r = await api("adminMarkPaid", { bookingId: bookingId });
+    if (r.ok) {
+      showToast("Marked paid", "success");
+      onMarkPaid && onMarkPaid();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  async function noShowRelease(bookingId) {
+    if (!confirm("Release the court and notify the customer? This sends an SMS.")) return;
+    const r = await api("adminNoShowAndRelease", { bookingId: bookingId });
+    if (r.ok) {
+      showToast("Court released", "success");
+      onMarkPaid && onMarkPaid();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h3>Needs Attention</h3>
+        <span className={"count" + (total === 0 ? " zero" : "")}>
+          {total === 0 ? "All clear" : total + " items"}
+        </span>
+      </div>
+
+      {/* Payments to collect */}
+      <div className="section-group">
+        <div className="head">
+          <span>Payments to Collect</span>
+          <span className={"count" + (payments.length === 0 ? " zero" : " urgent")}>
+            {payments.length}
+          </span>
         </div>
+        {payments.length === 0 ? (
+          <div className="empty-mini">No outstanding payments</div>
+        ) : (
+          payments.map(p => (
+            <div className="action-item" key={p.bookingId}>
+              <span className="badge urgent">{p.timeEnd}</span>
+              <div className="body">
+                <div className="title">
+                  {p.name}
+                  {p.memberTier && <span className={"tier-pill " + p.memberTier} style={{ marginLeft: 8 }}>{p.memberTier}</span>}
+                </div>
+                <div className="meta">C·{p.courts} · ${(p.total || 0).toFixed(2)} · {p.phone}</div>
+              </div>
+              <button className="btn-sm primary" onClick={() => markPaid(p.bookingId)}>Mark paid</button>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* At-risk bookings */}
+      <div className="section-group">
+        <div className="head">
+          <span>At-Risk Bookings</span>
+          <span className={"count" + (atRisk.length === 0 ? " zero" : " warn")}>
+            {atRisk.length}
+          </span>
+        </div>
+        {atRisk.length === 0 ? (
+          <div className="empty-mini">No-one past grace period</div>
+        ) : (
+          atRisk.map(b => (
+            <div className="action-item" key={b.bookingId}>
+              <span className="badge warn">{b.time}</span>
+              <div className="body">
+                <div className="title">{b.name}</div>
+                <div className="meta">C·{b.courts} · ${(b.total || 0).toFixed(2)} · {b.phone}</div>
+              </div>
+              <button className="btn-sm danger" onClick={() => noShowRelease(b.bookingId)}>Release</button>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Low stock */}
+      <div className="section-group">
+        <div className="head">
+          <span>Low Stock</span>
+          <span className={"count" + (lowStock.length === 0 ? " zero" : " urgent")}>
+            {lowStock.length}
+          </span>
+        </div>
+        {lowStock.length === 0 ? (
+          <div className="empty-mini">All products stocked above reorder level</div>
+        ) : (
+          lowStock.map(s => (
+            <div className="action-item" key={s.sku}>
+              <span className="badge urgent">{s.stock} left</span>
+              <div className="body">
+                <div className="title">{s.name}</div>
+                <div className="meta">{s.category} · Reorder at {s.reorderLevel}</div>
+              </div>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.5 }}>{s.sku}</span>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Members in birthday week */}
+      <div className="section-group">
+        <div className="head">
+          <span>Birthday-Week Members</span>
+          <span className={"count" + (birthdayWeek.length === 0 ? " zero" : " wood")}>
+            {birthdayWeek.length}
+          </span>
+        </div>
+        {birthdayWeek.length === 0 ? (
+          <div className="empty-mini">No members in birthday window</div>
+        ) : (
+          birthdayWeek.map(m => (
+            <div className="action-item" key={m.memberNumber}>
+              <span className="badge wood">{m.birthday}</span>
+              <div className="body">
+                <div className="title">
+                  {m.name} <span className={"tier-pill " + m.tier} style={{ marginLeft: 6 }}>{m.tier}</span>
+                </div>
+                <div className="meta">
+                  {m.memberNumber} · {m.alreadyUsed ? "Gift already redeemed this year" : "Eligible for birthday gift"}
+                </div>
+              </div>
+              <span style={{
+                fontFamily: "var(--mono)",
+                fontSize: 9,
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                opacity: m.alreadyUsed ? 0.4 : 0.8,
+                color: m.alreadyUsed ? "var(--ink)" : "var(--green)"
+              }}>
+                {m.alreadyUsed ? "Redeemed" : "Available"}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ====================================================================
+   TODAY'S PULSE PANEL
+   ==================================================================== */
+function TodaysPulsePanel({ data }) {
+  const util = data.utilization || {};
+  const cmp = data.comparison || {};
+
+  // Delta vs yesterday
+  const todayTotal = cmp.todayRevTotal || 0;
+  const yest = cmp.yesterdayRevTotal || 0;
+  const lastWk = cmp.lastWeekRev || 0;
+  const deltaYest = yest > 0 ? ((todayTotal - yest) / yest) * 100 : null;
+  const deltaWk = lastWk > 0 ? ((todayTotal - lastWk) / lastWk) * 100 : null;
+
+  function deltaClass(d) {
+    if (d == null) return "flat";
+    if (d > 2) return "up";
+    if (d < -2) return "down";
+    return "flat";
+  }
+  function deltaLabel(d) {
+    if (d == null) return "No data";
+    const sign = d > 0 ? "+" : "";
+    return sign + d.toFixed(0) + "%";
+  }
+
+  const utilCls = util.utilizationPct >= 70 ? "" : (util.utilizationPct >= 40 ? "warn" : "warn");
+  const peakCls = util.peakUtilizationPct >= 80 ? "peak" : "";
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h3>Today's Pulse</h3>
+        <span className="count green">live</span>
+      </div>
+
+      <div className="pulse-metric">
+        <div className="label">Courts in use right now</div>
+        <div className="value">{util.courtsInUseNow || 0}<span className="unit">of {util.courtsTotal || 8}</span></div>
+        <div className="util-bar">
+          <div
+            className="fill"
+            style={{ transform: "scaleX(" + ((util.courtsInUseNow || 0) / (util.courtsTotal || 8)) + ")" }}
+          />
+        </div>
+      </div>
+
+      <div className="pulse-metric">
+        <div className="label">Day utilization</div>
+        <div className="value">{util.utilizationPct || 0}<span className="unit">%</span></div>
+        <div className="util-bar">
+          <div
+            className={"fill " + utilCls}
+            style={{ transform: "scaleX(" + ((util.utilizationPct || 0) / 100) + ")" }}
+          />
+        </div>
+        <div className="delta flat">
+          {util.bookedCourtHours || 0}h booked of {util.totalCourtHours || 0}h available
+        </div>
+      </div>
+
+      <div className="pulse-metric">
+        <div className="label">Peak utilization · {util.peakHoursToday || 5}h peak window</div>
+        <div className="value">{util.peakUtilizationPct || 0}<span className="unit">%</span></div>
+        <div className="util-bar">
+          <div
+            className={"fill " + peakCls}
+            style={{ transform: "scaleX(" + ((util.peakUtilizationPct || 0) / 100) + ")" }}
+          />
+        </div>
+      </div>
+
+      <div className="pulse-metric">
+        <div className="label">Today's total revenue</div>
+        <div className="value">${todayTotal.toFixed(2)}</div>
+        <div className={"delta " + deltaClass(deltaYest)}>
+          vs yesterday: {deltaLabel(deltaYest)} · ${yest.toFixed(2)}
+        </div>
+        <div className={"delta " + deltaClass(deltaWk)}>
+          vs last {new Date().toLocaleDateString("en", { weekday: "long" })}: {deltaLabel(deltaWk)} · ${lastWk.toFixed(2)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ====================================================================
+   BOOKINGS TAB — list, filter by date+status, actions (paid/no-show/cancel),
+   walk-in creation modal.
+   ==================================================================== */
+
+const STATUS_LABELS = {
+  all: "All",
+  awaiting: "Awaiting",
+  at_risk: "At-risk",
+  paid: "Paid",
+  no_show_freed: "Released",
+  no_show_kept: "No-show",
+  completed: "Completed",
+  cancelled: "Cancelled"
+};
+
+function ScreenBookings() {
+  const [date, setDate] = useState(todayISO());
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [bookings, setBookings] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [detailBooking, setDetailBooking] = useState(null);
+  const [showWalkIn, setShowWalkIn] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    const r = await api("adminListBookings", { date: date });
+    if (r.ok) setBookings(r.bookings || []);
+    else showToast(r.error || "Failed to load", "error");
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, [date]);
+
+  // Poll every 20s while on this screen
+  useEffect(() => {
+    const id = setInterval(load, 20000);
+    return () => clearInterval(id);
+  }, [date]);
+
+  const filtered = (bookings || []).filter(b => {
+    if (statusFilter === "all") return true;
+    return b.derivedStatus === statusFilter;
+  });
+
+  // Quick date pills: yesterday, today, tomorrow, plus custom date input
+  const datePills = useMemo(() => {
+    const out = [];
+    const today = new Date();
+    for (let off = -1; off <= 2; off++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() + off);
+      const iso = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+      const labels = { "-1": "Yesterday", "0": "Today", "1": "Tomorrow", "2": d.toLocaleDateString("en", { weekday: "short" }) };
+      out.push({ iso: iso, label: labels[String(off)] || iso, day: d.getDate() });
+    }
+    return out;
+  }, []);
+
+  // Status counts
+  const counts = useMemo(() => {
+    const c = { all: 0, awaiting: 0, at_risk: 0, paid: 0, no_show_freed: 0, no_show_kept: 0, completed: 0, cancelled: 0 };
+    for (const b of (bookings || [])) {
+      c.all++;
+      if (c[b.derivedStatus] !== undefined) c[b.derivedStatus]++;
+    }
+    return c;
+  }, [bookings]);
+
+  return (
+    <div className="main">
+      <div className="main-head">
+        <div>
+          <div className="title">{fmtDateLong(date)}</div>
+          <h1>Bookings</h1>
+        </div>
+        <div>
+          <button className="btn primary" onClick={() => setShowWalkIn(true)}>+ Walk-in</button>
+        </div>
+      </div>
+
+      {/* Date strip */}
+      <div className="bookings-toolbar">
+        <div className="date-strip">
+          {datePills.map(p => (
+            <button
+              key={p.iso}
+              className={"date-pill" + (date === p.iso ? " on" : "")}
+              onClick={() => setDate(p.iso)}
+            >
+              {p.label}<span className="num">{p.day}</span>
+            </button>
+          ))}
+          <button className="date-pill">
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </button>
+        </div>
+      </div>
+
+      {/* Filter chips */}
+      <div className="filter-chips">
+        {Object.keys(STATUS_LABELS).map(s => (
+          <button
+            key={s}
+            className={"filter-chip" + (statusFilter === s ? " on" : "")}
+            onClick={() => setStatusFilter(s)}
+          >
+            {STATUS_LABELS[s]} · {counts[s] || 0}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 40, display: "flex", justifyContent: "center" }}>
+          <BouncingBall size="md" />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="empty">
+          {statusFilter === "all"
+            ? "No bookings for this date"
+            : "No " + STATUS_LABELS[statusFilter].toLowerCase() + " bookings"}
+        </div>
+      ) : (
+        <div className="booking-list">
+          {filtered.map(b => (
+            <BookingRow key={b.bookingId} booking={b} onAction={load} onOpen={() => setDetailBooking(b)} />
+          ))}
+        </div>
+      )}
+
+      {detailBooking && (
+        <BookingDetailModal
+          booking={detailBooking}
+          onClose={() => setDetailBooking(null)}
+          onAction={() => { load(); setDetailBooking(null); }}
+        />
+      )}
+
+      {showWalkIn && (
+        <WalkInModal
+          dateDefault={date}
+          onClose={() => setShowWalkIn(false)}
+          onCreated={() => { load(); setShowWalkIn(false); }}
+        />
       )}
     </div>
   );
 }
+
+function BookingRow({ booking, onAction, onOpen }) {
+  async function quickMarkPaid(e) {
+    e.stopPropagation();
+    const r = await api("adminMarkPaid", { bookingId: booking.bookingId });
+    if (r.ok) { showToast("Marked paid", "success"); onAction && onAction(); }
+    else showToast(r.error || "Failed", "error");
+  }
+
+  const isMember = !!(booking.memberTier && booking.memberTier.length > 0);
+  const isAtRisk = booking.derivedStatus === "at_risk";
+  const canQuickPay = (booking.derivedStatus === "awaiting" || booking.derivedStatus === "at_risk" || booking.derivedStatus === "completed");
+
+  return (
+    <div
+      className={"booking-row" + (isMember ? " is-member" : "") + (isAtRisk ? " is-at-risk" : "")}
+      onClick={onOpen}
+      style={{ cursor: "pointer" }}
+    >
+      <div className="when">
+        {booking.time}
+        <span className="endtime">→ {booking.timeEnd}</span>
+      </div>
+      <div className="who">
+        <div className="name">
+          {booking.name}
+          {isMember && <span className={"tier-pill " + booking.memberTier}>{booking.memberTier}</span>}
+          <span className={"status-pill " + booking.derivedStatus}>
+            {STATUS_LABELS[booking.derivedStatus] || booking.derivedStatus}
+          </span>
+        </div>
+        <div className="meta">
+          {booking.phone} · C·{booking.courtNumbers} · {(booking.slots * 0.5)}h · {booking.source || "Web"}
+        </div>
+        <div className="id">{booking.bookingId}</div>
+      </div>
+      <div className="actions">
+        <div className="total">${(booking.total || 0).toFixed(2)}</div>
+        {canQuickPay && (
+          <button className="btn-sm primary" onClick={quickMarkPaid}>Mark paid</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BookingDetailModal({ booking, onClose, onAction }) {
+  const [acting, setActing] = useState(false);
+
+  async function doAction(action, confirmMsg) {
+    if (confirmMsg && !confirm(confirmMsg)) return;
+    setActing(true);
+    const r = await api(action, { bookingId: booking.bookingId });
+    setActing(false);
+    if (r.ok) {
+      showToast(r.message || "Done", "success");
+      onAction && onAction();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  const d = booking.derivedStatus;
+  const isMember = !!(booking.memberTier && booking.memberTier.length > 0);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">{booking.bookingId}</div>
+            <h2>{booking.name}</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        <div className="modal-detail-row">
+          <span className="k">Status</span>
+          <span className="v"><span className={"status-pill " + d}>{STATUS_LABELS[d] || d}</span></span>
+        </div>
+        <div className="modal-detail-row">
+          <span className="k">Date · Time</span>
+          <span className="v">{booking.date} · {booking.time} – {booking.timeEnd}</span>
+        </div>
+        <div className="modal-detail-row">
+          <span className="k">Duration</span>
+          <span className="v">{(booking.slots * 0.5)}h ({booking.slots} slots)</span>
+        </div>
+        <div className="modal-detail-row">
+          <span className="k">Courts</span>
+          <span className="v">{booking.courtNumbers}</span>
+        </div>
+        <div className="modal-detail-row">
+          <span className="k">Phone</span>
+          <span className="v">{booking.phone}</span>
+        </div>
+        {isMember && (
+          <div className="modal-detail-row">
+            <span className="k">Member</span>
+            <span className="v">
+              <span className={"tier-pill " + booking.memberTier}>{booking.memberTier}</span>
+              {booking.memberNumber ? " · " + booking.memberNumber : ""}
+            </span>
+          </div>
+        )}
+        {booking.isBirthdaySession && (
+          <div className="modal-detail-row">
+            <span className="k">Birthday session</span>
+            <span className="v" style={{ color: "var(--green)" }}>Yes</span>
+          </div>
+        )}
+        <div className="modal-detail-row">
+          <span className="k">Subtotal</span>
+          <span className="v">${(booking.subtotal || 0).toFixed(2)}</span>
+        </div>
+        {(booking.discountPct || 0) > 0 && (
+          <div className="modal-detail-row">
+            <span className="k">Discount ({booking.discountPct}%)</span>
+            <span className="v" style={{ color: "var(--clay)" }}>−${(booking.discountAmount || 0).toFixed(2)}</span>
+          </div>
+        )}
+        <div className="modal-detail-row total">
+          <span className="k">Total</span>
+          <span className="v">${(booking.total || 0).toFixed(2)}</span>
+        </div>
+        <div className="modal-detail-row">
+          <span className="k">Source</span>
+          <span className="v">{booking.source || "Web"}</span>
+        </div>
+        <div className="modal-detail-row">
+          <span className="k">Created</span>
+          <span className="v">{booking.createdAt || ""}</span>
+        </div>
+
+        <div className="actions">
+          {(d === "awaiting" || d === "at_risk" || d === "completed") && (
+            <button
+              className="btn primary"
+              onClick={() => doAction("adminMarkPaid")}
+              disabled={acting}
+            >Mark paid</button>
+          )}
+          {(d === "awaiting" || d === "at_risk") && (
+            <button
+              className="btn danger"
+              onClick={() => doAction("adminNoShowAndRelease", "Release the court and send SMS to customer?")}
+              disabled={acting}
+            >No-show · release</button>
+          )}
+          {d === "at_risk" && (
+            <button
+              className="btn"
+              onClick={() => doAction("adminFlagNoShow")}
+              disabled={acting}
+            >No-show · keep</button>
+          )}
+          {d !== "cancelled" && d !== "no_show_freed" && (
+            <button
+              className="btn ghost"
+              style={{ color: "var(--clay)" }}
+              onClick={() => doAction("adminCancelBooking", "Cancel this booking? An SMS will be sent if it's upcoming.")}
+              disabled={acting}
+            >Cancel booking</button>
+          )}
+          <button className="btn ghost" onClick={onClose} disabled={acting}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WalkInModal({ dateDefault, onClose, onCreated }) {
+  const [form, setForm] = useState({
+    phone: "",
+    name: "",
+    date: dateDefault || todayISO(),
+    time: "18:00",
+    slots: 2,
+    courts: [1],
+    email: ""
+  });
+  const [availSlots, setAvailSlots] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [pricePreview, setPricePreview] = useState(null);
+
+  // Load availability for selected date
+  useEffect(() => {
+    api("getAvailability", { date: form.date }).then(r => {
+      if (r.ok) setAvailSlots(r.slots || []);
+    });
+  }, [form.date]);
+
+  // Price preview when relevant fields change
+  useEffect(() => {
+    if (!form.phone) {
+      setPricePreview(null);
+      return;
+    }
+    api("calculatePrice", {
+      date: form.date,
+      time: form.time,
+      slots: form.slots,
+      courts: form.courts.length,
+      phone: form.phone
+    }).then(r => { if (r.ok) setPricePreview(r); });
+  }, [form.date, form.time, form.slots, form.courts.length, form.phone]);
+
+  // Determine which courts are available for the chosen time + duration
+  const courtAvailability = useMemo(() => {
+    if (!availSlots.length) return { available: [], unavailable: [] };
+    const startIdx = availSlots.findIndex(s => s.time === form.time);
+    if (startIdx < 0) return { available: [], unavailable: [] };
+    const courtsAvail = new Set([1, 2, 3, 4, 5, 6, 7, 8]);
+    for (let i = 0; i < form.slots; i++) {
+      const s = availSlots[startIdx + i];
+      if (!s) {
+        return { available: [], unavailable: [1, 2, 3, 4, 5, 6, 7, 8] };
+      }
+      const free = new Set((s.freeCourts || []).map(Number));
+      for (const c of Array.from(courtsAvail)) {
+        if (!free.has(c)) courtsAvail.delete(c);
+      }
+    }
+    const available = Array.from(courtsAvail).sort();
+    const unavailable = [1, 2, 3, 4, 5, 6, 7, 8].filter(c => !courtsAvail.has(c));
+    return { available, unavailable };
+  }, [availSlots, form.time, form.slots]);
+
+  function toggleCourt(c) {
+    if (courtAvailability.unavailable.includes(c)) return;
+    setForm(f => {
+      const set = new Set(f.courts);
+      if (set.has(c)) set.delete(c);
+      else set.add(c);
+      const arr = Array.from(set).sort();
+      return { ...f, courts: arr.length ? arr : [c] };
+    });
+  }
+
+  async function submit() {
+    if (!form.phone) return showToast("Phone required", "error");
+    if (!form.name) return showToast("Name required", "error");
+    if (form.courts.length === 0) return showToast("Pick at least one court", "error");
+
+    setSubmitting(true);
+    const r = await api("adminCreateBooking", {
+      phone: form.phone,
+      name: form.name,
+      email: form.email,
+      date: form.date,
+      time: form.time,
+      slots: form.slots,
+      courts: form.courts.length,
+      source: "Walk-in"
+    });
+    setSubmitting(false);
+    if (r.ok) {
+      showToast("Walk-in booked", "success");
+      onCreated && onCreated();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  // Time options: 06:00 to 21:30 in 30-min steps
+  const timeOptions = useMemo(() => {
+    const out = [];
+    for (let h = OPEN_HOUR; h < CLOSE_HOUR; h++) {
+      for (const m of [0, 30]) {
+        const t = String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+        const slot = availSlots.find(s => s.time === t);
+        const isFree = slot ? (slot.availableCount > 0) : false;
+        out.push({ value: t, label: t + (isFree ? "" : "  (full)"), disabled: !isFree });
+      }
+    }
+    return out;
+  }, [availSlots]);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">New walk-in booking</div>
+            <h2>Walk-in</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        <div className="field">
+          <div className="field-label">Phone</div>
+          <input
+            type="tel"
+            inputMode="numeric"
+            value={form.phone}
+            placeholder="e.g. 12345678"
+            onChange={(e) => setForm({ ...form, phone: e.target.value.replace(/[^0-9]/g, "") })}
+          />
+        </div>
+
+        <div className="field">
+          <div className="field-label">Customer name</div>
+          <input
+            type="text"
+            value={form.name}
+            placeholder="First & last name"
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+          />
+        </div>
+
+        <div className="field-row">
+          <div className="field">
+            <div className="field-label">Date</div>
+            <input
+              type="date"
+              value={form.date}
+              onChange={(e) => setForm({ ...form, date: e.target.value, courts: [1] })}
+            />
+          </div>
+          <div className="field">
+            <div className="field-label">Start time</div>
+            <select value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value, courts: [1] })}>
+              {timeOptions.map(o => (
+                <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="field-label">Duration</div>
+          <select value={form.slots} onChange={(e) => setForm({ ...form, slots: parseInt(e.target.value) })}>
+            <option value={2}>1h</option>
+            <option value={3}>1h 30m</option>
+            <option value={4}>2h</option>
+            <option value={5}>2h 30m</option>
+            <option value={6}>3h</option>
+            <option value={7}>3h 30m</option>
+            <option value={8}>4h</option>
+          </select>
+        </div>
+
+        <div className="field">
+          <div className="field-label">
+            Courts {form.courts.length > 0 && <span style={{ opacity: 0.6, fontSize: 10 }}>· selected: {form.courts.join(", ")}</span>}
+          </div>
+          <div className="court-picker">
+            {[1, 2, 3, 4, 5, 6, 7, 8].map(c => {
+              const isUnavail = courtAvailability.unavailable.includes(c);
+              const isOn = form.courts.includes(c);
+              return (
+                <div
+                  key={c}
+                  className={"ct" + (isOn ? " on" : "") + (isUnavail ? " unavail" : "")}
+                  onClick={() => toggleCourt(c)}
+                >
+                  C·{c}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {pricePreview && (
+          <div className="modal-detail-row" style={{ marginTop: 12 }}>
+            <span className="k">Estimated total</span>
+            <span className="v" style={{ fontSize: 18, fontFamily: "var(--serif)", fontStyle: "italic" }}>
+              ${(pricePreview.total || 0).toFixed(2)}
+              {pricePreview.discountPct > 0 && (
+                <span style={{ marginLeft: 8, fontSize: 11, fontFamily: "var(--mono)", color: "var(--clay)" }}>
+                  −{pricePreview.discountPct}%
+                </span>
+              )}
+            </span>
+          </div>
+        )}
+
+        <div className="modal-warning">
+          Walk-in booking bypasses the customer's phone OTP. SMS confirmation will still be sent.
+        </div>
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button
+            className="btn primary"
+            onClick={submit}
+            disabled={submitting || !form.phone || !form.name || form.courts.length === 0}
+          >
+            {submitting ? "Booking…" : "Confirm walk-in"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/* ====================================================================
+   MEMBERS TAB — list, add (with Founding cap), edit, renew
+   ==================================================================== */
+
+function ScreenMembers() {
+  const [members, setMembers] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [showAdd, setShowAdd] = useState(false);
+  const [editMember, setEditMember] = useState(null);
+
+  async function load() {
+    setLoading(true);
+    const r = await api("adminListMembers");
+    if (r.ok) setMembers(r.members || []);
+    else showToast(r.error || "Failed to load", "error");
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, []);
+
+  const founding = (members || []).filter(m => m.tier === "Founding" && m.status === "Active");
+  const standard = (members || []).filter(m => m.tier === "Standard" && m.status === "Active");
+
+  const FOUNDING_CAP = 20;
+  const foundingFull = founding.length >= FOUNDING_CAP;
+
+  const filtered = (members || []).filter(m => {
+    if (!search.trim()) return true;
+    const s = search.toLowerCase();
+    return (
+      m.name.toLowerCase().includes(s) ||
+      m.phone.includes(s) ||
+      m.memberNumber.toLowerCase().includes(s)
+    );
+  });
+
+  return (
+    <div className="main">
+      <div className="main-head">
+        <div>
+          <div className="title">Membership</div>
+          <h1>Members</h1>
+        </div>
+        <div>
+          <button className="btn primary" onClick={() => setShowAdd(true)}>+ Add member</button>
+        </div>
+      </div>
+
+      {/* Counters */}
+      <div className="member-header">
+        <div className={"member-counter founding" + (foundingFull ? " full" : "")}>
+          <div className="label">Founding · capped at {FOUNDING_CAP}</div>
+          <div className="big">{founding.length}<span className="of">of {FOUNDING_CAP}</span></div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.14em", opacity: 0.6, marginTop: 4 }}>
+            {foundingFull ? "Capped — no more Founding slots" : (FOUNDING_CAP - founding.length) + " slots remain"}
+          </div>
+        </div>
+        <div className="member-counter standard">
+          <div className="label">Standard · unlimited</div>
+          <div className="big">{standard.length}</div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.14em", opacity: 0.6, marginTop: 4 }}>
+            Active annual memberships
+          </div>
+        </div>
+      </div>
+
+      {/* Search */}
+      <div style={{ marginBottom: 16 }}>
+        <input
+          type="text"
+          className="search-input"
+          placeholder="Search name, phone, member number…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 40, display: "flex", justifyContent: "center" }}>
+          <BouncingBall size="md" />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="empty">No members match</div>
+      ) : (
+        <div className="member-list">
+          {filtered.map(m => (
+            <div
+              key={m.phone}
+              className={"member-row" + (m.tier === "Founding" ? " founding" : "")}
+              onClick={() => setEditMember(m)}
+            >
+              <div className="num">{m.memberNumber}</div>
+              <div>
+                <div className="name">
+                  {m.name}
+                  <span className={"tier-pill " + m.tier} style={{ marginLeft: 8 }}>{m.tier}</span>
+                  {m.isExpired && <span className="status-pill cancelled" style={{ marginLeft: 6 }}>Expired</span>}
+                  {m.status !== "Active" && !m.isExpired && (
+                    <span className="status-pill cancelled" style={{ marginLeft: 6 }}>{m.status}</span>
+                  )}
+                </div>
+                <div className="meta">{m.phone} · Exp. {m.expiryDate || "—"}</div>
+              </div>
+              <div className="bday">
+                <span className="label">Birthday</span>
+                {m.birthday || "—"}
+              </div>
+              <button className="btn-sm">Manage</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showAdd && (
+        <AddMemberModal
+          foundingFull={foundingFull}
+          onClose={() => setShowAdd(false)}
+          onCreated={() => { load(); setShowAdd(false); }}
+        />
+      )}
+
+      {editMember && (
+        <EditMemberModal
+          member={editMember}
+          onClose={() => setEditMember(null)}
+          onSaved={() => { load(); setEditMember(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AddMemberModal({ foundingFull, onClose, onCreated }) {
+  const [form, setForm] = useState({
+    phone: "",
+    name: "",
+    email: "",
+    tier: foundingFull ? "Standard" : "Founding",
+    birthday: "",
+    notes: ""
+  });
+  const [bMonth, setBMonth] = useState("");
+  const [bDay, setBDay] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    if (!form.phone) return showToast("Phone required", "error");
+    if (!form.name) return showToast("Name required", "error");
+    if (!bMonth || !bDay) return showToast("Birthday required", "error");
+    const m = parseInt(bMonth);
+    const d = parseInt(bDay);
+    if (m < 1 || m > 12 || d < 1 || d > 31) return showToast("Invalid birthday", "error");
+    const birthday = String(m).padStart(2, "0") + "-" + String(d).padStart(2, "0");
+
+    setSubmitting(true);
+    const r = await api("adminCreateMember", {
+      phone: form.phone,
+      name: form.name,
+      email: form.email,
+      tier: form.tier,
+      birthday: birthday,
+      notes: form.notes
+    });
+    setSubmitting(false);
+    if (r.ok) {
+      showToast("Member " + r.memberNumber + " added", "success");
+      onCreated && onCreated();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  const months = [
+    "01 · Jan", "02 · Feb", "03 · Mar", "04 · Apr", "05 · May", "06 · Jun",
+    "07 · Jul", "08 · Aug", "09 · Sep", "10 · Oct", "11 · Nov", "12 · Dec"
+  ];
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">New membership</div>
+            <h2>Add Member</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        <div className="field">
+          <div className="field-label">Tier</div>
+          <select value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value })}>
+            <option value="Founding" disabled={foundingFull}>
+              Founding {foundingFull ? "(capped at 20)" : "· $200/yr · 50% off"}
+            </option>
+            <option value="Standard">Standard · $150/yr · 30% off</option>
+          </select>
+        </div>
+
+        <div className="field">
+          <div className="field-label">Phone</div>
+          <input
+            type="tel"
+            inputMode="numeric"
+            value={form.phone}
+            placeholder="e.g. 12345678"
+            onChange={(e) => setForm({ ...form, phone: e.target.value.replace(/[^0-9]/g, "") })}
+          />
+        </div>
+
+        <div className="field">
+          <div className="field-label">Full name</div>
+          <input
+            type="text"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+          />
+        </div>
+
+        <div className="field">
+          <div className="field-label">Email (optional)</div>
+          <input
+            type="email"
+            value={form.email}
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
+          />
+        </div>
+
+        <div className="field">
+          <div className="field-label">Birthday · MM and DD</div>
+          <div className="field-row">
+            <select value={bMonth} onChange={(e) => setBMonth(e.target.value)}>
+              <option value="">Month…</option>
+              {months.map((m, i) => (
+                <option key={i} value={String(i + 1).padStart(2, "0")}>{m}</option>
+              ))}
+            </select>
+            <input
+              type="number"
+              min="1"
+              max="31"
+              value={bDay}
+              placeholder="Day"
+              onChange={(e) => setBDay(e.target.value)}
+            />
+          </div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.12em", opacity: 0.55, marginTop: 4 }}>
+            Used to grant birthday-week sessions. Day only, no year.
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="field-label">Notes (optional)</div>
+          <textarea
+            value={form.notes}
+            onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            placeholder="Anything staff should remember…"
+          />
+        </div>
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button
+            className="btn primary"
+            onClick={submit}
+            disabled={submitting || !form.phone || !form.name || !bMonth || !bDay}
+          >
+            {submitting ? "Adding…" : "Add member"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditMemberModal({ member, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    name: member.name || "",
+    email: member.email || "",
+    expiryDate: member.expiryDate || "",
+    birthday: member.birthday || "",
+    status: member.status || "Active",
+    notes: member.notes || ""
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    const r = await api("adminUpdateMember", {
+      phone: member.phone,
+      name: form.name,
+      email: form.email,
+      expiryDate: form.expiryDate,
+      birthday: form.birthday,
+      status: form.status,
+      notes: form.notes
+    });
+    setSaving(false);
+    if (r.ok) {
+      showToast("Saved", "success");
+      onSaved && onSaved();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  async function renew() {
+    if (!confirm("Renew this membership for another year?")) return;
+    const exp = member.expiryDate ? new Date(member.expiryDate + "T12:00:00") : new Date();
+    if (exp < new Date()) exp.setTime(Date.now());  // start from today if expired
+    exp.setFullYear(exp.getFullYear() + 1);
+    const newExp = exp.getFullYear() + "-" + String(exp.getMonth() + 1).padStart(2, "0") + "-" + String(exp.getDate()).padStart(2, "0");
+    setForm(f => ({ ...f, expiryDate: newExp, status: "Active" }));
+    showToast("Renewal date set — press Save to confirm", "success");
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">{member.memberNumber} · {member.phone}</div>
+            <h2>{member.name}</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        <div className="modal-detail-row">
+          <span className="k">Tier</span>
+          <span className="v"><span className={"tier-pill " + member.tier}>{member.tier}</span></span>
+        </div>
+        <div className="modal-detail-row">
+          <span className="k">Started</span>
+          <span className="v">{member.startDate || "—"}</span>
+        </div>
+
+        <div className="field" style={{ marginTop: 14 }}>
+          <div className="field-label">Name</div>
+          <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        </div>
+
+        <div className="field">
+          <div className="field-label">Email</div>
+          <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        </div>
+
+        <div className="field">
+          <div className="field-label">Birthday · MM-DD</div>
+          <input
+            type="text"
+            value={form.birthday}
+            placeholder="05-15"
+            maxLength={5}
+            onChange={(e) => setForm({ ...form, birthday: e.target.value })}
+          />
+        </div>
+
+        <div className="field-row">
+          <div className="field">
+            <div className="field-label">Expiry date</div>
+            <input
+              type="date"
+              value={form.expiryDate}
+              onChange={(e) => setForm({ ...form, expiryDate: e.target.value })}
+            />
+          </div>
+          <div className="field">
+            <div className="field-label">Status</div>
+            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+              <option value="Active">Active</option>
+              <option value="Cancelled">Cancelled</option>
+              <option value="Paused">Paused</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="field-label">Notes</div>
+          <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+        </div>
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose} disabled={saving}>Close</button>
+          <button className="btn" onClick={renew} disabled={saving}>Renew +1yr</button>
+          <button className="btn primary" onClick={save} disabled={saving}>
+            {saving ? "Saving…" : "Save changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 /* ====================================================================
    SETTINGS
@@ -1715,9 +3518,9 @@ function App() {
   // Tab definitions
   const tabs = [
     { id: "dashboard", label: "Dashboard", ready: true },
-    { id: "bookings",  label: "Bookings",  ready: false },
+    { id: "bookings",  label: "Bookings",  ready: true },
     { id: "pos",       label: "POS",       ready: false },
-    { id: "members",   label: "Members",   ready: false },
+    { id: "members",   label: "Members",   ready: true },
     { id: "customers", label: "Customers", ready: false },
     { id: "sms",       label: "SMS Log",   ready: false },
     { id: "settings",  label: "Settings",  ready: true }
@@ -1732,12 +3535,12 @@ function App() {
   let body;
   switch (screen) {
     case "dashboard": body = <ScreenDashboard />; break;
+    case "bookings":  body = <ScreenBookings />; break;
+    case "members":   body = <ScreenMembers />; break;
     case "settings":  body = <ScreenSettings />; break;
-    case "bookings":  body = <ScreenSoon title="Bookings" message="Manage today's bookings, mark paid, handle no-shows, create walk-ins. Coming in the next drop." />; break;
-    case "pos":       body = <ScreenSoon title="Point of Sale" message="Drinks + Pro Shop POS with inventory, custom discounts, and payment methods. Coming in the next drop." />; break;
-    case "members":   body = <ScreenSoon title="Members" message="Add members with MM-DD birthday, manage Founding 20 cap, renew memberships. Coming in the next drop." />; break;
-    case "customers": body = <ScreenSoon title="Customers" message="Guest list with booking history. Coming in the next drop." />; break;
-    case "sms":       body = <ScreenSoon title="SMS Log" message="Searchable SMS log with cost tracking. Coming in the next drop." />; break;
+    case "pos":       body = <ScreenSoon title="Point of Sale" message="Drinks + Pro Shop POS with inventory, custom discounts, and payment methods. Coming in Phase 2." />; break;
+    case "customers": body = <ScreenSoon title="Customers" message="Guest list with booking history and quick member-conversion. Coming in Phase 2." />; break;
+    case "sms":       body = <ScreenSoon title="SMS Log" message="Searchable SMS log with cost tracking. Coming in Phase 2." />; break;
     default:          body = <ScreenDashboard />;
   }
 
