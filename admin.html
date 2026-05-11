@@ -1503,6 +1503,57 @@ button { font-family: inherit; cursor: pointer; }
   font-size: 9px;
 }
 
+/* Walk-in timeline blocks */
+.booking-block.status-walkin {
+  background: var(--peach, #D9785C);
+  color: var(--cream);
+  border-color: var(--peach, #D9785C);
+}
+.booking-block.status-walkin::before {
+  content: "◉";
+  margin-right: 3px;
+  font-size: 9px;
+}
+
+/* Add booking chooser big buttons */
+.big-choice {
+  background: var(--cream);
+  border: 1.5px solid var(--ink);
+  border-radius: 6px;
+  padding: 18px 16px;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+.big-choice:hover {
+  transform: translateY(-2px);
+  border-color: var(--clay);
+  background: var(--paper);
+}
+.big-choice.walkin-choice:hover { border-color: var(--peach, #D9785C); }
+.big-choice .icon {
+  font-size: 28px;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+.big-choice .title {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 20px;
+  line-height: 1.1;
+}
+.big-choice .sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  opacity: 0.6;
+  line-height: 1.4;
+}
+
 /* ============== BOOKINGS RANGE VIEW TOGGLE ============== */
 .range-toggle {
   display: inline-flex;
@@ -2129,6 +2180,107 @@ button { font-family: inherit; cursor: pointer; }
   padding: 0;
 }
 .cart-item .ci-x:hover { color: var(--clay); opacity: 1; }
+
+/* Attached items in cart (bookings, walk-in players) */
+.cart-attached {
+  background: rgba(61,122,79,0.05);
+  border: 1.5px dashed var(--green);
+  border-radius: 4px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.cart-attached .head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--green);
+  margin-bottom: 8px;
+}
+.cart-attached .head .count {
+  background: var(--green);
+  color: var(--cream);
+  padding: 2px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+}
+.cart-attached .att-item {
+  display: grid;
+  grid-template-columns: 1fr auto 24px;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px dashed rgba(61,122,79,0.18);
+}
+.cart-attached .att-item:last-child { border-bottom: none; }
+.cart-attached .att-info {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.cart-attached .att-icon {
+  font-size: 14px;
+  opacity: 0.8;
+}
+.cart-attached .att-text .att-name {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.cart-attached .att-text .att-sub {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  opacity: 0.55;
+  margin-top: 2px;
+}
+.cart-attached .att-price {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+/* Attach picker rows */
+.att-pick-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(26,26,26,0.08);
+}
+.att-pick-row .title {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.att-pick-row .sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  opacity: 0.55;
+  margin-top: 3px;
+}
+.att-pick-row .id {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  opacity: 0.4;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+.att-pick-row .amt {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 14px;
+  min-width: 65px;
+  text-align: right;
+}
 
 .cart-discount {
   padding: 12px 0;
@@ -3104,6 +3256,7 @@ function Timeline({ bookings, dateStr }) {
       const courtNums = String(b.courtNumbers || "")
         .split(",").map(s => parseInt(s.trim())).filter(n => n >= 1 && n <= COURTS_COUNT);
       const isCoaching = b.entryType === "coaching";
+      const isWalkIn = b.entryType === "walkin";
       for (const c of courtNums) {
         out.push({
           court: c,
@@ -3111,15 +3264,20 @@ function Timeline({ bookings, dateStr }) {
           slots: slots,
           name: isCoaching
             ? "Coach: " + (b.coachName || b.name || "—")
+            : isWalkIn
+            ? "Open Play · " + (b.playerCount || 0) + "/" + (b.playerCap || 15)
             : (b.name || "—"),
           subtext: isCoaching
             ? (b.studentName ? b.studentName : (b.sessionType || ""))
+            : isWalkIn
+            ? "$" + (b.rate || 0) + "/player"
             : b.time + "–" + b.timeEnd,
           time: b.time + "–" + b.timeEnd,
           total: b.total || 0,
-          status: isCoaching ? "coaching" : derived,
+          status: isCoaching ? "coaching" : isWalkIn ? "walkin" : derived,
           isMember: !!(b.memberTier && b.memberTier.length > 0),
           isCoaching: isCoaching,
+          isWalkIn: isWalkIn,
           bookingId: b.bookingId
         });
       }
@@ -3631,7 +3789,8 @@ function ScreenBookings() {
   const [entries, setEntries] = useState(null);
   const [loading, setLoading] = useState(true);
   const [detailBooking, setDetailBooking] = useState(null);
-  const [showWalkIn, setShowWalkIn] = useState(false);
+  const [walkInBlock, setWalkInBlock] = useState(null); // walk-in block modal
+  const [addBookingFlow, setAddBookingFlow] = useState(null); // null | "chooser" | "court" | "walkin"
 
   // Compute the date range we need to fetch based on view + selected date
   const range = useMemo(() => {
@@ -3689,6 +3848,12 @@ function ScreenBookings() {
     return entries.filter(e => e.date === date && e.entryType === "coaching");
   }, [entries, date]);
 
+  // Walk-in entries on day (separate from guest bookings)
+  const dayWalkIns = useMemo(() => {
+    if (!entries) return [];
+    return entries.filter(e => e.date === date && e.entryType === "walkin");
+  }, [entries, date]);
+
   // Status counts (guest bookings only)
   const counts = useMemo(() => {
     const c = { all: 0, awaiting: 0, at_risk: 0, paid: 0, no_show_freed: 0, no_show_kept: 0, completed: 0, cancelled: 0 };
@@ -3743,7 +3908,7 @@ function ScreenBookings() {
             <button className={view === "week" ? "on" : ""} onClick={() => setView("week")}>Week</button>
             <button className={view === "month" ? "on" : ""} onClick={() => setView("month")}>Month</button>
           </div>
-          <button className="btn primary" onClick={() => setShowWalkIn(true)}>+ Walk-in</button>
+          <button className="btn primary" onClick={() => setAddBookingFlow("chooser")}>+ Add booking</button>
         </div>
       </div>
 
@@ -3831,6 +3996,55 @@ function ScreenBookings() {
                 </div>
               )}
 
+              {/* Walk-in / Drop-in open play sessions */}
+              {dayWalkIns.length > 0 && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", fontWeight: 700, color: "var(--peach,#D9785C)", marginBottom: 8 }}>
+                    ◉ Open play · drop-in · {dayWalkIns.length}
+                  </div>
+                  {dayWalkIns.map(w => {
+                    const full = w.playerCount >= w.playerCap;
+                    return (
+                      <div
+                        key={w.bookingId}
+                        className="booking-row"
+                        style={{ borderLeft: "5px solid var(--peach,#D9785C)", background: "rgba(217,120,92,0.05)", cursor: "pointer" }}
+                        onClick={async () => {
+                          // Fetch latest block detail before opening
+                          const r = await api("adminListWalkInBlocks", { dateFrom: w.date, dateTo: w.date });
+                          if (r.ok) {
+                            const fresh = (r.blocks || []).find(b => b.blockId === w.bookingId);
+                            if (fresh) setWalkInBlock(fresh);
+                          }
+                        }}
+                      >
+                        <div className="when">{w.time}<span className="endtime">→ {w.timeEnd}</span></div>
+                        <div className="who">
+                          <div className="name">
+                            ◉ Open Play · Court {w.courtNumbers}
+                            <span style={{
+                              marginLeft: 8, fontFamily: "var(--mono)", fontSize: 9,
+                              letterSpacing: "0.16em", textTransform: "uppercase",
+                              background: full ? "var(--clay)" : "var(--peach,#D9785C)", color: "var(--cream)",
+                              padding: "2px 7px", borderRadius: 3
+                            }}>
+                              {w.playerCount}/{w.playerCap} {full ? "· FULL" : "players"}
+                            </span>
+                            {w.status === "Closed" && <span className="status-pill cancelled" style={{ marginLeft: 6 }}>Closed</span>}
+                          </div>
+                          <div className="meta">{w.durationHours}h · ${w.rate}/player · {w.status}</div>
+                          <div className="id">{w.bookingId}</div>
+                        </div>
+                        <div className="actions">
+                          <div className="total" style={{ color: "var(--peach,#D9785C)" }}>${(w.total || 0).toFixed(2)}</div>
+                          <button className="btn-sm primary" onClick={(e) => { e.stopPropagation(); }}>Manage players</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               {/* Guest bookings */}
               {dayBookings.length === 0 ? (
                 <div className="empty">
@@ -3878,11 +4092,46 @@ function ScreenBookings() {
         />
       )}
 
-      {showWalkIn && (
-        <WalkInModal
+      {walkInBlock && (
+        <WalkInBlockModal
+          block={walkInBlock}
+          onClose={() => setWalkInBlock(null)}
+          onChanged={() => load()}
+        />
+      )}
+
+      {addBookingFlow === "chooser" && (
+        <AddBookingChooserModal
+          onClose={() => setAddBookingFlow(null)}
+          onPick={(kind) => setAddBookingFlow(kind)}
+        />
+      )}
+
+      {addBookingFlow === "court" && (
+        <BookingModal
           dateDefault={date}
-          onClose={() => setShowWalkIn(false)}
-          onCreated={() => { load(); setShowWalkIn(false); }}
+          onClose={() => setAddBookingFlow(null)}
+          onCreated={() => { load(); setAddBookingFlow(null); }}
+        />
+      )}
+
+      {addBookingFlow === "walkin" && (
+        <NewWalkInBlockModal
+          dateDefault={date}
+          onClose={() => setAddBookingFlow(null)}
+          onCreated={(blockId) => {
+            load();
+            setAddBookingFlow(null);
+            // Auto-open the new block to start adding players
+            setTimeout(() => {
+              api("adminListWalkInBlocks", { dateFrom: date, dateTo: date }).then(r => {
+                if (r.ok) {
+                  const fresh = (r.blocks || []).find(b => b.blockId === blockId);
+                  if (fresh) setWalkInBlock(fresh);
+                }
+              });
+            }, 100);
+          }}
         />
       )}
     </div>
@@ -3891,30 +4140,103 @@ function ScreenBookings() {
 
 /* Week view: 7 days stacked, each a mini timeline */
 function WeekView({ entries, days, onDayClick }) {
+  const [hoverIso, setHoverIso] = useState(null);
+  const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
+
+  // Compute per-day breakdown
+  const dayStats = useMemo(() => {
+    const map = {};
+    for (const iso of days) {
+      const dayEntries = entries.filter(e => e.date === iso);
+      const guestEntries = dayEntries.filter(e => e.entryType === "booking" && e.derivedStatus !== "cancelled");
+      const coachEntries = dayEntries.filter(e => e.entryType === "coaching");
+      const courtRev = guestEntries.reduce((s, e) => s + (e.total || 0), 0);
+      const coachingRev = coachEntries.reduce((s, e) => s + (e.facilityEarns || 0), 0);
+      map[iso] = {
+        entries: [...guestEntries, ...coachEntries].sort((a, b) => (a.time || "").localeCompare(b.time || "")),
+        guestCount: guestEntries.length,
+        coachCount: coachEntries.length,
+        courtRev: courtRev,
+        coachingRev: coachingRev,
+        totalRev: courtRev + coachingRev
+      };
+    }
+    return map;
+  }, [entries, days]);
+
+  function handleMouseEnter(iso, e) {
+    setHoverIso(iso);
+    const rect = e.currentTarget.getBoundingClientRect();
+    setHoverPos({ x: rect.left + rect.width / 2, y: rect.bottom + 6 });
+  }
+
+  const hoverData = hoverIso && dayStats[hoverIso];
+
   return (
-    <div className="week-grid">
+    <div className="week-grid" style={{ position: "relative" }}>
       {days.map(iso => {
-        const dayEntries = entries.filter(e => e.date === iso);
-        const guestCount = dayEntries.filter(e => e.entryType === "booking" && e.derivedStatus !== "cancelled").length;
-        const coachCount = dayEntries.filter(e => e.entryType === "coaching").length;
-        const totalRev = dayEntries.reduce((s, e) => s + (e.total || 0), 0);
         const d = new Date(iso + "T12:00:00");
         const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
         const isToday = iso === todayISO();
+        const stats = dayStats[iso];
+
+        // Build the breakdown string
+        const parts = [];
+        if (stats.guestCount > 0) parts.push(stats.guestCount + " booking" + (stats.guestCount === 1 ? "" : "s"));
+        if (stats.coachCount > 0) parts.push(stats.coachCount + " coaching");
+        const countText = parts.length > 0 ? parts.join(" · ") : "No activity";
+
         return (
-          <div className="week-day" key={iso}>
+          <div className="week-day" key={iso}
+            onMouseEnter={stats.entries.length > 0 ? (e) => handleMouseEnter(iso, e) : undefined}
+            onMouseLeave={() => setHoverIso(null)}
+          >
             <div className={"week-day-head" + (isToday ? " is-today" : "")}>
               <div className="label" onClick={() => onDayClick(iso)} style={{ cursor: "pointer" }}>
                 {DOW[d.getDay()]} <span className="num">{d.getDate()}</span>
               </div>
               <div className="stats">
-                {guestCount} bookings{coachCount > 0 ? ` · ${coachCount} coaching` : ""} · ${totalRev.toFixed(0)}
+                <span>{countText}</span>
+                {stats.totalRev > 0 && (
+                  <span style={{ marginLeft: 10 }}>
+                    {stats.courtRev > 0 && <span title="Court rental revenue">${stats.courtRev.toFixed(0)} court</span>}
+                    {stats.courtRev > 0 && stats.coachingRev > 0 && " + "}
+                    {stats.coachingRev > 0 && <span title="Coaching revenue (facility share)" style={{ color: "var(--wood-2,#C9A24A)" }}>${stats.coachingRev.toFixed(0)} coaching</span>}
+                  </span>
+                )}
               </div>
             </div>
-            <Timeline bookings={dayEntries} dateStr={iso} />
+            <Timeline bookings={entries.filter(e => e.date === iso)} dateStr={iso} />
           </div>
         );
       })}
+
+      {hoverData && hoverData.entries.length > 0 && (
+        <div
+          className="month-hover-popover"
+          style={{ left: hoverPos.x + "px", top: hoverPos.y + "px" }}
+        >
+          <div className="head">
+            <div className="title">{fmtDateLong(hoverIso)}</div>
+            <div className="meta">
+              {hoverData.guestCount} guest · {hoverData.coachCount > 0 ? hoverData.coachCount + " coaching · " : ""}
+              ${hoverData.totalRev.toFixed(0)} revenue
+            </div>
+          </div>
+          <div className="list">
+            {hoverData.entries.slice(0, 6).map((e, idx) => (
+              <div key={idx} className={"row" + (e.entryType === "coaching" ? " is-coach" : "")}>
+                <span className="t">{e.time}</span>
+                <span className="n">{e.entryType === "coaching" ? "★ " : ""}{e.name}</span>
+                <span className="c">C·{e.courtNumbers}</span>
+              </div>
+            ))}
+            {hoverData.entries.length > 6 && (
+              <div className="more">+ {hoverData.entries.length - 6} more · click day to view</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -4264,7 +4586,7 @@ function BookingDetailModal({ booking, onClose, onAction }) {
   );
 }
 
-function WalkInModal({ dateDefault, onClose, onCreated }) {
+function BookingModal({ dateDefault, onClose, onCreated }) {
   const [form, setForm] = useState({
     phone: "",
     name: "",
@@ -4305,15 +4627,17 @@ function WalkInModal({ dateDefault, onClose, onCreated }) {
     if (!availSlots.length) return { available: [], unavailable: [] };
     const startIdx = availSlots.findIndex(s => s.time === form.time);
     if (startIdx < 0) return { available: [], unavailable: [] };
+    // courts boolean array of length 8: index 0 = court 1, ..., index 7 = court 8
     const courtsAvail = new Set([1, 2, 3, 4, 5, 6, 7, 8]);
     for (let i = 0; i < form.slots; i++) {
       const s = availSlots[startIdx + i];
       if (!s) {
         return { available: [], unavailable: [1, 2, 3, 4, 5, 6, 7, 8] };
       }
-      const free = new Set((s.freeCourts || []).map(Number));
-      for (const c of Array.from(courtsAvail)) {
-        if (!free.has(c)) courtsAvail.delete(c);
+      const courtsBoolArr = s.courts || [];
+      for (let cIdx = 0; cIdx < 8; cIdx++) {
+        const courtNum = cIdx + 1;
+        if (!courtsBoolArr[cIdx]) courtsAvail.delete(courtNum);
       }
     }
     const available = Array.from(courtsAvail).sort();
@@ -4346,7 +4670,7 @@ function WalkInModal({ dateDefault, onClose, onCreated }) {
       time: form.time,
       slots: form.slots,
       courts: form.courts.length,
-      source: "Walk-in"
+      source: "Staff"
     });
     setSubmitting(false);
     if (r.ok) {
@@ -4376,8 +4700,8 @@ function WalkInModal({ dateDefault, onClose, onCreated }) {
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
-            <div className="kicker">New walk-in booking</div>
-            <h2>Walk-in</h2>
+            <div className="kicker">New court reservation</div>
+            <h2>Add Booking</h2>
           </div>
           <button className="x" onClick={onClose}>×</button>
         </div>
@@ -4471,7 +4795,7 @@ function WalkInModal({ dateDefault, onClose, onCreated }) {
         )}
 
         <div className="modal-warning">
-          Walk-in booking bypasses the customer's phone OTP. SMS confirmation will still be sent.
+          Staff booking bypasses the customer's phone OTP. SMS confirmation will still be sent if phone is provided.
         </div>
 
         <div className="actions">
@@ -4481,7 +4805,487 @@ function WalkInModal({ dateDefault, onClose, onCreated }) {
             onClick={submit}
             disabled={submitting || !form.phone || !form.name || form.courts.length === 0}
           >
-            {submitting ? "Booking…" : "Confirm walk-in"}
+            {submitting ? "Booking…" : "Create booking"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/* ====================================================================
+   ADD BOOKING CHOOSER + WALK-IN MODALS
+   ==================================================================== */
+
+function AddBookingChooserModal({ onClose, onPick }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">What does the guest want?</div>
+            <h2>Add Booking</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, padding: "10px 0 20px" }}>
+          <button className="big-choice" onClick={() => onPick("court")}>
+            <div className="icon">⬛</div>
+            <div className="title">Court reservation</div>
+            <div className="sub">Reserve one or more courts for a group at the regular hourly rate</div>
+          </button>
+          <button className="big-choice walkin-choice" onClick={() => onPick("walkin")}>
+            <div className="icon">◉</div>
+            <div className="title">Drop-in · Open play</div>
+            <div className="sub">Open a court for individual players to join · $3-5 per visit</div>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NewWalkInBlockModal({ dateDefault, onClose, onCreated }) {
+  const [form, setForm] = useState({
+    date: dateDefault || todayISO(),
+    time: "18:00",
+    durationHours: 2,
+    court: 1,
+    notes: ""
+  });
+  const [availSlots, setAvailSlots] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [computedRate, setComputedRate] = useState(null);
+
+  // Compute the auto rate based on date + start time
+  useEffect(() => {
+    api("adminGetWalkInRate", { date: form.date, time: form.time }).then(r => {
+      if (r.ok) setComputedRate(r);
+    });
+  }, [form.date, form.time]);
+
+  // Load availability for chosen date
+  useEffect(() => {
+    api("getAvailability", { date: form.date }).then(r => {
+      if (r.ok) setAvailSlots(r.slots || []);
+    });
+  }, [form.date]);
+
+  // Court availability across full duration
+  const courtAvailability = useMemo(() => {
+    if (!availSlots.length) return { unavailable: [] };
+    const startIdx = availSlots.findIndex(s => s.time === form.time);
+    if (startIdx < 0) return { unavailable: [1,2,3,4,5,6,7,8] };
+    const slots = Math.round(form.durationHours * 60 / 30);
+    const courtsAvail = new Set([1,2,3,4,5,6,7,8]);
+    for (let i = 0; i < slots; i++) {
+      const s = availSlots[startIdx + i];
+      if (!s) return { unavailable: [1,2,3,4,5,6,7,8] };
+      const courtsBoolArr = s.courts || [];
+      for (let cIdx = 0; cIdx < 8; cIdx++) {
+        const courtNum = cIdx + 1;
+        if (!courtsBoolArr[cIdx]) courtsAvail.delete(courtNum);
+      }
+    }
+    return { unavailable: [1,2,3,4,5,6,7,8].filter(c => !courtsAvail.has(c)) };
+  }, [availSlots, form.time, form.durationHours]);
+
+  async function submit() {
+    if (courtAvailability.unavailable.includes(form.court)) {
+      return showToast("Court " + form.court + " is busy during this window", "error");
+    }
+    setSubmitting(true);
+    const r = await api("adminCreateWalkInBlock", {
+      date: form.date,
+      time: form.time,
+      durationHours: form.durationHours,
+      court: form.court,
+      notes: form.notes
+    });
+    setSubmitting(false);
+    if (r.ok) {
+      showToast("Open play block created · $" + r.rate + "/player", "success");
+      onCreated && onCreated(r.blockId);
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  // Time options
+  const timeOptions = useMemo(() => {
+    const out = [];
+    for (let h = OPEN_HOUR; h < CLOSE_HOUR; h++) {
+      for (const m of [0, 30]) {
+        out.push(String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0"));
+      }
+    }
+    return out;
+  }, []);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">Open court for drop-in players</div>
+            <h2>New Open Play</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        <div className="field-row three">
+          <div className="field">
+            <div className="field-label">Date</div>
+            <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+          </div>
+          <div className="field">
+            <div className="field-label">Start time</div>
+            <select value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })}>
+              {timeOptions.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <div className="field-label">Duration</div>
+            <select value={form.durationHours} onChange={(e) => setForm({ ...form, durationHours: parseFloat(e.target.value) })}>
+              <option value={1}>1h</option>
+              <option value={1.5}>1h 30m</option>
+              <option value={2}>2h</option>
+              <option value={2.5}>2h 30m</option>
+              <option value={3}>3h</option>
+              <option value={4}>4h</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="field-label">Court</div>
+          <div className="court-picker">
+            {[1,2,3,4,5,6,7,8].map(c => {
+              const isUnavail = courtAvailability.unavailable.includes(c);
+              const isOn = form.court === c;
+              return (
+                <div
+                  key={c}
+                  className={"ct" + (isOn ? " on" : "") + (isUnavail ? " unavail" : "")}
+                  onClick={() => { if (!isUnavail) setForm({ ...form, court: c }); }}
+                >C·{c}</div>
+              );
+            })}
+          </div>
+        </div>
+
+        {computedRate && (
+          <div className="math-preview">
+            <div className="row total facility">
+              <span className="k">Auto rate per player</span>
+              <span className="v">${computedRate.rate.toFixed(2)}</span>
+            </div>
+            <div className="formula">
+              {form.time >= "17:00" || (new Date(form.date + "T12:00:00").getDay() % 6 === 0)
+                ? "Peak (weekday after " + computedRate.peakStartHour + ":00 or weekend)"
+                : "Off-peak (weekday before " + computedRate.peakStartHour + ":00)"}
+              {" · Cap: " + computedRate.maxPlayers + " players"}
+            </div>
+          </div>
+        )}
+
+        <div className="field">
+          <div className="field-label">Notes (optional)</div>
+          <textarea value={form.notes} placeholder="e.g. Open play night · all skill levels"
+            onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+        </div>
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button className="btn primary" onClick={submit} disabled={submitting}>
+            {submitting ? "Creating…" : "Open the court"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WalkInBlockModal({ block, onClose, onChanged }) {
+  const [players, setPlayers] = useState(block.players || []);
+  const [showAddPlayer, setShowAddPlayer] = useState(false);
+  const [working, setWorking] = useState(false);
+
+  async function refresh() {
+    const r = await api("adminListWalkInBlocks", { dateFrom: block.date, dateTo: block.date });
+    if (r.ok) {
+      const fresh = (r.blocks || []).find(b => b.blockId === block.blockId);
+      if (fresh) setPlayers(fresh.players || []);
+    }
+  }
+
+  async function markPaid(playerId) {
+    setWorking(true);
+    const r = await api("adminMarkWalkInPlayerPaid", { playerId: playerId, paymentMethod: "Cash" });
+    setWorking(false);
+    if (r.ok) {
+      showToast("Marked paid", "success");
+      refresh();
+      onChanged && onChanged();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  async function removePlayer(playerId) {
+    if (!confirm("Remove this player from the block?")) return;
+    setWorking(true);
+    const r = await api("adminRemoveWalkInPlayer", { playerId: playerId });
+    setWorking(false);
+    if (r.ok) {
+      showToast("Removed", "success");
+      refresh();
+      onChanged && onChanged();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  async function closeBlock() {
+    if (!confirm("Close this walk-in block? Players already added remain on record.")) return;
+    setWorking(true);
+    const r = await api("adminCloseWalkInBlock", { blockId: block.blockId });
+    setWorking(false);
+    if (r.ok) {
+      showToast("Block closed", "success");
+      onChanged && onChanged();
+      onClose && onClose();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  async function cancelBlock() {
+    if (!confirm("Cancel this walk-in block? Court will be freed and players removed from the roster.")) return;
+    setWorking(true);
+    const r = await api("adminCancelWalkInBlock", { blockId: block.blockId });
+    setWorking(false);
+    if (r.ok) {
+      showToast("Block cancelled", "success");
+      onChanged && onChanged();
+      onClose && onClose();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  const paid = players.filter(p => String(p.paymentStatus).toLowerCase() === "paid");
+  const pending = players.filter(p => String(p.paymentStatus).toLowerCase() !== "paid");
+  const capacity = block.playerCap || 15;
+  const full = players.length >= capacity;
+  const revenuePaid = paid.reduce((s, p) => s + p.amountPaid, 0);
+  const revenuePending = pending.reduce((s, p) => s + p.amountPaid, 0);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 640, maxHeight: "92vh" }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">{block.blockId} · {block.date}</div>
+            <h2>Open Play · Court {block.courtNumber}</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginBottom: 14 }}>
+          <div className="stat-card accent-ink">
+            <div className="label">Players</div>
+            <div className="value">{players.length}<span className="unit">of {capacity}</span></div>
+          </div>
+          <div className="stat-card accent-green">
+            <div className="label">Collected</div>
+            <div className="value">${revenuePaid.toFixed(2)}</div>
+          </div>
+          <div className="stat-card accent-clay">
+            <div className="label">Pending</div>
+            <div className="value">${revenuePending.toFixed(2)}</div>
+          </div>
+        </div>
+
+        <div className="modal-detail-row">
+          <span className="k">Time</span>
+          <span className="v">{block.time} – {(() => {
+            const [h,m] = block.time.split(":").map(Number);
+            const end = h*60+m+block.durationHours*60;
+            return String(Math.floor(end/60)).padStart(2,"0") + ":" + String(end%60).padStart(2,"0");
+          })()} ({block.durationHours}h)</span>
+        </div>
+        <div className="modal-detail-row">
+          <span className="k">Rate per player</span>
+          <span className="v">${block.rate.toFixed(2)}</span>
+        </div>
+        <div className="modal-detail-row">
+          <span className="k">Status</span>
+          <span className="v">
+            <span className={"status-pill " + (block.status === "Open" ? "paid" : block.status === "Closed" ? "completed" : "cancelled")}>
+              {block.status}
+            </span>
+          </span>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 14, marginBottom: 8 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", fontWeight: 700 }}>
+            Players · {players.length}/{capacity}
+          </div>
+          <button
+            className="btn-sm primary"
+            disabled={full || block.status !== "Open"}
+            onClick={() => setShowAddPlayer(true)}
+          >
+            {full ? "FULL" : "+ Add player"}
+          </button>
+        </div>
+
+        {players.length === 0 ? (
+          <div className="empty-mini" style={{ padding: 20 }}>No players yet · tap + Add player</div>
+        ) : (
+          <div style={{ maxHeight: 280, overflowY: "auto" }}>
+            {players.map(p => {
+              const isPaid = String(p.paymentStatus).toLowerCase() === "paid";
+              return (
+                <div key={p.playerId} style={{
+                  display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: 10, alignItems: "center",
+                  padding: "10px 0", borderBottom: "1px solid rgba(26,26,26,0.08)"
+                }}>
+                  <div>
+                    <div style={{ fontFamily: "var(--sans)", fontWeight: 600, fontSize: 13.5 }}>{p.name}</div>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.06em", opacity: 0.55 }}>
+                      {p.phone || "no phone"} · {p.checkedInAt}
+                    </div>
+                  </div>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700 }}>
+                    ${p.amountPaid.toFixed(2)}
+                  </div>
+                  <span className={"status-pill " + (isPaid ? "paid" : "at_risk")}>{p.paymentStatus}</span>
+                  {!isPaid && (
+                    <button className="btn-sm primary" onClick={() => markPaid(p.playerId)} disabled={working}>Mark paid</button>
+                  )}
+                  {isPaid && (
+                    <button className="btn-sm ghost" onClick={() => removePlayer(p.playerId)} disabled={working} title="Remove">×</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="actions" style={{ flexWrap: "wrap" }}>
+          {block.status === "Open" && (
+            <>
+              <button className="btn ghost" style={{ color: "var(--clay)", marginRight: "auto" }}
+                onClick={cancelBlock} disabled={working}>Cancel block</button>
+              <button className="btn" onClick={closeBlock} disabled={working}>Close block</button>
+            </>
+          )}
+          <button className="btn primary" onClick={onClose}>Done</button>
+        </div>
+
+        {showAddPlayer && (
+          <AddWalkInPlayerModal
+            block={block}
+            onClose={() => setShowAddPlayer(false)}
+            onAdded={() => {
+              setShowAddPlayer(false);
+              refresh();
+              onChanged && onChanged();
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AddWalkInPlayerModal({ block, onClose, onAdded }) {
+  const [form, setForm] = useState({
+    name: "",
+    phone: "",
+    amount: block.rate,
+    paymentStatus: "Pending",
+    paymentMethod: "Cash"
+  });
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(markPaidNow) {
+    if (!form.name) return showToast("Name required", "error");
+    setSubmitting(true);
+    const r = await api("adminAddWalkInPlayer", {
+      blockId: block.blockId,
+      name: form.name,
+      phone: form.phone,
+      amount: form.amount,
+      paymentStatus: markPaidNow ? "Paid" : form.paymentStatus,
+      paymentMethod: markPaidNow ? form.paymentMethod : ""
+    });
+    setSubmitting(false);
+    if (r.ok) {
+      showToast(markPaidNow ? "Player added · $" + r.amountCharged + " collected" : "Player added · pending payment", "success");
+      onAdded && onAdded();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">{block.playerCount}/{block.playerCap} · Court {block.courtNumber}</div>
+            <h2>Add Player</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        <div className="field">
+          <div className="field-label">Player name</div>
+          <input type="text" autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        </div>
+
+        <div className="field">
+          <div className="field-label">Phone (optional)</div>
+          <input
+            type="tel"
+            inputMode="numeric"
+            value={form.phone}
+            onChange={(e) => setForm({ ...form, phone: e.target.value.replace(/[^0-9]/g, "") })}
+          />
+        </div>
+
+        <div className="field-row">
+          <div className="field">
+            <div className="field-label">Amount · $</div>
+            <input type="number" min="0" step="0.5" value={form.amount}
+              onChange={(e) => setForm({ ...form, amount: parseFloat(e.target.value) || 0 })} />
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.1em", opacity: 0.5, marginTop: 3 }}>
+              Default ${block.rate}/player — edit to discount
+            </div>
+          </div>
+          <div className="field">
+            <div className="field-label">Payment method</div>
+            <select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
+              <option value="Cash">Cash</option>
+              <option value="ABA">ABA</option>
+              <option value="Wing">Wing</option>
+              <option value="Card">Card</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button className="btn" onClick={() => submit(false)} disabled={submitting || !form.name}>
+            Add · pay later
+          </button>
+          <button className="btn primary" onClick={() => submit(true)} disabled={submitting || !form.name}>
+            Add · paid now
           </button>
         </div>
       </div>
@@ -5525,17 +6329,17 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
         )}
 
         <div className="field">
-          <div className="field-label">Lesson fee charged · $</div>
+          <div className="field-label">Lesson fee · TOTAL for this session · $</div>
           <input
             type="number"
             min="0"
             step="0.5"
             value={form.lessonFee}
             onChange={(e) => setForm({ ...form, lessonFee: parseFloat(e.target.value) || 0 })}
-            placeholder="What coach charged the student"
+            placeholder="Total amount coach charged the student(s)"
           />
           <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.1em", opacity: 0.55, marginTop: 4 }}>
-            Used to calculate revenue split. Leave at 0 if coach is renting court for practice.
+            Enter the TOTAL (not per-hour). E.g. coach charges $30 for a 1.5hr lesson → enter 30. Used for revenue split. Leave at 0 if coach is renting court for personal practice.
           </div>
         </div>
 
@@ -5909,6 +6713,7 @@ function ScreenPOS() {
   const [category, setCategory] = useState("All");
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState([]);  // [{sku, name, category, price, quantity}]
+  const [attached, setAttached] = useState([]); // [{ kind: "booking" | "walkin_player", id, label, price }]
   const [discountPct, setDiscountPct] = useState(0);
   const [discountAmount, setDiscountAmount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState("Cash");
@@ -5922,6 +6727,7 @@ function ScreenPOS() {
   const [editProduct, setEditProduct] = useState(null);
   const [showStockMgmt, setShowStockMgmt] = useState(false);
   const [confirmSale, setConfirmSale] = useState(null);
+  const [showAttachPicker, setShowAttachPicker] = useState(false);
 
   async function loadProducts() {
     const r = await api("posListProducts");
@@ -6006,10 +6812,11 @@ function ScreenPOS() {
     setCart(prev => prev.filter(x => x.sku !== sku));
   }
 
-  // Compute totals
-  const subtotal = useMemo(() => {
-    return cart.reduce((s, x) => s + x.price * x.quantity, 0);
-  }, [cart]);
+  // Compute totals — INCLUDES attached bookings/walk-in players
+  const cartSubtotal = useMemo(() => cart.reduce((s, x) => s + x.price * x.quantity, 0), [cart]);
+  const attachedSubtotal = useMemo(() => attached.reduce((s, x) => s + (x.price || 0), 0), [attached]);
+  const subtotal = useMemo(() => cartSubtotal + attachedSubtotal, [cartSubtotal, attachedSubtotal]);
+
   const computedDiscountAmount = useMemo(() => {
     if (discountPct > 0) return Math.round(subtotal * discountPct) / 100;
     return Math.min(parseFloat(discountAmount) || 0, subtotal);
@@ -6024,8 +6831,9 @@ function ScreenPOS() {
   }, [cashReceived, total, paymentMethod]);
 
   function clearCart() {
-    if (cart.length > 0 && !confirm("Clear cart?")) return;
+    if ((cart.length > 0 || attached.length > 0) && !confirm("Clear cart?")) return;
     setCart([]);
+    setAttached([]);
     setDiscountPct(0);
     setDiscountAmount(0);
     setCashReceived("");
@@ -6034,32 +6842,60 @@ function ScreenPOS() {
     setNotes("");
   }
 
+  function removeAttached(idx) {
+    setAttached(prev => prev.filter((_, i) => i !== idx));
+  }
+
   async function processCharge() {
-    if (cart.length === 0) return showToast("Cart is empty", "error");
+    if (cart.length === 0 && attached.length === 0) return showToast("Cart is empty", "error");
     if (paymentMethod === "Cash" && parseFloat(cashReceived) < total) {
       return showToast("Cash received less than total", "error");
     }
     setSubmitting(true);
-    const r = await api("posCreateSale", {
-      items: JSON.stringify(cart.map(x => ({ sku: x.sku, quantity: x.quantity }))),
-      discountPct: discountPct > 0 ? discountPct : 0,
-      discountAmount: discountPct > 0 ? 0 : computedDiscountAmount,
-      paymentMethod: paymentMethod,
-      cashReceived: parseFloat(cashReceived) || 0,
-      customerPhone: customerPhone,
-      customerName: customerName,
-      notes: notes,
-      cashier: "Staff"
-    });
+
+    // If there are attached items, use the combined-settle endpoint;
+    // otherwise use the regular posCreateSale.
+    let r;
+    if (attached.length > 0) {
+      const attachedBookings = attached.filter(a => a.kind === "booking").map(a => a.id);
+      const attachedPlayers = attached.filter(a => a.kind === "walkin_player").map(a => a.id);
+      r = await api("adminSettleCombined", {
+        items: JSON.stringify(cart.map(x => ({ sku: x.sku, quantity: x.quantity }))),
+        attachedBookings: JSON.stringify(attachedBookings),
+        attachedWalkInPlayers: JSON.stringify(attachedPlayers),
+        discountPct: discountPct > 0 ? discountPct : 0,
+        discountAmount: discountPct > 0 ? 0 : computedDiscountAmount,
+        paymentMethod: paymentMethod,
+        cashReceived: parseFloat(cashReceived) || 0,
+        customerPhone: customerPhone,
+        customerName: customerName,
+        notes: notes,
+        cashier: "Staff"
+      });
+    } else {
+      r = await api("posCreateSale", {
+        items: JSON.stringify(cart.map(x => ({ sku: x.sku, quantity: x.quantity }))),
+        discountPct: discountPct > 0 ? discountPct : 0,
+        discountAmount: discountPct > 0 ? 0 : computedDiscountAmount,
+        paymentMethod: paymentMethod,
+        cashReceived: parseFloat(cashReceived) || 0,
+        customerPhone: customerPhone,
+        customerName: customerName,
+        notes: notes,
+        cashier: "Staff"
+      });
+    }
     setSubmitting(false);
     if (r.ok) {
       setConfirmSale({
         saleId: r.saleId,
         total: r.total,
         changeGiven: r.changeGiven,
-        items: cart.length
+        items: cart.length + attached.length,
+        attachedCount: r.attachedCount || 0
       });
       setCart([]);
+      setAttached([]);
       setDiscountPct(0);
       setDiscountAmount(0);
       setCashReceived("");
@@ -6159,17 +6995,49 @@ function ScreenPOS() {
         <div className="pos-cart">
           <div className="cart-head">
             <h3>Cart</h3>
-            {cart.length > 0 && (
-              <button className="btn-sm ghost" onClick={clearCart}>Clear</button>
-            )}
+            <div style={{ display: "flex", gap: 6 }}>
+              <button className="btn-sm" onClick={() => setShowAttachPicker(true)} title="Attach a court booking or walk-in player">
+                + Attach
+              </button>
+              {(cart.length > 0 || attached.length > 0) && (
+                <button className="btn-sm ghost" onClick={clearCart}>Clear</button>
+              )}
+            </div>
           </div>
 
-          {cart.length === 0 ? (
+          {cart.length === 0 && attached.length === 0 ? (
             <div className="cart-empty">
               <div style={{ opacity: 0.4 }}>Tap a product to start</div>
+              <div style={{ opacity: 0.4, marginTop: 8, fontSize: 9 }}>
+                Or + Attach to settle a booking with drinks
+              </div>
             </div>
           ) : (
             <>
+              {/* Attached items (bookings + walk-in players) */}
+              {attached.length > 0 && (
+                <div className="cart-attached">
+                  <div className="head">
+                    <span>Attached · settle on charge</span>
+                    <span className="count">{attached.length}</span>
+                  </div>
+                  {attached.map((a, idx) => (
+                    <div className="att-item" key={a.kind + "-" + a.id}>
+                      <div className="att-info">
+                        <div className="att-icon">{a.kind === "booking" ? "⬛" : "◉"}</div>
+                        <div className="att-text">
+                          <div className="att-name">{a.label}</div>
+                          {a.sub && <div className="att-sub">{a.sub}</div>}
+                        </div>
+                      </div>
+                      <div className="att-price">${(a.price || 0).toFixed(2)}</div>
+                      <button className="ci-x" onClick={() => removeAttached(idx)} title="Detach">×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Product cart items */}
               <div className="cart-items">
                 {cart.map(x => (
                   <div className="cart-item" key={x.sku}>
@@ -6276,7 +7144,7 @@ function ScreenPOS() {
               <button
                 className="charge-btn"
                 onClick={processCharge}
-                disabled={submitting || cart.length === 0 || (paymentMethod === "Cash" && parseFloat(cashReceived) < total)}
+                disabled={submitting || (cart.length === 0 && attached.length === 0) || (paymentMethod === "Cash" && parseFloat(cashReceived) < total)}
               >
                 {submitting ? "Charging…" : `Charge $${total.toFixed(2)}`}
               </button>
@@ -6304,6 +7172,117 @@ function ScreenPOS() {
       {confirmSale && (
         <SaleConfirmModal sale={confirmSale} onClose={() => setConfirmSale(null)} />
       )}
+
+      {showAttachPicker && (
+        <AttachPickerModal
+          alreadyAttached={attached}
+          onClose={() => setShowAttachPicker(false)}
+          onPick={(item) => {
+            setAttached(prev => [...prev, item]);
+            setShowAttachPicker(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AttachPickerModal({ alreadyAttached, onClose, onPick }) {
+  const [entries, setEntries] = useState(null);
+
+  useEffect(() => {
+    api("adminListSettleableEntries").then(r => {
+      if (r.ok) setEntries(r.entries || []);
+    });
+  }, []);
+
+  function isAttached(kind, id) {
+    return alreadyAttached.some(a => a.kind === kind && a.id === id);
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 540, maxHeight: "92vh" }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">Combine with the POS sale</div>
+            <h2>Attach</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        {entries === null ? (
+          <div style={{ padding: 30, display: "flex", justifyContent: "center" }}><BouncingBall size="sm" /></div>
+        ) : entries.length === 0 ? (
+          <div className="empty">No bookings or walk-ins waiting to be settled today</div>
+        ) : (
+          <div style={{ maxHeight: 420, overflowY: "auto" }}>
+            {entries.filter(e => e.entryType === "booking").map(b => {
+              const already = isAttached("booking", b.id);
+              return (
+                <div key={b.id} className="att-pick-row" style={{ opacity: already ? 0.4 : 1 }}>
+                  <div>
+                    <div className="title">⬛ {b.customerName || "Guest"}</div>
+                    <div className="sub">{b.label} · {b.customerPhone || ""}</div>
+                    <div className="id">{b.id}</div>
+                  </div>
+                  <div className="amt">${b.total.toFixed(2)}</div>
+                  <button
+                    className="btn-sm primary"
+                    disabled={already}
+                    onClick={() => onPick({
+                      kind: "booking",
+                      id: b.id,
+                      label: "Court rental · " + (b.customerName || "Guest"),
+                      sub: b.label,
+                      price: b.total
+                    })}
+                  >{already ? "Added" : "Attach"}</button>
+                </div>
+              );
+            })}
+
+            {entries.filter(e => e.entryType === "walkin_block").map(blk => (
+              <div key={blk.id}>
+                <div style={{
+                  fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.16em",
+                  textTransform: "uppercase", fontWeight: 700, color: "var(--peach,#D9785C)",
+                  marginTop: 14, marginBottom: 6, padding: "6px 0", borderTop: "1px dashed rgba(26,26,26,0.15)"
+                }}>
+                  ◉ {blk.label} · {blk.unpaidPlayers.length} unpaid · ${blk.rate}/each
+                </div>
+                {blk.unpaidPlayers.map(p => {
+                  const already = isAttached("walkin_player", p.playerId);
+                  return (
+                    <div key={p.playerId} className="att-pick-row" style={{ opacity: already ? 0.4 : 1 }}>
+                      <div>
+                        <div className="title">{p.name}</div>
+                        <div className="sub">{p.phone || "no phone"}</div>
+                      </div>
+                      <div className="amt">${p.amount.toFixed(2)}</div>
+                      <button
+                        className="btn-sm primary"
+                        disabled={already}
+                        onClick={() => onPick({
+                          kind: "walkin_player",
+                          id: p.playerId,
+                          label: "Walk-in · " + p.name,
+                          sub: blk.label,
+                          price: p.amount
+                        })}
+                      >{already ? "Added" : "Attach"}</button>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose}>Done</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -6520,6 +7499,14 @@ function SaleConfirmModal({ sale, onClose }) {
           <div style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", opacity: 0.5, marginTop: 8 }}>
             {sale.items} item{sale.items === 1 ? "" : "s"} charged
           </div>
+          {sale.attachedCount > 0 && (
+            <div style={{
+              fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.18em",
+              textTransform: "uppercase", color: "var(--green)", marginTop: 6, fontWeight: 700
+            }}>
+              ✓ {sale.attachedCount} booking{sale.attachedCount === 1 ? "" : "s"}/walk-in settled
+            </div>
+          )}
         </div>
 
         {sale.changeGiven > 0 && (
