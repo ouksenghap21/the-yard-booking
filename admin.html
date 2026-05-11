@@ -1,0 +1,1781 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#1A1A1A" />
+  <title>The Yard — Admin</title>
+  <meta name="robots" content="noindex,nofollow" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..700&family=Manrope:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" />
+
+  <style>
+/* ====================================================================
+   THE YARD — ADMIN PANEL STYLES
+   Brand: Cream/Ink/Green/Clay/Wood. Fraunces/Manrope/DM Mono.
+   Optimized for tablet+laptop (1024px+). Phone fallback at 768px down.
+   ==================================================================== */
+
+:root {
+  /* Brand palette */
+  --cream:    #F1EAD6;
+  --paper:    #FBF7EC;
+  --ink:      #1A1A1A;
+  --ink-2:    #2D2D2D;
+  --concrete: #C9C6BD;
+  --concrete-2: #E5E2D9;
+  --green:    #3D7A4F;
+  --green-2:  #4F9665;
+  --clay:     #C64F3A;
+  --clay-2:   #D9785C;
+  --wood:     #A8744A;
+  --peach:    #D9785C;
+  --ok:       #4F9665;
+  --warn:     #C7A24A;
+  --danger:   #C64F3A;
+
+  /* Fonts */
+  --serif: 'Fraunces', Georgia, serif;
+  --sans:  'Manrope', -apple-system, sans-serif;
+  --mono:  'DM Mono', 'Courier New', monospace;
+  --km:    'Noto Sans Khmer', sans-serif;
+
+  /* Sidebar width */
+  --sidebar-w: 220px;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--sans);
+  background: var(--cream);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.45;
+  min-height: 100vh;
+}
+button { font-family: inherit; cursor: pointer; }
+
+/* ============== LOGIN ============== */
+.login-shell {
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(61,122,79,0.06) 0%, transparent 50%),
+    radial-gradient(circle at 80% 70%, rgba(198,79,58,0.04) 0%, transparent 50%),
+    var(--cream);
+}
+.login-card {
+  width: 100%; max-width: 400px;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  padding: 40px 32px;
+  border-radius: 4px;
+}
+.login-card .brand {
+  text-align: center;
+  margin-bottom: 28px;
+}
+.login-card .brand .label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink);
+  opacity: 0.55;
+  margin-bottom: 8px;
+}
+.login-card .brand h1 {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 44px;
+  letter-spacing: -0.01em;
+  margin: 0;
+  line-height: 1;
+}
+.login-card .brand .sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin-top: 12px;
+  color: var(--clay);
+  font-weight: 500;
+}
+.login-card .pin-prompt {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: center;
+  margin: 24px 0 14px;
+  opacity: 0.7;
+}
+.login-card .pin-row {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.login-card .pin-box {
+  aspect-ratio: 1/1.18;
+  border: 1.5px solid var(--ink);
+  background: var(--cream);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 500;
+}
+.login-card .pin-box.filled {
+  background: var(--ink);
+  color: var(--cream);
+}
+.login-card .pin-input {
+  position: absolute;
+  left: -9999px;
+  opacity: 0;
+}
+.login-card .error {
+  color: var(--clay);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: center;
+  margin-top: 12px;
+  min-height: 14px;
+}
+
+/* ============== APP SHELL ============== */
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  min-height: 100vh;
+}
+
+/* Sidebar */
+.sidebar {
+  background: var(--ink);
+  color: var(--cream);
+  padding: 24px 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar .logo {
+  padding: 0 24px 24px;
+  border-bottom: 1px solid rgba(241,234,214,0.08);
+  margin-bottom: 16px;
+}
+.sidebar .logo .top {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  opacity: 0.5;
+  margin-bottom: 6px;
+}
+.sidebar .logo .name {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 26px;
+  line-height: 1;
+}
+.sidebar .logo .sub {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  margin-top: 8px;
+  color: var(--clay-2);
+}
+
+.sidebar nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 12px;
+}
+.sidebar nav button {
+  background: transparent;
+  border: none;
+  color: var(--cream);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  padding: 11px 14px;
+  border-radius: 6px;
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: background 0.12s ease;
+}
+.sidebar nav button:hover {
+  background: rgba(241,234,214,0.06);
+}
+.sidebar nav button.active {
+  background: var(--clay);
+  color: var(--cream);
+  font-weight: 600;
+}
+.sidebar nav button.soon {
+  opacity: 0.4;
+  cursor: default;
+}
+.sidebar nav button.soon:hover { background: transparent; }
+.sidebar nav button .soon-tag {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-left: auto;
+  opacity: 0.7;
+}
+
+.sidebar .footer {
+  padding: 12px 16px 0;
+  border-top: 1px solid rgba(241,234,214,0.08);
+  margin-top: 12px;
+}
+.sidebar .footer .staff {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  margin-bottom: 8px;
+}
+.sidebar .footer .signout {
+  background: transparent;
+  border: 1px solid rgba(241,234,214,0.2);
+  color: var(--cream);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 8px 12px;
+  border-radius: 6px;
+  width: 100%;
+}
+.sidebar .footer .signout:hover {
+  background: rgba(241,234,214,0.06);
+  border-color: rgba(241,234,214,0.4);
+}
+
+/* Main content */
+.main {
+  padding: 28px 32px 40px;
+  overflow-x: hidden;
+}
+.main-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1.5px solid var(--ink);
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.main-head .title {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  margin-bottom: 4px;
+}
+.main-head h1 {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 40px;
+  line-height: 1;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+.main-head .meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  text-align: right;
+}
+.main-head .meta .live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.main-head .meta .live::before {
+  content: "";
+  width: 8px; height: 8px;
+  background: var(--green-2);
+  border-radius: 50%;
+  animation: liveDot 1.6s ease-in-out infinite;
+}
+@keyframes liveDot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ============== PROMO BANNER ============== */
+.promo-banner {
+  background: var(--clay);
+  color: var(--cream);
+  padding: 14px 20px;
+  margin-bottom: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.promo-banner .kicker {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+.promo-banner h3 {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 22px;
+  line-height: 1;
+  margin: 4px 0 0;
+}
+.promo-banner .right {
+  text-align: right;
+}
+.promo-banner .pct {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 36px;
+  line-height: 1;
+  font-weight: 400;
+}
+
+/* ============== STAT GRID ============== */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 28px;
+}
+.stat-card {
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  padding: 16px 18px;
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+.stat-card .label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 6px;
+}
+.stat-card .value {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 36px;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+.stat-card .value .unit {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-left: 6px;
+  opacity: 0.55;
+  font-weight: 500;
+}
+.stat-card .sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  margin-top: 8px;
+}
+.stat-card.accent-green { border-left: 5px solid var(--green); }
+.stat-card.accent-clay  { border-left: 5px solid var(--clay); }
+.stat-card.accent-wood  { border-left: 5px solid var(--wood); }
+.stat-card.accent-ink   { background: var(--ink); color: var(--cream); }
+.stat-card.accent-ink .label { opacity: 0.7; }
+.stat-card.accent-ink .sub { opacity: 0.7; }
+.stat-card.accent-ink .value .unit { opacity: 0.7; }
+.stat-card.warn {
+  background: rgba(199,162,74,0.14);
+  border-color: var(--warn);
+}
+
+/* ============== SECTION LABELS ============== */
+.section-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 28px 0 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(26,26,26,0.18);
+  gap: 12px;
+}
+.section-label .num {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  font-weight: 700;
+  margin-right: 12px;
+}
+.section-label .name {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.section-label .right {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+/* ============== TIMELINE (Gantt) ============== */
+.timeline-wrap {
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  padding: 16px;
+  margin-bottom: 28px;
+  overflow-x: auto;
+}
+.timeline {
+  position: relative;
+  min-width: 960px;
+  /* CSS variables set in JS:
+     --slot-count: number of 30-min slots (e.g. 32 for 06:00–22:00)
+     --slot-w: pixel width per 30-min slot
+     --court-h: pixel height per court row */
+}
+
+/* Header row: hours along the top */
+.timeline-hours {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  margin-bottom: 8px;
+}
+.timeline-hours .corner {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 4px;
+}
+.timeline-hours .hours-strip {
+  display: flex;
+  position: relative;
+  border-bottom: 1px solid rgba(26,26,26,0.2);
+  padding-bottom: 4px;
+}
+.timeline-hours .hour-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  position: absolute;
+  bottom: 4px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  color: var(--ink);
+}
+.timeline-hours .hour-label.peak {
+  color: var(--clay);
+}
+
+/* Body: court rows */
+.timeline-body {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  position: relative;
+}
+.timeline-courts-labels {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.timeline-courts-labels .court {
+  display: flex;
+  align-items: center;
+  padding: 0 12px 0 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  border-bottom: 1px solid rgba(26,26,26,0.08);
+}
+.timeline-rows {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.timeline-row {
+  position: relative;
+  border-bottom: 1px solid rgba(26,26,26,0.08);
+  background:
+    repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent calc(var(--slot-w) * 2 - 1px),
+      rgba(26,26,26,0.1) calc(var(--slot-w) * 2 - 1px),
+      rgba(26,26,26,0.1) calc(var(--slot-w) * 2)
+    );
+}
+/* Off-peak/peak background tint */
+.timeline-peak-overlay {
+  position: absolute;
+  top: 0; bottom: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(198,79,58,0.04) 0,
+    rgba(198,79,58,0.04) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+/* "Now" vertical line */
+.timeline-now {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 2px;
+  background: var(--clay);
+  pointer-events: none;
+  z-index: 5;
+}
+.timeline-now::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: -5px;
+  width: 12px; height: 12px;
+  background: var(--clay);
+  border-radius: 50%;
+}
+
+/* Booking blocks */
+.booking-block {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border: 1.5px solid var(--ink);
+}
+.booking-block:hover {
+  transform: scale(1.02);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  z-index: 10;
+}
+.booking-block .name {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.booking-block .time {
+  opacity: 0.75;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+.booking-block.status-awaiting    { background: var(--concrete-2); color: var(--ink); }
+.booking-block.status-at_risk     { background: var(--warn); color: var(--ink); }
+.booking-block.status-paid        { background: var(--green); color: var(--cream); border-color: var(--green); }
+.booking-block.status-no_show_freed{background: var(--clay); color: var(--cream); border-color: var(--clay); opacity: 0.7; }
+.booking-block.status-no_show_kept{ background: var(--clay-2); color: var(--cream); border-color: var(--clay); }
+.booking-block.status-completed   { background: var(--ink); color: var(--cream); opacity: 0.6; }
+.booking-block.status-cancelled   { display: none; }
+.booking-block.member {
+  border-color: var(--wood);
+  box-shadow: inset 0 0 0 1px var(--wood);
+}
+
+/* Legend */
+.timeline-legend {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(26,26,26,0.2);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.timeline-legend .swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.timeline-legend .swatch i {
+  width: 14px; height: 14px;
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+}
+
+/* ============== UPCOMING LIST ============== */
+.upcoming-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+.upcoming-card {
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  padding: 12px 16px;
+  display: grid;
+  grid-template-columns: 90px 1fr auto;
+  gap: 14px;
+  align-items: center;
+}
+.upcoming-card .when {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.upcoming-card .when .countdown {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-top: 2px;
+  font-weight: 500;
+}
+.upcoming-card .who .name {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 14px;
+}
+.upcoming-card .who .meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  opacity: 0.55;
+  margin-top: 2px;
+}
+.upcoming-card .total {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 600;
+}
+.upcoming-card.member { border-left: 5px solid var(--wood); }
+.upcoming-card.at-risk { background: rgba(199,162,74,0.12); }
+
+/* ============== EMPTY STATE ============== */
+.empty {
+  text-align: center;
+  padding: 24px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.5;
+  border: 1px dashed rgba(26,26,26,0.2);
+  border-radius: 4px;
+}
+
+/* ============== SETTINGS PAGE ============== */
+.settings-card {
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  padding: 20px 22px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+.settings-card h3 {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 24px;
+  margin: 0 0 6px;
+  line-height: 1;
+}
+.settings-card .desc {
+  font-size: 13px;
+  opacity: 0.75;
+  margin-bottom: 18px;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-top: 1px dashed rgba(26,26,26,0.15);
+}
+.settings-row:first-of-type { border-top: none; }
+.settings-row .field-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  min-width: 140px;
+}
+.settings-row input[type="text"],
+.settings-row input[type="number"] {
+  font-family: var(--mono);
+  font-size: 14px;
+  padding: 8px 12px;
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  background: var(--cream);
+  flex: 1;
+  max-width: 320px;
+}
+.settings-row input:focus {
+  outline: none;
+  border-color: var(--clay);
+}
+
+/* Toggle switch */
+.toggle {
+  position: relative;
+  width: 56px;
+  height: 30px;
+  background: var(--concrete);
+  border-radius: 999px;
+  border: 1.5px solid var(--ink);
+  cursor: pointer;
+  transition: background 0.18s ease;
+  flex-shrink: 0;
+}
+.toggle::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  background: var(--cream);
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  transition: transform 0.18s ease;
+}
+.toggle.on { background: var(--green); }
+.toggle.on::after { transform: translateX(26px); }
+
+/* Settings save button */
+.btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 10px 18px;
+  border-radius: 4px;
+  border: 1.5px solid var(--ink);
+  background: var(--cream);
+  color: var(--ink);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.btn:hover { background: var(--ink); color: var(--cream); }
+.btn.primary { background: var(--ink); color: var(--cream); }
+.btn.primary:hover { background: var(--clay); border-color: var(--clay); }
+.btn.danger { background: var(--clay); color: var(--cream); border-color: var(--clay); }
+.btn.danger:hover { background: var(--ink); border-color: var(--ink); }
+.btn.ghost { background: transparent; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.settings-row .actions { margin-left: auto; }
+
+.settings-warning {
+  background: rgba(199,79,58,0.08);
+  border: 1px solid var(--clay);
+  border-radius: 4px;
+  padding: 12px 14px;
+  font-size: 12.5px;
+  margin-top: 16px;
+  font-style: italic;
+}
+.settings-warning b { color: var(--clay); }
+
+/* ============== TOAST ============== */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: var(--cream);
+  padding: 12px 20px;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  z-index: 1000;
+  animation: toastIn 0.22s ease-out;
+}
+.toast.success { background: var(--green); }
+.toast.error { background: var(--clay); }
+@keyframes toastIn {
+  from { transform: translate(-50%, 16px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+
+/* ============== LOADING (bouncing ball) ============== */
+.bouncer {
+  position: relative;
+  display: flex;
+  align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.bouncer-sm { width: 120px; height: 60px; }
+.bouncer-md { width: 200px; height: 90px; }
+
+.bouncer .ground {
+  position: absolute;
+  left: 8%; right: 8%; bottom: 14%;
+  height: 0;
+  border-bottom: 1.5px dashed rgba(26,26,26,0.35);
+}
+.bouncer .ball-track {
+  position: absolute;
+  left: 8%; bottom: 14%;
+  width: 0; height: 0;
+  animation: bSlide 1.7s cubic-bezier(0.42, 0, 0.7, 1) infinite;
+}
+.bouncer .ball {
+  position: absolute;
+  left: -7px; bottom: -7px;
+  width: 14px; height: 14px;
+  background: var(--clay);
+  border-radius: 50%;
+  animation: bBounce 1.7s cubic-bezier(0.5, 0, 0.5, 1) infinite, bFade 1.7s linear infinite;
+}
+.bouncer-sm .ball { width: 10px; height: 10px; left: -5px; bottom: -5px; }
+@keyframes bSlide { 0% { left: 0%; } 100% { left: 84%; } }
+@keyframes bBounce {
+  0%   { transform: translateY(-44px) scaleY(1) scaleX(1); }
+  18%  { transform: translateY(0) scaleY(0.65) scaleX(1.25); }
+  20%  { transform: translateY(0) scaleY(1.05) scaleX(0.95); }
+  35%  { transform: translateY(-30px) scaleY(1) scaleX(1); }
+  48%  { transform: translateY(0) scaleY(0.7) scaleX(1.2); }
+  50%  { transform: translateY(0) scaleY(1.04) scaleX(0.96); }
+  62%  { transform: translateY(-18px) scaleY(1) scaleX(1); }
+  73%  { transform: translateY(0) scaleY(0.75) scaleX(1.15); }
+  75%  { transform: translateY(0) scaleY(1.02) scaleX(0.98); }
+  84%  { transform: translateY(-8px) scaleY(1) scaleX(1); }
+  92%  { transform: translateY(0) scaleY(0.85) scaleX(1.08); }
+  100% { transform: translateY(0) scaleY(1) scaleX(1); }
+}
+@keyframes bFade {
+  0% { opacity: 0; }
+  8% { opacity: 1; }
+  92% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ============== RESPONSIVE ============== */
+@media (max-width: 900px) {
+  :root { --sidebar-w: 64px; }
+  .sidebar .logo .name,
+  .sidebar .logo .top,
+  .sidebar .logo .sub,
+  .sidebar nav button .label,
+  .sidebar nav button .soon-tag,
+  .sidebar .footer .staff,
+  .sidebar .footer .signout span { display: none; }
+  .sidebar nav button {
+    justify-content: center;
+    padding: 12px 8px;
+  }
+  .sidebar .footer .signout {
+    padding: 8px 4px;
+    font-size: 10px;
+  }
+  .main { padding: 20px; }
+  .main-head h1 { font-size: 30px; }
+}
+
+@media (max-width: 600px) {
+  .stat-grid { grid-template-columns: 1fr 1fr; }
+  .main-head h1 { font-size: 24px; }
+  .upcoming-card { grid-template-columns: 70px 1fr auto; gap: 10px; }
+}
+
+  </style>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+/* ====================================================================
+   THE YARD — ADMIN PANEL
+   Single-file React app. PIN-protected. Polls every 15s.
+   ==================================================================== */
+
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
+const { createRoot } = ReactDOM;
+
+/* ====== CONFIG ======
+ * IMPORTANT: Replace API_URL below with your deployed Apps Script Web App URL.
+ * It should match the URL used by the customer-facing index.html.
+ * Find it in Apps Script → Deploy → Manage deployments → copy "Web app" URL.
+ */
+const API_URL = "https://script.google.com/macros/s/AKfycbySSk--iEFY8vTvldpARENCQ6KApJik0UHqASKa7PfJ1IkIJkmEAvOQPCsKR84MFtAY/exec";
+
+const COURTS_COUNT = 8;
+const OPEN_HOUR = 6;       // 06:00
+const CLOSE_HOUR = 22;     // 22:00 (last booking starts 21:30)
+const SLOT_MINUTES = 30;
+const POLL_INTERVAL_MS = 15000;  // 15s
+
+/* ====== LOCALSTORAGE / SESSION ====== */
+const PIN_KEY = "yard.admin.pin";
+function getStoredPin() { try { return sessionStorage.getItem(PIN_KEY) || ""; } catch (e) { return ""; } }
+function setStoredPin(v) {
+  try {
+    if (v) sessionStorage.setItem(PIN_KEY, v);
+    else sessionStorage.removeItem(PIN_KEY);
+  } catch (e) {}
+}
+
+/* ====== API ====== */
+async function api(action, params = {}) {
+  const pin = getStoredPin();
+  const url = new URL(API_URL);
+  url.searchParams.set("action", action);
+  if (pin) params.adminPin = pin;
+  for (const k in params) {
+    if (params[k] !== undefined && params[k] !== null) {
+      url.searchParams.set(k, String(params[k]));
+    }
+  }
+  try {
+    const r = await fetch(url.toString(), { method: "GET" });
+    const j = await r.json();
+    return j;
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+/* ====== HELPERS ====== */
+function todayISO() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function fmtDateLong(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr + "T12:00:00");
+  const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MO = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return DOW[d.getDay()] + " " + d.getDate() + " " + MO[d.getMonth()] + " " + d.getFullYear();
+}
+function fmtClock() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+function isWeekend(dateStr) {
+  const d = new Date(dateStr + "T12:00:00");
+  const x = d.getDay();
+  return x === 0 || x === 6;
+}
+function isPeakHour(dateStr, hour) {
+  return isWeekend(dateStr) || hour >= 17;
+}
+function timeToSlotIdx(timeStr) {
+  // "06:00" -> 0, "06:30" -> 1, ..., "21:30" -> 31
+  if (!timeStr) return 0;
+  const [h, m] = timeStr.split(":").map(Number);
+  return (h - OPEN_HOUR) * 2 + (m >= 30 ? 1 : 0);
+}
+function slotIdxToTime(idx) {
+  const totalMin = OPEN_HOUR * 60 + idx * SLOT_MINUTES;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+}
+function countdownMins(dateStr, timeStr) {
+  // Minutes until this booking starts (negative if past)
+  const [h, m] = String(timeStr || "00:00").split(":").map(Number);
+  const dt = new Date(dateStr + "T00:00:00");
+  dt.setHours(h, m, 0, 0);
+  return Math.round((dt.getTime() - Date.now()) / 60000);
+}
+function fmtCountdown(mins) {
+  if (mins < 0) return "started " + Math.abs(mins) + "m ago";
+  if (mins < 60) return "in " + mins + "m";
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return "in " + h + "h" + (m > 0 ? " " + m + "m" : "");
+}
+
+/* ====== TOAST ====== */
+let toastTimeout = null;
+function showToast(text, kind = "default") {
+  let el = document.getElementById("toast-root");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast-root";
+    document.body.appendChild(el);
+  }
+  el.className = "toast " + kind;
+  el.textContent = text;
+  el.style.display = "block";
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => { el.style.display = "none"; }, 3000);
+}
+
+/* ====== BOUNCING BALL ====== */
+function BouncingBall({ size = "md" }) {
+  return (
+    <div className={"bouncer bouncer-" + size}>
+      <div className="ground" />
+      <div className="ball-track"><div className="ball" /></div>
+    </div>
+  );
+}
+
+/* ====================================================================
+   LOGIN SCREEN
+   ==================================================================== */
+function ScreenLogin({ onAuth }) {
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [checking, setChecking] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    setTimeout(() => { if (inputRef.current) inputRef.current.focus(); }, 50);
+  }, []);
+
+  async function tryAuth(pin) {
+    setChecking(true);
+    setError("");
+    // Verify PIN by hitting a PIN-protected endpoint
+    setStoredPin(pin);
+    const r = await api("adminDashboard");
+    setChecking(false);
+    if (r.ok) {
+      onAuth();
+    } else {
+      setStoredPin("");
+      setError(r.error || "Wrong PIN");
+      setCode("");
+    }
+  }
+
+  function onChange(e) {
+    const v = e.target.value.replace(/[^0-9]/g, "").slice(0, 6);
+    setCode(v);
+    setError("");
+    if (v.length === 6) {
+      tryAuth(v);
+    }
+  }
+
+  function clickPinBox() {
+    if (inputRef.current) inputRef.current.focus();
+  }
+
+  return (
+    <div className="login-shell">
+      <div className="login-card">
+        <div className="brand">
+          <div className="label">THE</div>
+          <h1>Yard</h1>
+          <div className="sub">Admin · Toul Kork</div>
+        </div>
+        <div className="pin-prompt">
+          {checking ? "Verifying…" : "Enter staff PIN"}
+        </div>
+        <div className="pin-row" onClick={clickPinBox}>
+          {[0, 1, 2, 3, 4, 5].map(i => (
+            <div key={i} className={"pin-box" + (code[i] ? " filled" : "")}>
+              {code[i] ? "•" : ""}
+            </div>
+          ))}
+        </div>
+        <input
+          ref={inputRef}
+          className="pin-input"
+          type="tel"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete="off"
+          value={code}
+          onChange={onChange}
+        />
+        <div className="error">{error}</div>
+        {checking && (
+          <div style={{ display: "flex", justifyContent: "center", marginTop: 8 }}>
+            <BouncingBall size="sm" />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ====================================================================
+   TIMELINE — horizontal Gantt, 8 courts × 06:00–22:00
+   Polls every 15s for live updates.
+   ==================================================================== */
+
+function Timeline({ bookings, dateStr }) {
+  const wrapRef = useRef(null);
+  const [slotW, setSlotW] = useState(28);
+
+  // Total slots: 32 (06:00 to 22:00 in 30-min steps)
+  const SLOT_COUNT = (CLOSE_HOUR - OPEN_HOUR) * 2;
+  const COURT_H = 38;
+
+  // Measure container to compute slot width
+  useEffect(() => {
+    function measure() {
+      if (!wrapRef.current) return;
+      const inner = wrapRef.current.querySelector(".timeline");
+      if (!inner) return;
+      // Reserve 80px for court labels column
+      const totalW = inner.offsetWidth - 80;
+      const w = Math.max(22, Math.floor(totalW / SLOT_COUNT));
+      setSlotW(w);
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [SLOT_COUNT]);
+
+  // Parse all bookings into court-row segments
+  // Each booking row can have Court_Numbers like "1, 3, 5" — split into separate blocks per court
+  const blocks = useMemo(() => {
+    const out = [];
+    if (!bookings) return out;
+    for (const b of bookings) {
+      const derived = b.derivedStatus || "awaiting";
+      if (derived === "cancelled") continue;
+      const startIdx = timeToSlotIdx(b.time);
+      const slots = parseInt(b.slots) || 2;
+      const courtNums = String(b.courtNumbers || "")
+        .split(",").map(s => parseInt(s.trim())).filter(n => n >= 1 && n <= COURTS_COUNT);
+      for (const c of courtNums) {
+        out.push({
+          court: c,
+          startIdx: startIdx,
+          slots: slots,
+          name: b.name || "—",
+          time: b.time + "–" + b.timeEnd,
+          total: b.total || 0,
+          status: derived,
+          isMember: !!(b.memberTier && b.memberTier.length > 0),
+          bookingId: b.bookingId
+        });
+      }
+    }
+    return out;
+  }, [bookings]);
+
+  // "Now" indicator x position
+  const nowOffset = useMemo(() => {
+    if (dateStr !== todayISO()) return -1;
+    const now = new Date();
+    const minsFromOpen = (now.getHours() - OPEN_HOUR) * 60 + now.getMinutes();
+    if (minsFromOpen < 0 || minsFromOpen > (CLOSE_HOUR - OPEN_HOUR) * 60) return -1;
+    return (minsFromOpen / 30) * slotW;
+  }, [dateStr, slotW, bookings]);  // re-evaluate when polling re-renders
+
+  // Build hour labels: 06, 07, 08, ..., 22
+  const hourLabels = [];
+  for (let h = OPEN_HOUR; h <= CLOSE_HOUR; h++) {
+    hourLabels.push(h);
+  }
+
+  // Peak-hour shading: 17:00 onwards on weekdays, all-day weekends
+  const peakStartSlot = isWeekend(dateStr) ? 0 : (17 - OPEN_HOUR) * 2;
+  const peakStartPx = peakStartSlot * slotW;
+  const peakEndPx = SLOT_COUNT * slotW;
+
+  const stripStyle = { width: SLOT_COUNT * slotW + "px" };
+
+  return (
+    <div className="timeline-wrap" ref={wrapRef}>
+      <div className="timeline" style={{ "--slot-w": slotW + "px", "--slot-count": SLOT_COUNT }}>
+
+        <div className="timeline-hours">
+          <div className="corner">Court</div>
+          <div className="hours-strip" style={stripStyle}>
+            {hourLabels.map(h => {
+              const x = (h - OPEN_HOUR) * 2 * slotW;
+              const peak = isPeakHour(dateStr, h);
+              return (
+                <span
+                  key={h}
+                  className={"hour-label" + (peak ? " peak" : "")}
+                  style={{ left: x + "px" }}
+                >
+                  {String(h).padStart(2, "0")}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="timeline-body">
+          <div className="timeline-courts-labels" style={{ height: COURTS_COUNT * COURT_H + "px" }}>
+            {Array.from({ length: COURTS_COUNT }, (_, i) => i + 1).map(c => (
+              <div key={c} className="court" style={{ height: COURT_H + "px" }}>
+                C·{c}
+              </div>
+            ))}
+          </div>
+
+          <div className="timeline-rows" style={{ width: SLOT_COUNT * slotW + "px" }}>
+            {/* Peak overlay */}
+            {peakStartPx < peakEndPx && (
+              <div
+                className="timeline-peak-overlay"
+                style={{ left: peakStartPx + "px", width: (peakEndPx - peakStartPx) + "px" }}
+              />
+            )}
+
+            {Array.from({ length: COURTS_COUNT }, (_, i) => i + 1).map(c => (
+              <div
+                key={c}
+                className="timeline-row"
+                style={{ height: COURT_H + "px" }}
+              >
+                {blocks.filter(b => b.court === c).map((b, idx) => {
+                  const left = b.startIdx * slotW;
+                  const width = b.slots * slotW - 2;
+                  return (
+                    <div
+                      key={c + "-" + b.bookingId + "-" + idx}
+                      className={
+                        "booking-block status-" + b.status +
+                        (b.isMember ? " member" : "")
+                      }
+                      style={{ left: left + "px", width: width + "px" }}
+                      title={b.name + " · " + b.time + " · $" + b.total + (b.isMember ? " · Member" : "")}
+                    >
+                      <span className="name">{b.name}</span>
+                      <span className="time">{b.time}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+
+            {/* Now indicator */}
+            {nowOffset >= 0 && (
+              <div className="timeline-now" style={{ left: nowOffset + "px" }} />
+            )}
+          </div>
+        </div>
+
+      </div>
+
+      <div className="timeline-legend">
+        <span className="swatch"><i style={{ background: "var(--concrete-2)" }} /> Awaiting</span>
+        <span className="swatch"><i style={{ background: "var(--warn)" }} /> At-risk</span>
+        <span className="swatch"><i style={{ background: "var(--green)" }} /> Paid</span>
+        <span className="swatch"><i style={{ background: "var(--clay)" }} /> No-show</span>
+        <span className="swatch"><i style={{ background: "var(--ink)", opacity: 0.6 }} /> Completed</span>
+        <span className="swatch"><i style={{ background: "transparent", borderColor: "var(--wood)", boxShadow: "inset 0 0 0 1px var(--wood)" }} /> Member</span>
+      </div>
+    </div>
+  );
+}
+
+/* ====================================================================
+   DASHBOARD
+   ==================================================================== */
+function ScreenDashboard() {
+  const [data, setData] = useState(null);
+  const [bookings, setBookings] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [clock, setClock] = useState(fmtClock());
+
+  async function refresh() {
+    const today = todayISO();
+    const [d, b] = await Promise.all([
+      api("adminDashboard"),
+      api("adminListBookings", { date: today })
+    ]);
+    if (d.ok) setData(d);
+    if (b.ok) setBookings(b.bookings || []);
+    setLastUpdated(new Date());
+  }
+
+  useEffect(() => {
+    refresh();
+    const id = setInterval(refresh, POLL_INTERVAL_MS);
+    const clockId = setInterval(() => setClock(fmtClock()), 30000);
+    return () => { clearInterval(id); clearInterval(clockId); };
+  }, []);
+
+  if (!data) {
+    return (
+      <div style={{ padding: 60, display: "flex", justifyContent: "center" }}>
+        <BouncingBall size="md" />
+      </div>
+    );
+  }
+
+  const today = todayISO();
+  const todayLong = fmtDateLong(today);
+
+  // Upcoming next 2 hrs (from bookings list)
+  const upcoming = (bookings || [])
+    .filter(b => {
+      const m = countdownMins(b.date, b.time);
+      return m > 0 && m <= 120 && b.derivedStatus !== "cancelled" && b.derivedStatus !== "no_show_freed";
+    })
+    .sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+
+  return (
+    <div className="main">
+      <div className="main-head">
+        <div>
+          <div className="title">Today · {todayLong}</div>
+          <h1>Dashboard</h1>
+        </div>
+        <div className="meta">
+          <div className="live">Live · auto-refresh 15s</div>
+          <div style={{ marginTop: 4, fontSize: 10 }}>
+            {clock} · Toul Kork
+          </div>
+        </div>
+      </div>
+
+      {/* Promo banner if active */}
+      {data.promo && data.promo.active && data.promo.pct > 0 && (
+        <div className="promo-banner">
+          <div>
+            <div className="kicker">Promo active</div>
+            <h3>{data.promo.label || "Soft launch promo"}</h3>
+          </div>
+          <div className="right">
+            <div className="kicker">All bookings</div>
+            <div className="pct">−{data.promo.pct}%</div>
+          </div>
+        </div>
+      )}
+
+      {/* Stat grid */}
+      <div className="stat-grid">
+        <div className="stat-card accent-ink">
+          <div className="label">Today's bookings</div>
+          <div className="value">{data.bookings.total}<span className="unit">total</span></div>
+          <div className="sub">{data.bookings.upcomingNext2hrs} in next 2hrs</div>
+        </div>
+        <div className="stat-card accent-green">
+          <div className="label">Court rev. paid</div>
+          <div className="value">${data.bookings.revenuePaid.toFixed(2)}</div>
+          <div className="sub">Today</div>
+        </div>
+        <div className="stat-card accent-clay">
+          <div className="label">Court rev. pending</div>
+          <div className="value">${data.bookings.revenuePending.toFixed(2)}</div>
+          <div className="sub">Awaiting payment</div>
+        </div>
+        <div className="stat-card accent-wood">
+          <div className="label">POS revenue</div>
+          <div className="value">${data.pos.revenue.toFixed(2)}</div>
+          <div className="sub">{data.pos.transactions} transactions</div>
+        </div>
+        {data.bookings.atRisk > 0 && (
+          <div className="stat-card warn">
+            <div className="label">At risk</div>
+            <div className="value">{data.bookings.atRisk}</div>
+            <div className="sub">Past grace period</div>
+          </div>
+        )}
+        <div className="stat-card">
+          <div className="label">Founding members</div>
+          <div className="value">{data.members.founding}<span className="unit">of {data.members.foundingCap}</span></div>
+          <div className="sub">{data.members.foundingRemaining} slots left</div>
+        </div>
+      </div>
+
+      {/* Timeline */}
+      <div className="section-label">
+        <span><span className="num">01</span><span className="name">Today's Court Timeline</span></span>
+        <span className="right">{bookings ? bookings.filter(b => b.derivedStatus !== "cancelled").length : 0} active</span>
+      </div>
+      {bookings === null ? (
+        <div className="empty"><BouncingBall size="sm" /></div>
+      ) : (
+        <Timeline bookings={bookings} dateStr={today} />
+      )}
+
+      {/* Upcoming next 2 hrs */}
+      <div className="section-label">
+        <span><span className="num">02</span><span className="name">Arriving Next 2 Hours</span></span>
+        <span className="right">{upcoming.length} bookings</span>
+      </div>
+      {upcoming.length === 0 ? (
+        <div className="empty">No bookings in the next 2 hours</div>
+      ) : (
+        <div className="upcoming-list">
+          {upcoming.map(b => {
+            const mins = countdownMins(b.date, b.time);
+            const atRisk = b.derivedStatus === "at_risk";
+            return (
+              <div
+                key={b.bookingId}
+                className={"upcoming-card" + (b.memberTier ? " member" : "") + (atRisk ? " at-risk" : "")}
+              >
+                <div className="when">
+                  {b.time}
+                  <span className="countdown">{fmtCountdown(mins)}</span>
+                </div>
+                <div className="who">
+                  <div className="name">
+                    {b.name}
+                    {b.memberTier && (
+                      <span style={{
+                        marginLeft: 8,
+                        fontFamily: "var(--mono)",
+                        fontSize: 9,
+                        letterSpacing: "0.16em",
+                        textTransform: "uppercase",
+                        background: "var(--wood)",
+                        color: "var(--cream)",
+                        padding: "2px 6px",
+                        borderRadius: 3
+                      }}>
+                        {b.memberTier}
+                      </span>
+                    )}
+                  </div>
+                  <div className="meta">
+                    {b.phone} · C·{b.courtNumbers} · {b.slots * 0.5}h
+                  </div>
+                </div>
+                <div className="total">${(b.total || 0).toFixed(2)}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ====================================================================
+   SETTINGS
+   ==================================================================== */
+function ScreenSettings() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [promo, setPromo] = useState({ active: false, pct: 50, label: "Soft launch −50%" });
+
+  async function load() {
+    setLoading(true);
+    const r = await api("adminGetPromo");
+    if (r.ok) {
+      setPromo({
+        active: !!r.active,
+        pct: r.pct || 50,
+        label: r.label || "Soft launch −50%"
+      });
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function save() {
+    setSaving(true);
+    const r = await api("adminSetPromo", {
+      active: promo.active,
+      pct: promo.pct,
+      label: promo.label
+    });
+    setSaving(false);
+    if (r.ok) {
+      showToast("Saved", "success");
+      setPromo({
+        active: !!r.active,
+        pct: r.pct || 50,
+        label: r.label || ""
+      });
+    } else {
+      showToast(r.error || "Save failed", "error");
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="main">
+        <div style={{ padding: 60, display: "flex", justifyContent: "center" }}>
+          <BouncingBall size="md" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="main">
+      <div className="main-head">
+        <div>
+          <div className="title">Configuration</div>
+          <h1>Settings</h1>
+        </div>
+      </div>
+
+      <div className="settings-card">
+        <h3>Promotional Discount</h3>
+        <div className="desc">
+          When active, applies a flat percentage discount to <b>all bookings</b>.
+          Member discounts do not stack — customers receive whichever is more generous.
+          Birthday sessions are exempt and keep their original discount.
+        </div>
+
+        <div className="settings-row">
+          <div className="field-label">Status</div>
+          <div
+            className={"toggle" + (promo.active ? " on" : "")}
+            onClick={() => setPromo({ ...promo, active: !promo.active })}
+          />
+          <div style={{
+            fontFamily: "var(--mono)",
+            fontSize: 12,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            fontWeight: 600,
+            color: promo.active ? "var(--green)" : "var(--ink)",
+            opacity: promo.active ? 1 : 0.5
+          }}>
+            {promo.active ? "Active" : "Inactive"}
+          </div>
+        </div>
+
+        <div className="settings-row">
+          <div className="field-label">Discount %</div>
+          <input
+            type="number"
+            min="0"
+            max="100"
+            value={promo.pct}
+            onChange={(e) => setPromo({ ...promo, pct: parseInt(e.target.value) || 0 })}
+          />
+        </div>
+
+        <div className="settings-row">
+          <div className="field-label">Label</div>
+          <input
+            type="text"
+            value={promo.label}
+            placeholder="e.g. Soft launch −50%, Grand Opening Weekend"
+            onChange={(e) => setPromo({ ...promo, label: e.target.value })}
+            maxLength={60}
+          />
+        </div>
+
+        <div className="settings-row">
+          <div className="actions">
+            <button className="btn primary" onClick={save} disabled={saving}>
+              {saving ? "Saving…" : "Save changes"}
+            </button>
+          </div>
+        </div>
+
+        {promo.active && promo.pct > 0 && (
+          <div className="settings-warning">
+            <b>HEADS-UP:</b> All bookings will receive a {promo.pct}% discount as long as this is active.
+            Toggle off to return to standard pricing + member discounts.
+          </div>
+        )}
+      </div>
+
+      <div className="settings-card" style={{ opacity: 0.6 }}>
+        <h3>More settings</h3>
+        <div className="desc">Pricing rules, operating hours, grace period, and birthday window will appear here in a future release. For now, these are configured in the Pricing sheet and Script Properties.</div>
+      </div>
+    </div>
+  );
+}
+
+/* ====================================================================
+   COMING SOON placeholder for stub tabs
+   ==================================================================== */
+function ScreenSoon({ title, message }) {
+  return (
+    <div className="main">
+      <div className="main-head">
+        <div>
+          <div className="title">In progress</div>
+          <h1>{title}</h1>
+        </div>
+      </div>
+      <div style={{
+        padding: 60,
+        textAlign: "center",
+        background: "var(--paper)",
+        border: "1.5px solid var(--ink)",
+        borderRadius: 4
+      }}>
+        <div style={{
+          fontFamily: "var(--mono)",
+          fontSize: 11,
+          letterSpacing: "0.2em",
+          textTransform: "uppercase",
+          opacity: 0.6,
+          marginBottom: 12
+        }}>Coming soon</div>
+        <div style={{
+          fontFamily: "var(--serif)",
+          fontStyle: "italic",
+          fontSize: 22,
+          maxWidth: 480,
+          margin: "0 auto",
+          lineHeight: 1.4
+        }}>
+          {message}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ====================================================================
+   APP SHELL — sidebar + screen router
+   ==================================================================== */
+function App() {
+  const [authed, setAuthed] = useState(!!getStoredPin());
+  const [screen, setScreen] = useState("dashboard");
+
+  // Validate the stored PIN on boot (e.g. PIN may have been changed)
+  useEffect(() => {
+    if (!authed) return;
+    api("adminDashboard").then(r => {
+      if (!r.ok) {
+        setStoredPin("");
+        setAuthed(false);
+      }
+    });
+  }, []);
+
+  function signOut() {
+    setStoredPin("");
+    setAuthed(false);
+  }
+
+  if (!authed) {
+    return <ScreenLogin onAuth={() => setAuthed(true)} />;
+  }
+
+  // Tab definitions
+  const tabs = [
+    { id: "dashboard", label: "Dashboard", ready: true },
+    { id: "bookings",  label: "Bookings",  ready: false },
+    { id: "pos",       label: "POS",       ready: false },
+    { id: "members",   label: "Members",   ready: false },
+    { id: "customers", label: "Customers", ready: false },
+    { id: "sms",       label: "SMS Log",   ready: false },
+    { id: "settings",  label: "Settings",  ready: true }
+  ];
+
+  function go(id) {
+    const t = tabs.find(x => x.id === id);
+    if (!t || !t.ready) return;
+    setScreen(id);
+  }
+
+  let body;
+  switch (screen) {
+    case "dashboard": body = <ScreenDashboard />; break;
+    case "settings":  body = <ScreenSettings />; break;
+    case "bookings":  body = <ScreenSoon title="Bookings" message="Manage today's bookings, mark paid, handle no-shows, create walk-ins. Coming in the next drop." />; break;
+    case "pos":       body = <ScreenSoon title="Point of Sale" message="Drinks + Pro Shop POS with inventory, custom discounts, and payment methods. Coming in the next drop." />; break;
+    case "members":   body = <ScreenSoon title="Members" message="Add members with MM-DD birthday, manage Founding 20 cap, renew memberships. Coming in the next drop." />; break;
+    case "customers": body = <ScreenSoon title="Customers" message="Guest list with booking history. Coming in the next drop." />; break;
+    case "sms":       body = <ScreenSoon title="SMS Log" message="Searchable SMS log with cost tracking. Coming in the next drop." />; break;
+    default:          body = <ScreenDashboard />;
+  }
+
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="logo">
+          <div className="top">THE</div>
+          <div className="name">Yard</div>
+          <div className="sub">Admin</div>
+        </div>
+        <nav>
+          {tabs.map(t => (
+            <button
+              key={t.id}
+              className={(screen === t.id ? "active " : "") + (!t.ready ? "soon" : "")}
+              onClick={() => go(t.id)}
+            >
+              <span className="label">{t.label}</span>
+              {!t.ready && <span className="soon-tag">Soon</span>}
+            </button>
+          ))}
+        </nav>
+        <div className="footer">
+          <div className="staff">Signed in</div>
+          <button className="signout" onClick={signOut}>
+            <span>Sign out</span>
+          </button>
+        </div>
+      </aside>
+      {body}
+    </div>
+  );
+}
+
+const root = createRoot(document.getElementById("root"));
+root.render(<App />);
+
+  </script>
+</body>
+</html>
