@@ -1009,6 +1009,9 @@ const STRINGS = {
     b_member_disc: "Member −30%",
     b_peak: "PEAK · $15/HR",
     b_offpeak: "OFF-PEAK · $13/HR",
+    b_peak_line: "Peak rate",
+    b_offpeak_line: "Off-peak rate",
+    b_subtotal: "Subtotal",
     b_mixed: "MIXED RATE",
     b_peak_pip_hint: "Prime = peak rate. Weekday after 5pm and all weekend.",
     b_no_slots: "No more open slots today. Try tomorrow.",
@@ -1160,6 +1163,9 @@ const STRINGS = {
     b_member_disc: "សមាជិក −៣០%",
     b_peak: "ម៉ោង​ខ្ពស់ · $15/ម៉ោង",
     b_offpeak: "ម៉ោង​ទាប · $13/ម៉ោង",
+    b_peak_line: "តម្លៃ​ម៉ោង​ខ្ពស់",
+    b_offpeak_line: "តម្លៃ​ម៉ោង​ទាប",
+    b_subtotal: "សរុប​រង",
     b_mixed: "តម្លៃ​ចម្រុះ",
     b_peak_pip_hint: "Prime = តម្លៃ​ម៉ោង​ខ្ពស់។ ថ្ងៃ​ធ្វើ​ការ​ក្រោយ​ម៉ោង​៥​ល្ងាច និង​ចុង​សប្តាហ៍។",
     b_no_slots: "គ្មាន​ស្លុត​ទំនេរ​ថ្ងៃ​នេះ​ទេ។",
@@ -1311,6 +1317,145 @@ function isWeekend(d) {
 function isPeakHour(date, timeStr) {
   const hr = parseInt((timeStr || "06:00").split(":")[0], 10);
   return isWeekend(date) || hr >= 17;
+}
+
+/* ====================================================================
+   CLIENT-SIDE PRICING ENGINE
+   Mirrors Backend.gs calculatePrice() exactly. Pricing rules are loaded
+   once from the server via getConfig and cached for the session.
+   ==================================================================== */
+
+const DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
+/** Returns the hourly rate that applies for a given date + hour, using
+ *  the cached pricing rules. Falls back to $15 if no rule matches. */
+function rateForDateAndHour(rules, dateStr, hour) {
+  if (!rules || !rules.length) return 15;
+  const d = new Date(dateStr + "T12:00:00");
+  const dow = DAY_KEYS[d.getDay()];
+  for (const r of rules) {
+    if (r.days.indexOf(dow) === -1) continue;
+    if (hour < r.hourStart || hour >= r.hourEnd) continue;
+    return r.rate;
+  }
+  return 15;
+}
+
+/** Returns a rate-bucket label for the given hour ("offpeak" / "peak"). */
+function rateBucketForHour(rules, dateStr, hour) {
+  const d = new Date(dateStr + "T12:00:00");
+  const dow = DAY_KEYS[d.getDay()];
+  for (const r of rules) {
+    if (r.days.indexOf(dow) === -1) continue;
+    if (hour < r.hourStart || hour >= r.hourEnd) continue;
+    // Use the rule name as the bucket. Backend uses "weekday_offpeak",
+    // "weekday_peak", "weekend".
+    if (r.name && r.name.indexOf("offpeak") >= 0) return "offpeak";
+    return "peak";
+  }
+  return "peak";
+}
+
+/**
+ * Compute price entirely client-side. Returns the same shape as the
+ * backend's calculatePrice (plus a breakdown array for transparency).
+ *
+ * Inputs:
+ *   config    — the cached config object from getConfig
+ *   isMember  — boolean
+ *   tier      — "Founding" / "Standard" / ""
+ *   isBirthdayEligible — boolean (computed elsewhere)
+ *   useBirthday — boolean — user has claimed the gift
+ *   date, time, slots, courts
+ */
+function calculatePriceClient({
+  config, isMember, tier, isBirthdayEligible, useBirthday,
+  date, time, slots, courts
+}) {
+  const rules = (config && config.pricingRules) || [];
+  const slotMinutes = (config && config.slotMinutes) || 30;
+  const discountFounding = (config && config.discountFounding) || 50;
+  const discountStandard = (config && config.discountStandard) || 30;
+
+  const [startH, startM] = String(time).split(":").map(Number);
+  let subtotal = 0;
+  // Buckets accumulate slots + dollar amounts by rate-bucket for the
+  // transparent breakdown.
+  const buckets = {}; // { "offpeak": { slots, rate, amount }, "peak": {...} }
+
+  for (let i = 0; i < slots; i++) {
+    const totalMins = startH * 60 + (startM || 0) + i * slotMinutes;
+    const hr = Math.floor(totalMins / 60);
+    const rate = rateForDateAndHour(rules, date, hr);
+    const bucket = rateBucketForHour(rules, date, hr);
+    const slotAmount = (rate / 2) * courts;
+    subtotal += slotAmount;
+
+    if (!buckets[bucket]) buckets[bucket] = { slots: 0, rate: rate, amount: 0 };
+    buckets[bucket].slots += 1;
+    buckets[bucket].amount += slotAmount;
+  }
+
+  // Member / birthday discount
+  let discountPct = 0;
+  let isBirthdaySession = false;
+  if (isMember) {
+    if (useBirthday && isBirthdayEligible && slots <= 4 && courts === 1) {
+      isBirthdaySession = true;
+      discountPct = (String(tier).toLowerCase() === "founding") ? 100 : 50;
+    } else {
+      if (String(tier).toLowerCase() === "founding") discountPct = discountFounding;
+      else if (String(tier).toLowerCase() === "standard") discountPct = discountStandard;
+    }
+  }
+
+  const discountAmount = Math.round(subtotal * discountPct) / 100;
+  const total = Math.round((subtotal - discountAmount) * 100) / 100;
+
+  // Render buckets in stable order: offpeak first, peak second
+  const breakdown = [];
+  if (buckets.offpeak) {
+    breakdown.push({ bucket: "offpeak", ...buckets.offpeak });
+  }
+  if (buckets.peak) {
+    breakdown.push({ bucket: "peak", ...buckets.peak });
+  }
+  const isMixed = breakdown.length > 1;
+
+  return {
+    ok: true,
+    subtotal: Math.round(subtotal * 100) / 100,
+    discountPct: discountPct,
+    discountAmount: discountAmount,
+    total: total,
+    isMember: isMember,
+    memberTier: tier || "",
+    isBirthdayEligible: isBirthdayEligible,
+    isBirthdaySession: isBirthdaySession,
+    breakdown: breakdown,
+    isMixed: isMixed
+  };
+}
+
+/** Compute whether a member is currently in their birthday window. */
+function isBirthdayEligibleClient(member, dateStr, windowDays) {
+  if (!member || !member.birthday) return false;
+  const parts = String(member.birthday).split("-").map(Number);
+  const bMonth = parts[0], bDay = parts[1];
+  if (!bMonth || !bDay) return false;
+
+  const checkDate = new Date(dateStr + "T12:00:00");
+  const thisYear = checkDate.getFullYear();
+  const birthday = new Date(thisYear, bMonth - 1, bDay);
+  const diffDays = Math.abs((checkDate - birthday) / (1000 * 60 * 60 * 24));
+
+  const win = windowDays != null ? windowDays : 3;
+  if (diffDays > win) return false;
+
+  const usedYear = parseInt(member.birthdayUsedYear) || 0;
+  if (usedYear >= thisYear) return false;
+
+  return true;
 }
 
 // Format duration (slots in 30-min increments) → "2h" / "2h 30m" / "30m"
@@ -1955,7 +2100,7 @@ function ScreenOTP({ state, setState, go, lang }) {
 }
 
 /* ===================== SCREEN 3: BOOKING ===================== */
-function ScreenBooking({ state, setState, go, lang }) {
+function ScreenBooking({ state, setState, go, lang, config }) {
   const isMember = !!state.isMember;
   const isGuest = !isMember;
   const member = state.member;
@@ -1973,7 +2118,6 @@ function ScreenBooking({ state, setState, go, lang }) {
   const [availLoading, setAvailLoading] = useState(true);
   const [availSlots, setAvailSlots] = useState([]);
   const [foundingStatus, setFoundingStatus] = useState(null);
-  const [pricing, setPricing] = useState(null);
 
   // Birthday gift state
   const [bdayClaimed, setBdayClaimed] = useState(false);
@@ -2020,30 +2164,31 @@ function ScreenBooking({ state, setState, go, lang }) {
     api("getFoundingStatus").then(r => { if (r.ok) setFoundingStatus(r); });
   }, []);
 
-  /* Recalculate price whenever the choice changes */
+  /* Birthday eligibility — computed client-side from cached member info */
   useEffect(() => {
-    let cancelled = false;
-    api("calculatePrice", {
-      date, time, slots,
-      courts: pickedCourts.length,
-      phone: state.phone || "",
-      useBirthday: (bdayClaimed && isMember) ? 1 : 0
-    }).then(r => {
-      if (cancelled) return;
-      if (r.ok) {
-        setPricing(r);
-        // Never enable birthday state for non-members, regardless of what
-        // backend says (defense in depth).
-        const nextEligible = isMember && !!r.isBirthdayEligible;
-        const nextSession = isMember && !!r.isBirthdaySession;
-        setBdayEligible(nextEligible);
-        if (nextSession !== bdayClaimed) {
-          setBdayClaimed(nextSession);
-        }
-      }
+    if (!isMember || !member) {
+      if (bdayEligible) setBdayEligible(false);
+      return;
+    }
+    const windowDays = (config && config.birthdayWindowDays) || 3;
+    const eligible = isBirthdayEligibleClient(member, date, windowDays);
+    if (eligible !== bdayEligible) setBdayEligible(eligible);
+    // If date moves out of birthday window while claimed, un-claim it.
+    if (!eligible && bdayClaimed) setBdayClaimed(false);
+  }, [isMember, member, date, config]);
+
+  /* Price calculation — pure client-side, instant updates */
+  const pricing = useMemo(() => {
+    if (!config) return null;  // wait for config to load
+    return calculatePriceClient({
+      config: config,
+      isMember: isMember,
+      tier: member ? member.tier : "",
+      isBirthdayEligible: bdayEligible,
+      useBirthday: bdayClaimed && isMember,
+      date: date, time: time, slots: slots, courts: pickedCourts.length
     });
-    return () => { cancelled = true; };
-  }, [date, time, slots, pickedCourts.length, state.phone, bdayClaimed, isMember]);
+  }, [config, isMember, member, bdayEligible, bdayClaimed, date, time, slots, pickedCourts.length]);
 
   /* Convert backend slots → wheel format */
   const wheelSlots = useMemo(() => {
@@ -2305,12 +2450,37 @@ function ScreenBooking({ state, setState, go, lang }) {
         <div className="priceblock">
           {pricing ? (
             <>
-              <div className="price-row">
-                <span className="k">
-                  {formatDuration(slots)} × {pickedCourts.length} {pickedCourts.length > 1 ? t("c_courts", null, lang).toLowerCase() : t("c_court", null, lang).toLowerCase()} · {peakLabel.toLowerCase()}
-                </span>
-                <span className="v">${pricing.subtotal.toFixed(2)}</span>
-              </div>
+              {pricing.isMixed ? (
+                // Mixed-rate: itemize each bucket
+                pricing.breakdown.map(b => (
+                  <div className="price-row" key={b.bucket}>
+                    <span className="k">
+                      {b.bucket === "offpeak"
+                        ? t("b_offpeak_line", null, lang)
+                        : t("b_peak_line", null, lang)}
+                      {" · "}
+                      {formatDuration(b.slots)} × {pickedCourts.length}
+                      {" · $"}{b.rate}/hr
+                    </span>
+                    <span className="v">${b.amount.toFixed(2)}</span>
+                  </div>
+                ))
+              ) : (
+                // Single-rate booking
+                <div className="price-row">
+                  <span className="k">
+                    {formatDuration(slots)} × {pickedCourts.length} {pickedCourts.length > 1 ? t("c_courts", null, lang).toLowerCase() : t("c_court", null, lang).toLowerCase()} · {peakLabel.toLowerCase()}
+                  </span>
+                  <span className="v">${pricing.subtotal.toFixed(2)}</span>
+                </div>
+              )}
+
+              {pricing.isMixed && (
+                <div className="price-row subtotal-row" style={{ paddingTop: 8, borderTop: "1px dashed rgba(26,26,26,0.18)", marginTop: 2 }}>
+                  <span className="k" style={{ fontWeight: 700 }}>{t("b_subtotal", null, lang)}</span>
+                  <span className="v">${pricing.subtotal.toFixed(2)}</span>
+                </div>
+              )}
 
               {pricing.discountPct > 0 && pricing.discountPct < 100 && (
                 <div className="price-row discount">
@@ -2721,14 +2891,21 @@ function App() {
     member: null,
     confirmation: null
   });
+  const [config, setConfig] = useState(null);  // pricing rules, grace period, etc.
 
   const [screen, setScreen] = useState("phone");
   const [bootLoading, setBootLoading] = useState(true);
 
-  // On first load: validate existing token if any
+  // On first load: validate existing token if any, and fetch config in parallel
   useEffect(() => {
     document.body.setAttribute("lang", lang);
     const token = getToken();
+
+    // Always fetch config — needed for client-side pricing
+    api("getConfig").then(r => {
+      if (r.ok) setConfig(r);
+    });
+
     if (!token) { setBootLoading(false); return; }
 
     api("validateToken", { token }).then(r => {
@@ -2778,7 +2955,7 @@ function App() {
   let body = null;
   if (screen === "phone") body = <ScreenPhone state={state} setState={setState} go={go} lang={lang} />;
   else if (screen === "otp") body = <ScreenOTP state={state} setState={setState} go={go} lang={lang} />;
-  else if (screen === "booking") body = <ScreenBooking state={state} setState={setState} go={go} lang={lang} />;
+  else if (screen === "booking") body = <ScreenBooking state={state} setState={setState} go={go} lang={lang} config={config} />;
   else if (screen === "confirm") body = <ScreenConfirm state={state} setState={setState} go={go} lang={lang} />;
   else if (screen === "myBookings") body = <ScreenMyBookings state={state} setState={setState} go={go} lang={lang} />;
   else if (screen === "membership") body = <ScreenMembership state={state} setState={setState} go={go} lang={lang} />;
