@@ -612,6 +612,11 @@ button { font-family: inherit; cursor: pointer; }
   box-shadow: 0 2px 8px rgba(0,0,0,0.15);
   z-index: 10;
 }
+.booking-block.clickable:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.2);
+  z-index: 20;
+}
 .booking-block .name {
   font-weight: 700;
   white-space: nowrap;
@@ -1942,6 +1947,7 @@ button { font-family: inherit; cursor: pointer; }
   letter-spacing: 0.04em;
 }
 .month-hover-popover .list .row.is-coach { color: var(--clay-2); }
+.month-hover-popover .list .row.is-walkin { color: var(--peach,#D9785C); }
 .month-hover-popover .list .row .t { font-weight: 700; }
 .month-hover-popover .list .row .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .month-hover-popover .list .row .c { opacity: 0.7; font-size: 9px; }
@@ -3304,7 +3310,7 @@ function ScreenLogin({ onAuth }) {
    Polls every 15s for live updates.
    ==================================================================== */
 
-function Timeline({ bookings, dateStr }) {
+function Timeline({ bookings, dateStr, onBlockClick }) {
   const wrapRef = useRef(null);
   const [slotW, setSlotW] = useState(28);
 
@@ -3364,7 +3370,8 @@ function Timeline({ bookings, dateStr }) {
           isMember: !!(b.memberTier && b.memberTier.length > 0),
           isCoaching: isCoaching,
           isWalkIn: isWalkIn,
-          bookingId: b.bookingId
+          bookingId: b.bookingId,
+          sourceEntry: b
         });
       }
     }
@@ -3448,10 +3455,12 @@ function Timeline({ bookings, dateStr }) {
                       key={c + "-" + b.bookingId + "-" + idx}
                       className={
                         "booking-block status-" + b.status +
-                        (b.isMember ? " member" : "")
+                        (b.isMember ? " member" : "") +
+                        (onBlockClick ? " clickable" : "")
                       }
                       style={{ left: left + "px", width: width + "px" }}
-                      title={b.name + " · " + b.time + " · $" + b.total + (b.isMember ? " · Member" : "")}
+                      title={b.name + " · " + b.time + " · $" + b.total + (b.isMember ? " · Member" : "") + (onBlockClick ? " · click to open" : "")}
+                      onClick={onBlockClick ? (e) => { e.stopPropagation(); onBlockClick(b.sourceEntry); } : undefined}
                     >
                       <span className="name">{b.name}</span>
                       <span className="time">{b.time}</span>
@@ -3876,7 +3885,28 @@ function ScreenBookings() {
   const [loading, setLoading] = useState(true);
   const [detailBooking, setDetailBooking] = useState(null);
   const [walkInBlock, setWalkInBlock] = useState(null); // walk-in block modal
+  const [coachingInfo, setCoachingInfo] = useState(null); // simple coaching info modal
   const [addBookingFlow, setAddBookingFlow] = useState(null); // null | "chooser" | "court" | "walkin"
+
+  // Unified block-click handler routing to the right detail modal by entry type
+  async function handleBlockClick(entry) {
+    if (!entry) return;
+    if (entry.entryType === "walkin") {
+      // Fetch fresh block details (players may have changed)
+      const r = await api("adminListWalkInBlocks", { dateFrom: entry.date, dateTo: entry.date });
+      if (r.ok) {
+        const fresh = (r.blocks || []).find(b => b.blockId === entry.bookingId || b.blockId === entry.blockId);
+        if (fresh) setWalkInBlock(fresh);
+        else showToast("Block not found", "error");
+      } else {
+        showToast(r.error || "Failed", "error");
+      }
+    } else if (entry.entryType === "coaching") {
+      setCoachingInfo(entry);
+    } else {
+      setDetailBooking(entry);
+    }
+  }
 
   // Compute the date range we need to fetch based on view + selected date
   const range = useMemo(() => {
@@ -4156,7 +4186,7 @@ function ScreenBookings() {
             <BouncingBall size="md" />
           </div>
         ) : (
-          <WeekView entries={entries} days={range.all || []} onDayClick={(iso) => { setView("day"); setDate(iso); }} />
+          <WeekView entries={entries} days={range.all || []} onDayClick={(iso) => { setView("day"); setDate(iso); }} onBlockClick={handleBlockClick} />
         )
       )}
 
@@ -4184,6 +4214,13 @@ function ScreenBookings() {
           block={walkInBlock}
           onClose={() => setWalkInBlock(null)}
           onChanged={() => load()}
+        />
+      )}
+
+      {coachingInfo && (
+        <CoachingInfoModal
+          session={coachingInfo}
+          onClose={() => setCoachingInfo(null)}
         />
       )}
 
@@ -4226,7 +4263,7 @@ function ScreenBookings() {
 }
 
 /* Week view: 7 days stacked, each a mini timeline */
-function WeekView({ entries, days, onDayClick }) {
+function WeekView({ entries, days, onDayClick, onBlockClick }) {
   // Compute per-day breakdown
   const dayStats = useMemo(() => {
     const map = {};
@@ -4287,7 +4324,7 @@ function WeekView({ entries, days, onDayClick }) {
                 )}
               </div>
             </div>
-            <Timeline bookings={entries.filter(e => e.date === iso)} dateStr={iso} />
+            <Timeline bookings={entries.filter(e => e.date === iso)} dateStr={iso} onBlockClick={onBlockClick} />
           </div>
         );
       })}
@@ -4330,7 +4367,7 @@ function MonthView({ entries, centerDate, onDayClick }) {
   const byDate = useMemo(() => {
     const map = {};
     for (const e of entries) {
-      if (!map[e.date]) map[e.date] = { bookings: 0, coaching: 0, revenue: 0, slots: 0, entries: [] };
+      if (!map[e.date]) map[e.date] = { bookings: 0, coaching: 0, walkin: 0, revenue: 0, slots: 0, entries: [] };
       if (e.entryType === "booking" && e.derivedStatus !== "cancelled") {
         map[e.date].bookings++;
         map[e.date].revenue += (e.total || 0);
@@ -4340,6 +4377,12 @@ function MonthView({ entries, centerDate, onDayClick }) {
       } else if (e.entryType === "coaching") {
         map[e.date].coaching++;
         map[e.date].revenue += (e.facilityEarns || 0);
+        const courtCount = String(e.courtNumbers || "").split(",").filter(Boolean).length;
+        map[e.date].slots += (e.slots || 0) * courtCount;
+        map[e.date].entries.push(e);
+      } else if (e.entryType === "walkin") {
+        map[e.date].walkin++;
+        map[e.date].revenue += (e.total || 0);
         const courtCount = String(e.courtNumbers || "").split(",").filter(Boolean).length;
         map[e.date].slots += (e.slots || 0) * courtCount;
         map[e.date].entries.push(e);
@@ -4436,6 +4479,9 @@ function MonthView({ entries, centerDate, onDayClick }) {
                   {stats.coaching > 0 && (
                     <span className="dot-coach" title={stats.coaching + " coaching"}>★ {stats.coaching}</span>
                   )}
+                  {stats.walkin > 0 && (
+                    <span className="dot-walkin" title={stats.walkin + " walk-in"} style={{ color: "var(--peach,#D9785C)" }}>◉ {stats.walkin}</span>
+                  )}
                   <div className="util-mini-v2">
                     <div className="fill" style={{ width: utilPct + "%" }} />
                   </div>
@@ -4461,18 +4507,24 @@ function MonthView({ entries, centerDate, onDayClick }) {
           <div className="head">
             <div className="title">{fmtDateLong(hoverIso)}</div>
             <div className="meta">
-              {hoverStats.bookings} guest · {hoverStats.coaching > 0 ? hoverStats.coaching + " coaching · " : ""}
-              ${hoverStats.revenue.toFixed(0)} revenue
+              {hoverStats.bookings > 0 && <span>{hoverStats.bookings} guest</span>}
+              {hoverStats.coaching > 0 && <span> · {hoverStats.coaching} ★</span>}
+              {hoverStats.walkin > 0 && <span> · {hoverStats.walkin} ◉</span>}
+              <span> · ${hoverStats.revenue.toFixed(0)} revenue</span>
             </div>
           </div>
           <div className="list">
-            {hoverStats.entries.slice(0, 6).map((e, idx) => (
-              <div key={idx} className={"row" + (e.entryType === "coaching" ? " is-coach" : "")}>
-                <span className="t">{e.time}</span>
-                <span className="n">{e.entryType === "coaching" ? "★ " : ""}{e.name}</span>
-                <span className="c">C·{e.courtNumbers}</span>
-              </div>
-            ))}
+            {hoverStats.entries.slice(0, 6).map((e, idx) => {
+              const icon = e.entryType === "coaching" ? "★ " : e.entryType === "walkin" ? "◉ " : "";
+              const rowClass = "row" + (e.entryType === "coaching" ? " is-coach" : e.entryType === "walkin" ? " is-walkin" : "");
+              return (
+                <div key={idx} className={rowClass}>
+                  <span className="t">{e.time}</span>
+                  <span className="n">{icon}{e.name}</span>
+                  <span className="c">C·{e.courtNumbers}</span>
+                </div>
+              );
+            })}
             {hoverStats.entries.length > 6 && (
               <div className="more">+ {hoverStats.entries.length - 6} more · click to view</div>
             )}
@@ -5322,6 +5374,77 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
             }}
           />
         )}
+      </div>
+    </div>
+  );
+}
+
+function CoachingInfoModal({ session, onClose }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">{session.bookingId}</div>
+            <h2>★ Coaching Session</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        <div className="modal-detail-row">
+          <span className="k">Coach</span>
+          <span className="v">{session.coachName}</span>
+        </div>
+        <div className="modal-detail-row">
+          <span className="k">When</span>
+          <span className="v">{session.date} · {session.time}–{session.timeEnd}</span>
+        </div>
+        <div className="modal-detail-row">
+          <span className="k">Court</span>
+          <span className="v">C·{session.courtNumbers} · {session.durationHours}h</span>
+        </div>
+        <div className="modal-detail-row">
+          <span className="k">Type</span>
+          <span className="v">{session.sessionType || "—"}</span>
+        </div>
+        {session.studentName && (
+          <div className="modal-detail-row">
+            <span className="k">Student</span>
+            <span className="v">{session.studentName}{session.studentPhone ? " · " + session.studentPhone : ""}</span>
+          </div>
+        )}
+        <div className="modal-detail-row">
+          <span className="k">Lesson fee</span>
+          <span className="v">${(session.lessonFee || 0).toFixed(2)}</span>
+        </div>
+        <div className="modal-detail-row">
+          <span className="k">Facility earns</span>
+          <span className="v" style={{ color: "var(--wood)" }}>${(session.facilityEarns || 0).toFixed(2)}</span>
+        </div>
+        <div className="modal-detail-row">
+          <span className="k">Coach takes</span>
+          <span className="v">${(session.coachTakes || 0).toFixed(2)}</span>
+        </div>
+        <div className="modal-detail-row">
+          <span className="k">Payment status</span>
+          <span className="v">
+            <span className={"status-pill " + (session.paymentStatus || "pending").toLowerCase()}>
+              {session.paymentStatus || "Pending"}
+            </span>
+          </span>
+        </div>
+
+        <div style={{
+          marginTop: 16, padding: 10, background: "rgba(168,116,74,0.06)",
+          borderLeft: "3px solid var(--wood)", borderRadius: 4,
+          fontFamily: "var(--mono)", fontSize: 11, opacity: 0.75, letterSpacing: "0.04em"
+        }}>
+          To edit, cancel, duplicate, or settle payment for this session, switch to the <strong>Coaching</strong> tab.
+        </div>
+
+        <div className="actions">
+          <button className="btn primary" onClick={onClose}>Close</button>
+        </div>
       </div>
     </div>
   );
