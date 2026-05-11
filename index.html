@@ -909,7 +909,7 @@ const STRINGS = {
     b_guest_h: "Tell us your name.",
     b_guest_placeholder: "Sophanara Chan",
     b_label_date: "Pick a day",
-    b_date_right: "{n} DAYS OUT",
+    b_date_right: "{n}-DAY WINDOW",
     b_label_time: "Pick a time",
     b_label_duration: "How long?",
     b_duration_right: "30-MIN STEPS · MIN 1H",
@@ -976,10 +976,10 @@ const STRINGS = {
     c_sms: "Confirmation sent to ***{p}",
     c_reminder: "We'll send a reminder 2 hours before.",
     c_book_another: "Book another →",
-    c_view_my: "View my bookings →",
+    c_view_my: "Manage my bookings →",
 
     // My bookings
-    mb_title: "My bookings",
+    mb_title: "Manage bookings",
     mb_kicker: "YOUR YARD",
     mb_upcoming: "Upcoming",
     mb_past: "Past",
@@ -1052,7 +1052,7 @@ const STRINGS = {
     b_guest_h: "ប្រាប់​ឈ្មោះ​អ្នក។",
     b_guest_placeholder: "ឈ្មោះ​ពេញ",
     b_label_date: "ជ្រើស​ថ្ងៃ",
-    b_date_right: "{n} ថ្ងៃ​ខាង​មុខ",
+    b_date_right: "{n} ថ្ងៃ​មុន​មក",
     b_label_time: "ជ្រើស​ម៉ោង",
     b_label_duration: "រយៈពេល?",
     b_duration_right: "ជំហាន​៣០​នាទី · យ៉ាង​តិច​១​ម៉ោង",
@@ -1118,7 +1118,7 @@ const STRINGS = {
     c_book_another: "កក់​មួយ​ទៀត →",
     c_view_my: "មើល​ការ​កក់​របស់​ខ្ញុំ →",
 
-    mb_title: "ការ​កក់​របស់​ខ្ញុំ",
+    mb_title: "គ្រប់គ្រង​ការ​កក់",
     mb_kicker: "YARD របស់​អ្នក",
     mb_upcoming: "ខាង​មុខ",
     mb_past: "កន្លង​មក",
@@ -2100,7 +2100,7 @@ function ScreenBooking({ state, setState, go, lang }) {
       )}
 
       {/* DATE */}
-      <SectionLabel n="01" right={t("b_date_right", { n: BOOKING_WINDOW_DAYS }, lang)}>
+      <SectionLabel n="01" right={t("b_date_right", { n: 14 }, lang)}>
         {t("b_label_date", null, lang)}
       </SectionLabel>
       <DateStrip value={date} onChange={setDate} daysAhead={14} lang={lang} />
@@ -2228,7 +2228,7 @@ function ScreenBooking({ state, setState, go, lang }) {
 
               <div className="price-row total">
                 <span className="k">{t("b_total", null, lang)}</span>
-                <span className="v">${pricing.total.toFixed(0)}</span>
+                <span className="v">${pricing.total.toFixed(2)}</span>
               </div>
               <div className="hint" style={{ margin: "4px 0 10px", display: "flex", alignItems: "center", gap: 6 }}>
                 <span className="mono" style={{
@@ -2446,7 +2446,7 @@ function ScreenMyBookings({ state, setState, go, lang }) {
                 </div>
                 <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span className="mono" style={{ fontSize: 14, fontWeight: 500 }}>
-                    {b.total === 0 ? "FREE" : "$" + Number(b.total).toFixed(0)}
+                    {b.total === 0 ? "FREE" : "$" + Number(b.total).toFixed(2)}
                   </span>
                   <button className="ulink" style={{ fontSize: 12, color: "var(--clay)", borderColor: "var(--clay)" }}
                     onClick={() => setCancelTarget(b)}>
@@ -2661,7 +2661,7 @@ function App() {
             {lang === "km" ? "កក់" : "Book"}
           </button>
           <button className={screen === "myBookings" ? "on" : ""} onClick={() => go("myBookings")}>
-            {lang === "km" ? "របស់​ខ្ញុំ" : "Mine"}
+            {lang === "km" ? "ការ​កក់" : "Manage"}
           </button>
           <button className={screen === "membership" ? "on" : ""} onClick={() => go("membership")}>
             {lang === "km" ? "សមាជិក" : "Members"}
