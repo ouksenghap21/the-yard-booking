@@ -705,19 +705,143 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
 }
 .empty .icon{ font-size:36px; margin-bottom:8px; opacity:0.5; }
 
-/* ========== Loading overlay ========== */
-.spinner{
-  width:32px; height:32px; border:3px solid var(--ink); border-top-color:transparent;
-  border-radius:50%; animation:spin 0.8s linear infinite;
-}
-@keyframes spin{ to { transform:rotate(360deg); } }
+/* ========== Loading: bouncing pickleball ========== */
+/* A pickleball trajectory motif — bounces left-to-right with diminishing
+   arcs, ending in a small roll. Built from two independent animations:
+   horizontal slide + vertical bounce. Combined they give realistic physics. */
 
+.bouncer{
+  position:relative;
+  display:flex;
+  align-items:center; justify-content:center;
+  overflow:hidden;
+}
+.bouncer-sm{ width:120px; height:60px; }
+.bouncer-md{ width:200px; height:90px; }
+.bouncer-lg{ width:280px; height:120px; }
+
+.bouncer .ground{
+  position:absolute;
+  left:8%; right:8%; bottom:14%;
+  height:0;
+  border-bottom:1.5px dashed rgba(26,26,26,0.35);
+}
+.bouncer.on-dark .ground{
+  border-bottom-color:rgba(241,234,214,0.35);
+}
+
+.bouncer .ball-track{
+  position:absolute;
+  left:8%; bottom:14%;
+  width:0; height:0;
+  animation:ballSlideLeft 1.7s cubic-bezier(0.42, 0, 0.7, 1) infinite;
+}
+.bouncer .ball{
+  position:absolute;
+  left:-7px; bottom:-7px;
+  width:14px; height:14px;
+  background:var(--clay);
+  border-radius:50%;
+  animation:ballBounce 1.7s cubic-bezier(0.5, 0, 0.5, 1) infinite, ballFade 1.7s linear infinite;
+  box-shadow:0 2px 0 rgba(26,26,26,0.10);
+}
+.bouncer.on-dark .ball{ background:var(--clay); }
+.bouncer-sm .ball{ width:10px; height:10px; left:-5px; bottom:-5px; }
+.bouncer-lg .ball{ width:18px; height:18px; left:-9px; bottom:-9px; }
+
+/* Fade the ball in/out at loop boundaries so the restart doesn't look like
+   a teleport. */
+@keyframes ballFade{
+  0%   { opacity:0; }
+  8%   { opacity:1; }
+  92%  { opacity:1; }
+  100% { opacity:0; }
+}
+
+/* Horizontal slide: track moves from left to right across the bouncer */
+@keyframes ballSlideLeft{
+  0%   { left:0%; }
+  100% { left:84%; }
+}
+
+/* Update slide duration to match new 1.7s timing */
+.bouncer .ball-track{
+  animation-duration:1.7s;
+}
+
+/* Vertical bounce: 3 progressively-smaller arcs followed by a small roll.
+   Negative translateY = up. The cubic-bezier gives gravity-feel curves. */
+@keyframes ballBounce{
+  /* Start: dropped from height */
+  0%   { transform:translateY(-44px) scaleY(1) scaleX(1); }
+  /* Squish on first impact */
+  18%  { transform:translateY(0)     scaleY(0.65) scaleX(1.25); }
+  /* Rebound 1 (full arc) */
+  20%  { transform:translateY(0)     scaleY(1.05) scaleX(0.95); }
+  35%  { transform:translateY(-30px) scaleY(1)    scaleX(1); }
+  48%  { transform:translateY(0)     scaleY(0.7)  scaleX(1.2); }
+  /* Rebound 2 (smaller) */
+  50%  { transform:translateY(0)     scaleY(1.04) scaleX(0.96); }
+  62%  { transform:translateY(-18px) scaleY(1)    scaleX(1); }
+  73%  { transform:translateY(0)     scaleY(0.75) scaleX(1.15); }
+  /* Rebound 3 (smallest) */
+  75%  { transform:translateY(0)     scaleY(1.02) scaleX(0.98); }
+  84%  { transform:translateY(-8px)  scaleY(1)    scaleX(1); }
+  92%  { transform:translateY(0)     scaleY(0.85) scaleX(1.08); }
+  /* Final roll out */
+  100% { transform:translateY(0)     scaleY(1)    scaleX(1); }
+}
+.bouncer-sm .ball{ animation-name:ballBounceSm; }
+@keyframes ballBounceSm{
+  0%   { transform:translateY(-28px) scaleY(1) scaleX(1); }
+  18%  { transform:translateY(0)     scaleY(0.65) scaleX(1.25); }
+  20%  { transform:translateY(0)     scaleY(1.05) scaleX(0.95); }
+  35%  { transform:translateY(-20px) scaleY(1) scaleX(1); }
+  48%  { transform:translateY(0)     scaleY(0.7) scaleX(1.2); }
+  50%  { transform:translateY(0)     scaleY(1.04) scaleX(0.96); }
+  62%  { transform:translateY(-12px) scaleY(1) scaleX(1); }
+  73%  { transform:translateY(0)     scaleY(0.75) scaleX(1.15); }
+  75%  { transform:translateY(0)     scaleY(1.02) scaleX(0.98); }
+  84%  { transform:translateY(-5px)  scaleY(1) scaleX(1); }
+  92%  { transform:translateY(0)     scaleY(0.85) scaleX(1.08); }
+  100% { transform:translateY(0)     scaleY(1) scaleX(1); }
+}
+.bouncer-lg .ball{ animation-name:ballBounceLg; }
+@keyframes ballBounceLg{
+  0%   { transform:translateY(-60px) scaleY(1) scaleX(1); }
+  18%  { transform:translateY(0)     scaleY(0.65) scaleX(1.25); }
+  20%  { transform:translateY(0)     scaleY(1.05) scaleX(0.95); }
+  35%  { transform:translateY(-42px) scaleY(1) scaleX(1); }
+  48%  { transform:translateY(0)     scaleY(0.7) scaleX(1.2); }
+  50%  { transform:translateY(0)     scaleY(1.04) scaleX(0.96); }
+  62%  { transform:translateY(-24px) scaleY(1) scaleX(1); }
+  73%  { transform:translateY(0)     scaleY(0.75) scaleX(1.15); }
+  75%  { transform:translateY(0)     scaleY(1.02) scaleX(0.98); }
+  84%  { transform:translateY(-10px) scaleY(1) scaleX(1); }
+  92%  { transform:translateY(0)     scaleY(0.85) scaleX(1.08); }
+  100% { transform:translateY(0)     scaleY(1) scaleX(1); }
+}
+
+/* Optional: a faint trajectory trail behind the ball */
+.bouncer .trail{
+  position:absolute; inset:0;
+  pointer-events:none; opacity:0.16;
+}
+.bouncer .trail svg{ width:100%; height:100%; }
+
+/* ========== Loading overlay ========== */
 .loading-overlay{
   position:fixed; inset:0;
-  background:rgba(241,234,214,0.85);
-  display:flex; align-items:center; justify-content:center;
+  background:rgba(241,234,214,0.92);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
   z-index:200;
-  backdrop-filter:blur(2px);
+  backdrop-filter:blur(3px);
+  gap:14px;
+}
+.loading-overlay .msg{
+  font-family:var(--mono); font-size:11px; letter-spacing:0.16em;
+  text-transform:uppercase; font-weight:500;
+  color:var(--ink); opacity:0.7;
 }
 
 /* ========== Toast ========== */
@@ -1005,7 +1129,9 @@ const STRINGS = {
     b_member_no: "MEMBER",
     b_expires: "EXPIRES",
     b_guest_top: "FIRST TIME HERE",
+    b_guest_returning: "WELCOME BACK · {n} VISITS",
     b_guest_h: "Tell us your name.",
+    b_guest_h_back: "Hi, {name}.",
     b_guest_placeholder: "Sophanara Chan",
     b_label_date: "Pick a day",
     b_date_right: "{n}-DAY WINDOW",
@@ -1159,7 +1285,9 @@ const STRINGS = {
     b_member_no: "សមាជិក",
     b_expires: "ផុត​កំណត់",
     b_guest_top: "មក​ដំបូង",
+    b_guest_returning: "សួស្តី​ត្រឡប់​មក​វិញ · {n} លើក",
     b_guest_h: "ប្រាប់​ឈ្មោះ​អ្នក។",
+    b_guest_h_back: "សួស្តី {name}។",
     b_guest_placeholder: "ឈ្មោះ​ពេញ",
     b_label_date: "ជ្រើស​ថ្ងៃ",
     b_date_right: "{n} ថ្ងៃ​មុន​មក",
@@ -1861,13 +1989,30 @@ function CourtRail({ value, onChange, count = 8, unavailable = [], lang }) {
 }
 
 /* ============== Loading / Toast ============== */
+
+/**
+ * BouncingBall — a pickleball bouncing left→right across a dotted court line.
+ * Used wherever we used to render a spinner.
+ *
+ * Sizes: "sm" (120×60, inline use), "md" (200×90, default), "lg" (280×120, full-screen).
+ */
+function BouncingBall({ size = "md", onDark = false }) {
+  const cls = "bouncer bouncer-" + size + (onDark ? " on-dark" : "");
+  return (
+    <div className={cls} aria-label="Loading" role="status">
+      <div className="ground" />
+      <div className="ball-track">
+        <div className="ball" />
+      </div>
+    </div>
+  );
+}
+
 function Loading({ message }) {
   return (
     <div className="loading-overlay">
-      <div style={{ textAlign: "center" }}>
-        <div className="spinner" style={{ margin: "0 auto" }} />
-        {message ? <div style={{ marginTop: 12, fontFamily: "var(--mono)", fontSize: 12, letterSpacing: "0.14em", textTransform: "uppercase" }}>{message}</div> : null}
-      </div>
+      <BouncingBall size="md" />
+      {message ? <div className="msg">{message}</div> : null}
     </div>
   );
 }
@@ -2068,7 +2213,8 @@ function ScreenOTP({ state, setState, go, lang }) {
       ...s,
       token: r.token,
       isMember: r.isMember,
-      member: r.member
+      member: r.member,
+      guest: r.guest || null
     }));
     go("booking");
   }
@@ -2163,7 +2309,13 @@ function ScreenBooking({ state, setState, go, lang, config }) {
   const [time, setTime] = useState(state.time || "18:00");
   const [slots, setSlots] = useState(state.slots || 2);   // 30-min slots; 2 = 1 hour
   const [pickedCourts, setPickedCourts] = useState(state.pickedCourts || [1]);
-  const [guestName, setGuestName] = useState(state.guestName || (member ? member.name : ""));
+  // Pre-fill name: member name if member, else guest name from prior bookings
+  const guestRecord = state.guest;
+  const [guestName, setGuestName] = useState(
+    state.guestName ||
+    (member ? member.name : "") ||
+    (guestRecord ? guestRecord.name : "")
+  );
 
   // Live data
   const [availLoading, setAvailLoading] = useState(true);
@@ -2381,10 +2533,18 @@ function ScreenBooking({ state, setState, go, lang, config }) {
       {isGuest && (
         <div className="guest-hello">
           <div className="top">
-            <span>{t("b_guest_top", null, lang)}</span>
+            <span>
+              {guestRecord
+                ? t("b_guest_returning", { n: guestRecord.totalBookings }, lang)
+                : t("b_guest_top", null, lang)}
+            </span>
             <span>+855 {maskPhone(state.phone)}</span>
           </div>
-          <div className="h">{t("b_guest_h", null, lang)}</div>
+          <div className="h">
+            {guestRecord && guestRecord.name
+              ? t("b_guest_h_back", { name: guestRecord.name.split(" ")[0] }, lang)
+              : t("b_guest_h", null, lang)}
+          </div>
           <input
             value={guestName}
             placeholder={t("b_guest_placeholder", null, lang)}
@@ -2415,7 +2575,7 @@ function ScreenBooking({ state, setState, go, lang, config }) {
       <div style={{ marginTop: 18 }}>
         <SectionLabel n="02" right={peakLabel}>{t("b_label_time", null, lang)}</SectionLabel>
         {availLoading
-          ? <div className="wheel" style={{ height: 260, display: "flex", alignItems: "center", justifyContent: "center" }}><div className="spinner" /></div>
+          ? <div className="wheel" style={{ height: 260, display: "flex", alignItems: "center", justifyContent: "center" }}><BouncingBall size="md" /></div>
           : wheelSlots.length === 0
             ? <div className="empty"><div>{t("b_no_slots", null, lang)}</div></div>
             : <WheelPicker value={time} onChange={setTime} slots={wheelSlots} lang={lang} />}
@@ -2571,8 +2731,8 @@ function ScreenBooking({ state, setState, go, lang, config }) {
               </div>
             </>
           ) : (
-            <div style={{ padding: 20, textAlign: "center", opacity: 0.5 }}>
-              <div className="spinner" style={{ margin: "0 auto" }} />
+            <div style={{ padding: 10, textAlign: "center", opacity: 0.7 }}>
+              <BouncingBall size="sm" />
             </div>
           )}
         </div>
@@ -2767,7 +2927,7 @@ function ScreenMyBookings({ state, setState, go, lang }) {
       </h1>
 
       {loading ? (
-        <div style={{ padding: 40, textAlign: "center" }}><div className="spinner" style={{ margin: "0 auto" }} /></div>
+        <div style={{ padding: 30, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
       ) : (
         <>
           <SectionLabel n="01">{t("mb_upcoming", null, lang)}</SectionLabel>
@@ -2940,6 +3100,7 @@ function App() {
     token: getToken(),
     isMember: false,
     member: null,
+    guest: null,
     confirmation: null
   });
   const [config, setConfig] = useState(null);  // pricing rules, grace period, etc.
@@ -2967,7 +3128,8 @@ function App() {
           token,
           phone: r.phone || s.phone,
           isMember: !!r.isMember,
-          member: r.member || null
+          member: r.member || null,
+          guest: r.guest || null
         }));
         // Skip phone+otp screens; jump straight to booking
         const hash = (location.hash || "").replace("#", "");
@@ -2993,7 +3155,7 @@ function App() {
   function logout() {
     setToken("");
     setStoredPhone("");
-    setState({ phone: "", token: "", isMember: false, member: null, confirmation: null });
+    setState({ phone: "", token: "", isMember: false, member: null, guest: null, confirmation: null });
     go("phone");
   }
 
