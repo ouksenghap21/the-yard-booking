@@ -563,19 +563,45 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
 .priceblock{
   border-top:1.5px solid var(--ink);
   padding:16px 0 8px;
+  transition:height 0.2s ease;
 }
 .price-row{
   display:flex; justify-content:space-between; align-items:baseline;
   padding:6px 0;
   font-family:var(--sans);
+  animation:priceRowIn 0.18s ease-out;
 }
-.price-row .k{ font-size:13.5px; }
-.price-row .v{ font-family:var(--mono); font-size:15px; font-weight:500; }
+.price-row .k{ font-size:13.5px; transition:opacity 0.2s ease; }
+.price-row .v{
+  font-family:var(--mono); font-size:15px; font-weight:500;
+  display:inline-block;
+  animation:priceValuePulse 0.28s ease-out;
+}
+.price-row.total{ position:relative; }
 .price-row.total .k{ font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:0.12em; }
-.price-row.total .v{ font-family:var(--serif); font-style:italic; font-weight:400; font-size:38px; line-height:1; }
+.price-row.total .v{
+  font-family:var(--serif); font-style:italic; font-weight:400; font-size:38px; line-height:1;
+  animation:priceTotalPulse 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin:right center;
+}
 .price-row.discount{ color:var(--clay); }
 .price-row.discount .v::before{ content:"− "; }
 .price-row.strike .v{ text-decoration:line-through; opacity:0.5; }
+
+@keyframes priceRowIn{
+  from { opacity:0; transform:translateY(-4px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+@keyframes priceValuePulse{
+  0%   { color:var(--clay); transform:translateY(-2px); }
+  60%  { color:var(--clay); transform:translateY(0); }
+  100% { color:inherit; transform:translateY(0); }
+}
+@keyframes priceTotalPulse{
+  0%   { transform:scale(0.94); color:var(--clay); }
+  60%  { transform:scale(1.02); color:var(--clay); }
+  100% { transform:scale(1); color:inherit; }
+}
 
 /* ========== OTP boxes ========== */
 .otp-row{ display:grid; grid-template-columns:repeat(6, 1fr); gap:8px; }
@@ -1640,6 +1666,7 @@ function WheelPicker({ value, onChange, slots, lang }) {
   const scrollRef = useRef(null);
   const ITEM_H = 52;
   const userScrollingRef = useRef(false);
+  const lastUserInputRef = useRef(0);
   const mountedRef = useRef(false);
 
   const idx = Math.max(0, slots.findIndex(s => s.t === value));
@@ -1667,19 +1694,25 @@ function WheelPicker({ value, onChange, slots, lang }) {
       return;
     }
 
-    if (userScrollingRef.current) return;
+    // If user input was within the last 250ms, skip programmatic scroll —
+    // they're still interacting and our scrollTo would fight their finger.
+    if (Date.now() - lastUserInputRef.current < 250) return;
     el.scrollTo({ top: idx * ITEM_H, behavior: "smooth" });
   }, [idx, slots.length]);
 
-  function markUserScroll() { userScrollingRef.current = true; }
+  function markUserScroll() {
+    userScrollingRef.current = true;
+    lastUserInputRef.current = Date.now();
+  }
 
   function onScroll() {
     const el = scrollRef.current;
     if (!el || !userScrollingRef.current) return;
+    lastUserInputRef.current = Date.now();
 
     // LIVE update: emit the slot directly under center as the user scrolls.
-    // This makes the price card track the wheel instead of waiting for settle.
-    // Throttled via rAF so we don't thrash React.
+    // Throttled via rAF so we don't thrash React, and only fires onChange
+    // when the centered slot actually changes — minimizing parent re-renders.
     if (!el._rafPending) {
       el._rafPending = true;
       requestAnimationFrame(() => {
@@ -2480,7 +2513,7 @@ function ScreenBooking({ state, setState, go, lang, config }) {
                       {formatDuration(b.slots)} × {pickedCourts.length}
                       {" · $"}{b.rate}/hr
                     </span>
-                    <span className="v">${b.amount.toFixed(2)}</span>
+                    <span className="v" key={"v-" + b.bucket + "-" + b.amount}>${b.amount.toFixed(2)}</span>
                   </div>
                 ))
               ) : (
@@ -2489,14 +2522,14 @@ function ScreenBooking({ state, setState, go, lang, config }) {
                   <span className="k">
                     {formatDuration(slots)} × {pickedCourts.length} {pickedCourts.length > 1 ? t("c_courts", null, lang).toLowerCase() : t("c_court", null, lang).toLowerCase()} · {peakLabel.toLowerCase()}
                   </span>
-                  <span className="v">${pricing.subtotal.toFixed(2)}</span>
+                  <span className="v" key={"v-sub-" + pricing.subtotal}>${pricing.subtotal.toFixed(2)}</span>
                 </div>
               )}
 
               {pricing.isMixed && (
                 <div className="price-row subtotal-row" style={{ paddingTop: 8, borderTop: "1px dashed rgba(26,26,26,0.18)", marginTop: 2 }}>
                   <span className="k" style={{ fontWeight: 700 }}>{t("b_subtotal", null, lang)}</span>
-                  <span className="v">${pricing.subtotal.toFixed(2)}</span>
+                  <span className="v" key={"v-mixsub-" + pricing.subtotal}>${pricing.subtotal.toFixed(2)}</span>
                 </div>
               )}
 
@@ -2505,7 +2538,7 @@ function ScreenBooking({ state, setState, go, lang, config }) {
                   <span className="k">
                     {isFounding ? t("b_founding_disc", null, lang) : t("b_member_disc", null, lang)}
                   </span>
-                  <span className="v">${pricing.discountAmount.toFixed(2)}</span>
+                  <span className="v" key={"v-disc-" + pricing.discountAmount}>${pricing.discountAmount.toFixed(2)}</span>
                 </div>
               )}
 
@@ -2513,11 +2546,11 @@ function ScreenBooking({ state, setState, go, lang, config }) {
                 <>
                   <div className="price-row strike">
                     <span className="k">{t("b_standard_rate", null, lang)}</span>
-                    <span className="v">${pricing.subtotal.toFixed(2)}</span>
+                    <span className="v" key={"v-strike-" + pricing.subtotal}>${pricing.subtotal.toFixed(2)}</span>
                   </div>
                   <div className="price-row discount" style={{ color: "var(--green-2)" }}>
                     <span className="k">{t("b_birthday_gift", null, lang)}</span>
-                    <span className="v">${pricing.subtotal.toFixed(2)}</span>
+                    <span className="v" key={"v-bday-" + pricing.subtotal}>${pricing.subtotal.toFixed(2)}</span>
                   </div>
                 </>
               )}
@@ -2526,7 +2559,7 @@ function ScreenBooking({ state, setState, go, lang, config }) {
 
               <div className="price-row total">
                 <span className="k">{t("b_total", null, lang)}</span>
-                <span className="v">${pricing.total.toFixed(2)}</span>
+                <span className="v" key={"v-total-" + pricing.total}>${pricing.total.toFixed(2)}</span>
               </div>
               <div className="hint" style={{ margin: "4px 0 10px", display: "flex", alignItems: "center", gap: 6 }}>
                 <span className="mono" style={{
