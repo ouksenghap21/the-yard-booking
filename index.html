@@ -708,32 +708,99 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
 @keyframes toastIn{ from { transform:translate(-50%, 20px); opacity:0; } to { transform:translate(-50%, 0); opacity:1; } }
 
 /* ========== Footer / nav ========== */
+/* ========== Foot nav (Ink + Cream — "On Ink" brand variant) ========== */
 .foot-nav{
   display:flex; gap:0;
+  background:var(--ink);
   border-top:1.5px solid var(--ink);
-  background:var(--cream);
   position:fixed;
   bottom:0; left:0; right:0;
   max-width:520px; margin:0 auto;
   z-index:30;
+  padding-bottom:env(safe-area-inset-bottom, 0); /* iOS bottom safe area */
+  box-shadow:0 -8px 24px rgba(26,26,26,0.18);
 }
 .foot-nav button{
   flex:1;
-  background:transparent; border:0;
-  padding:14px 8px;
+  position:relative;
+  background:transparent;
+  border:0;
+  padding:16px 8px 14px;
   font-family:var(--sans); font-weight:700;
-  font-size:10.5px; letter-spacing:0.14em; text-transform:uppercase;
-  color:var(--ink); cursor:pointer;
-  border-right:1.5px solid var(--ink);
+  font-size:10.5px; letter-spacing:0.16em; text-transform:uppercase;
+  color:var(--cream); cursor:pointer;
+  border-right:1px solid rgba(241,234,214,0.18);
+  transition:background .15s ease, color .15s ease;
 }
 .foot-nav button:last-child{ border-right:0; }
-.foot-nav button.on{ background:var(--ink); color:var(--cream); }
+.foot-nav button:hover{ background:rgba(241,234,214,0.06); }
+.foot-nav button:active{ background:rgba(241,234,214,0.12); }
+.foot-nav button.on{
+  color:var(--cream);
+  background:rgba(241,234,214,0.08);
+}
+/* Active indicator: a Clay dink-trajectory line + dot, evocative of the brand mark */
+.foot-nav button.on::after{
+  content:"";
+  position:absolute;
+  left:18%; right:18%;
+  top:8px;
+  height:3px;
+  background:var(--clay);
+  border-radius:2px;
+}
+.foot-nav button.signout{
+  color:var(--clay);
+}
+.foot-nav button.signout:hover{ background:rgba(198,79,58,0.10); }
 
 /* ========== Footer note ========== */
 .footer-note{
   font-family:var(--mono); font-size:10.5px; letter-spacing:0.12em;
   font-weight:500;
   text-align:center; opacity:0.55; margin-top:14px; text-transform:uppercase;
+}
+
+/* ========== Grace period notice line (phone screen) ========== */
+.grace-line{
+  display:flex; align-items:center; gap:8px;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:0.14em;
+  font-weight:500; text-transform:uppercase;
+  color:var(--ink); opacity:0.7;
+  padding:10px 14px;
+  border:1px dashed var(--ink);
+  border-radius:999px;
+  justify-content:center;
+}
+.grace-line .dot{
+  display:inline-block; width:7px; height:7px;
+  background:var(--clay); border-radius:50%;
+  flex-shrink:0;
+}
+
+/* ========== Grace period notice card (confirmation page) ========== */
+.grace-card{
+  position:relative;
+  border:1.5px solid var(--ink);
+  background:var(--paper);
+  border-radius:14px;
+  padding:16px 18px 18px;
+  border-left:5px solid var(--clay);
+}
+.grace-card .grace-kicker{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:0.18em;
+  font-weight:500; text-transform:uppercase;
+  color:var(--clay);
+  margin-bottom:6px;
+}
+.grace-card .grace-title{
+  font-family:var(--serif); font-style:italic; font-weight:400;
+  font-size:22px; line-height:1.1; letter-spacing:-0.01em;
+  margin-bottom:8px;
+}
+.grace-card .grace-body{
+  font-family:var(--sans); font-size:13.5px; line-height:1.5;
+  opacity:0.85;
 }
 
 /* ========== Underline link ========== */
@@ -885,7 +952,13 @@ const STRINGS = {
     p_founding_sub: "Birthday session free.",
     p_founding_progress: "FOUNDING · {n} OF {cap} CLAIMED",
     p_learn: "Learn",
-    p_footer: "THE YARD · ST. 315 · TOUL KORK · PHNOM PENH",
+    p_footer: "THE YARD · TOUL KORK · PHNOM PENH",
+    p_grace_notice: "Late more than 30 min · court may be released",
+
+    // Grace period heads-up on confirmation page
+    grace_kicker: "HEADS UP",
+    grace_title: "Arrive within 30 minutes.",
+    grace_body: "If you're more than 30 minutes late, our staff may release the court to walk-ins. You'll get an SMS if that happens.",
 
     // OTP screen
     o_back: "← BACK",
@@ -983,6 +1056,9 @@ const STRINGS = {
     mb_kicker: "YOUR YARD",
     mb_upcoming: "Upcoming",
     mb_past: "Past",
+    mb_cancelled: "Cancelled & no-show",
+    mb_cancelled_tag: "CANCELLED",
+    mb_no_show: "NO-SHOW",
     mb_empty_upcoming_h: "No upcoming bookings.",
     mb_empty_upcoming_p: "Tap below to book your next session.",
     mb_book_now: "Book a court",
@@ -1030,7 +1106,12 @@ const STRINGS = {
     p_founding_sub: "សម័យ​កើត​ឥត​គិត​ថ្លៃ។",
     p_founding_progress: "ស្ថាបនិក · {n} នៃ {cap} បាន​ទាមទារ",
     p_learn: "មើល",
-    p_footer: "THE YARD · ផ្លូវ​៣១៥ · ទួលគោក · ភ្នំពេញ",
+    p_footer: "THE YARD · ទួលគោក · ភ្នំពេញ",
+    p_grace_notice: "យឺត​លើស​ពី ៣០​នាទី · កួត​អាច​ត្រូវ​បាន​ដោះ​លែង",
+
+    grace_kicker: "ចំណាំ",
+    grace_title: "មក​ដល់​ក្នុង​រយៈ​ពេល ៣០​នាទី។",
+    grace_body: "បើ​អ្នក​យឺត​លើស​ពី ៣០​នាទី បុគ្គលិក​យើង​អាច​ដោះ​លែង​កួត​ឱ្យ​អ្នក​ដទៃ។ អ្នក​នឹង​ទទួល​បាន​សារ SMS ប្រសិន​បើ​មាន​ការ​ដោះ​លែង។",
 
     o_back: "← ត្រឡប់",
     o_step: "ជំហាន ២ / ២",
@@ -1122,6 +1203,9 @@ const STRINGS = {
     mb_kicker: "YARD របស់​អ្នក",
     mb_upcoming: "ខាង​មុខ",
     mb_past: "កន្លង​មក",
+    mb_cancelled: "បាន​បោះបង់ និង​មិន​មក",
+    mb_cancelled_tag: "បាន​បោះបង់",
+    mb_no_show: "មិន​មក",
     mb_empty_upcoming_h: "គ្មាន​ការ​កក់​ខាង​មុខ​ទេ។",
     mb_empty_upcoming_p: "ចុច​ខាង​ក្រោម​ដើម្បី​កក់។",
     mb_book_now: "កក់​កួត",
@@ -1302,10 +1386,18 @@ function BrandMark({ size = 36, onDark = false }) {
   );
 }
 
-function Lockup({ size = 1, onDark = false }) {
+function Lockup({ size = 1, onDark = false, onClick }) {
   const ink = onDark ? "var(--cream)" : "var(--ink)";
+  const clickable = typeof onClick === "function";
   return (
-    <div className="brand-hero">
+    <div
+      className="brand-hero"
+      onClick={clickable ? onClick : undefined}
+      style={clickable ? { cursor: "pointer", userSelect: "none" } : undefined}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") onClick(); } : undefined}
+    >
       <BrandMark size={32 * size} onDark={onDark} />
       <div className="word-row">
         <span className="it" style={{ color: ink, fontSize: 22 * size }}>The Yard.</span>
@@ -1635,7 +1727,7 @@ function ScreenPhone({ state, setState, go, lang }) {
     <>
       <div className="screen scr-pad-top">
         <div className="row-between" style={{ marginTop: 6 }}>
-          <Lockup size={1.05} />
+          <Lockup size={1.05} onClick={() => go(state.token ? "booking" : "phone")} />
           <span className="pill" style={{ background: "var(--clay)", color: "var(--cream)", borderColor: "var(--clay)" }}>
             {t("open_hours", null, lang)}
           </span>
@@ -1718,7 +1810,12 @@ function ScreenPhone({ state, setState, go, lang }) {
           </div>
         </div>
 
-        <div className="footer-note" style={{ marginTop: 24 }}>
+        <div className="grace-line" style={{ marginTop: 22 }}>
+          <span className="dot" />
+          <span>{t("p_grace_notice", null, lang)}</span>
+        </div>
+
+        <div className="footer-note" style={{ marginTop: 14 }}>
           {t("p_footer", null, lang)}
         </div>
       </div>
@@ -2051,7 +2148,7 @@ function ScreenBooking({ state, setState, go, lang }) {
   return (
     <div className="screen scr-pad-top">
       <div className="row-between" style={{ marginBottom: 14 }}>
-        <Lockup size={0.92} />
+        <Lockup size={0.92} onClick={() => go(state.token ? "booking" : "phone")} />
         <span className="pill">{t("b_title", null, lang)}</span>
       </div>
 
@@ -2293,7 +2390,7 @@ function ScreenConfirm({ state, setState, go, lang }) {
           style={{ background: "transparent", border: "1.5px solid var(--ink)", padding: "6px 10px", cursor: "pointer", borderRadius: 999, fontFamily: "var(--mono)", fontWeight: 500, fontSize: 11, letterSpacing: "0.1em" }}>
           {t("c_back", null, lang)}
         </button>
-        <Lockup size={0.85} />
+        <Lockup size={0.85} onClick={() => go(state.token ? "booking" : "phone")} />
       </div>
 
       <div className="stamp-wrap">
@@ -2308,6 +2405,13 @@ function ScreenConfirm({ state, setState, go, lang }) {
       <div className="bookingid" style={{ marginBottom: 16 }}>
         <span>{c.bookingId}</span>
         <button className="copy" onClick={copy}>{copied ? t("c_copied", null, lang) : t("c_copy", null, lang)}</button>
+      </div>
+
+      {/* Heads-up: grace period notice */}
+      <div className="grace-card" style={{ marginBottom: 18 }}>
+        <div className="grace-kicker">{t("grace_kicker", null, lang)}</div>
+        <div className="grace-title">{t("grace_title", null, lang)}</div>
+        <div className="grace-body">{t("grace_body", null, lang)}</div>
       </div>
 
       {/* Court diagram */}
@@ -2397,8 +2501,8 @@ function ScreenMyBookings({ state, setState, go, lang }) {
       phone: state.phone || ""
     });
     setLoading(false);
-    if (r.ok) setData({ upcoming: r.upcoming || [], past: r.past || [] });
-    else { setData({ upcoming: [], past: [] }); showToast(r.error || t("error", null, lang), "error"); }
+    if (r.ok) setData({ upcoming: r.upcoming || [], past: r.past || [], cancelled: r.cancelled || [] });
+    else { setData({ upcoming: [], past: [], cancelled: [] }); showToast(r.error || t("error", null, lang), "error"); }
   }
 
   useEffect(() => { load(); }, []);
@@ -2421,7 +2525,7 @@ function ScreenMyBookings({ state, setState, go, lang }) {
   return (
     <div className="screen scr-pad-top">
       <div className="row-between" style={{ marginBottom: 12 }}>
-        <Lockup size={0.92} />
+        <Lockup size={0.92} onClick={() => go(state.token ? "booking" : "phone")} />
         <span className="pill">{t("mb_kicker", null, lang)}</span>
       </div>
       <h1 className="h-display" style={{ fontSize: 48, margin: "10px 0 18px" }}>
@@ -2481,6 +2585,31 @@ function ScreenMyBookings({ state, setState, go, lang }) {
               ))}
             </>
           )}
+
+          {data && data.cancelled.length > 0 && (
+            <>
+              <SectionLabel n={data.past.length > 0 ? "03" : "02"}>
+                {t("mb_cancelled", null, lang)}
+              </SectionLabel>
+              {data.cancelled.map(b => {
+                const isNoShow = String(b.paymentStatus || "").toLowerCase() === "no-show";
+                return (
+                  <div key={b.bookingId} className="booking-card cancelled">
+                    <div className="top">
+                      <span>{b.bookingId}</span>
+                      <span style={{ color: isNoShow ? "var(--clay)" : "inherit", fontWeight: 700 }}>
+                        {isNoShow ? t("mb_no_show", null, lang) : t("mb_cancelled_tag", null, lang)}
+                      </span>
+                    </div>
+                    <div className="date">{fmtDateLong(b.date, lang)}</div>
+                    <div className="meta">
+                      {b.time} — {b.timeEnd} · {b.courts > 1 ? "Courts " : "Court "}{b.courtNumbers}
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
         </>
       )}
 
@@ -2514,7 +2643,7 @@ function ScreenMembership({ state, setState, go, lang }) {
   return (
     <div className="screen scr-pad-top">
       <div className="row-between" style={{ marginBottom: 12 }}>
-        <Lockup size={0.92} />
+        <Lockup size={0.92} onClick={() => go(state.token ? "booking" : "phone")} />
         <span className="pill">{t("m_kicker", null, lang)}</span>
       </div>
       <h1 className="h-display" style={{ fontSize: 48, margin: "10px 0 14px" }}>{t("m_title", null, lang)}</h1>
@@ -2666,7 +2795,7 @@ function App() {
           <button className={screen === "membership" ? "on" : ""} onClick={() => go("membership")}>
             {lang === "km" ? "សមាជិក" : "Members"}
           </button>
-          <button onClick={logout}>
+          <button className="signout" onClick={logout}>
             {lang === "km" ? "ចេញ" : "Sign out"}
           </button>
         </div>
