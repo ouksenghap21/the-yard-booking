@@ -1979,6 +1979,16 @@ function ScreenBooking({ state, setState, go, lang }) {
   const [bdayClaimed, setBdayClaimed] = useState(false);
   const [bdayEligible, setBdayEligible] = useState(false);
 
+  // Hard reset: if user is not a member, birthday state must be off.
+  // This protects against stale React state if member status changes
+  // (e.g. user signs out / token re-validates with new info).
+  useEffect(() => {
+    if (!isMember) {
+      if (bdayEligible) setBdayEligible(false);
+      if (bdayClaimed) setBdayClaimed(false);
+    }
+  }, [isMember]);
+
   // Submit state
   const [submitting, setSubmitting] = useState(false);
 
@@ -2017,20 +2027,23 @@ function ScreenBooking({ state, setState, go, lang }) {
       date, time, slots,
       courts: pickedCourts.length,
       phone: state.phone || "",
-      useBirthday: bdayClaimed ? 1 : 0
+      useBirthday: (bdayClaimed && isMember) ? 1 : 0
     }).then(r => {
       if (cancelled) return;
       if (r.ok) {
         setPricing(r);
-        setBdayEligible(!!r.isBirthdayEligible);
-        if (r.isBirthdaySession !== bdayClaimed) {
-          // server may decline birthday if conditions not met
-          setBdayClaimed(!!r.isBirthdaySession);
+        // Never enable birthday state for non-members, regardless of what
+        // backend says (defense in depth).
+        const nextEligible = isMember && !!r.isBirthdayEligible;
+        const nextSession = isMember && !!r.isBirthdaySession;
+        setBdayEligible(nextEligible);
+        if (nextSession !== bdayClaimed) {
+          setBdayClaimed(nextSession);
         }
       }
     });
     return () => { cancelled = true; };
-  }, [date, time, slots, pickedCourts.length, state.phone, bdayClaimed]);
+  }, [date, time, slots, pickedCourts.length, state.phone, bdayClaimed, isMember]);
 
   /* Convert backend slots → wheel format */
   const wheelSlots = useMemo(() => {
@@ -2142,8 +2155,8 @@ function ScreenBooking({ state, setState, go, lang }) {
     go("confirm");
   }
 
-  const lockedDuration = bdayClaimed;
-  const lockedCourts = bdayClaimed;
+  const lockedDuration = bdayClaimed && isMember;
+  const lockedCourts = bdayClaimed && isMember;
 
   return (
     <div className="screen scr-pad-top">
