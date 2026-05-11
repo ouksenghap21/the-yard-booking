@@ -1748,9 +1748,15 @@ button { font-family: inherit; cursor: pointer; }
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transform-origin: center;
+}
+.month-cell-v2.do-anim {
   opacity: 0;
   animation: cellFadeIn 0.4s ease-out forwards;
-  transform-origin: center;
+}
+.month-cell-v2.no-anim {
+  opacity: 1;
+  animation: none;
 }
 @keyframes cellFadeIn {
   from { opacity: 0; transform: scale(0.85) translateY(8px); }
@@ -3106,6 +3112,86 @@ function fmtCountdown(mins) {
   return "in " + h + "h" + (m > 0 ? " " + m + "m" : "");
 }
 
+/* ====== PRICING CONFIG CACHE + CLIENT-SIDE PRICE CALC ======
+   getConfig is fetched once (or refetched on demand) and used to do
+   price previews entirely client-side — no network roundtrip on every
+   keystroke. Same logic as customer index.html. */
+const DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+let _cachedConfig = null;
+let _cachedConfigAt = 0;
+const CONFIG_CACHE_TTL_MS = 10 * 60 * 1000;  // 10 minutes
+
+async function getCachedConfig() {
+  if (_cachedConfig && (Date.now() - _cachedConfigAt) < CONFIG_CACHE_TTL_MS) return _cachedConfig;
+  const r = await api("getConfig");
+  if (r.ok) {
+    _cachedConfig = r;
+    _cachedConfigAt = Date.now();
+  }
+  return _cachedConfig;
+}
+
+function rateForDateAndHour(rules, dateStr, hour) {
+  if (!rules || !rules.length) return 15;
+  const d = new Date(dateStr + "T12:00:00");
+  const dow = DAY_KEYS[d.getDay()];
+  for (const r of rules) {
+    if (r.days.indexOf(dow) === -1) continue;
+    if (hour < r.hourStart || hour >= r.hourEnd) continue;
+    return r.rate;
+  }
+  return 15;
+}
+
+function rateBucketForHour(rules, dateStr, hour) {
+  const d = new Date(dateStr + "T12:00:00");
+  const dow = DAY_KEYS[d.getDay()];
+  for (const r of rules) {
+    if (r.days.indexOf(dow) === -1) continue;
+    if (hour < r.hourStart || hour >= r.hourEnd) continue;
+    if (r.name && r.name.indexOf("offpeak") >= 0) return "offpeak";
+    return "peak";
+  }
+  return "peak";
+}
+
+function calculatePriceClient({ config, isMember, tier, date, time, slots, courts }) {
+  if (!config) return null;
+  const rules = config.pricingRules || [];
+  const slotMinutes = config.slotMinutes || 30;
+  const discountFounding = config.discountFounding || 50;
+  const discountStandard = config.discountStandard || 30;
+  const promo = config.promo || { active: false, pct: 0 };
+
+  const [startH, startM] = String(time).split(":").map(Number);
+  let subtotal = 0;
+  for (let i = 0; i < slots; i++) {
+    const totalMins = startH * 60 + (startM || 0) + i * slotMinutes;
+    const hr = Math.floor(totalMins / 60);
+    const rate = rateForDateAndHour(rules, date, hr);
+    subtotal += (rate / 2) * courts;
+  }
+
+  // Member discount or promo (whichever is more generous — no stacking)
+  let discountPct = 0;
+  if (isMember) {
+    if (String(tier).toLowerCase() === "founding") discountPct = discountFounding;
+    else if (String(tier).toLowerCase() === "standard") discountPct = discountStandard;
+  }
+  if (promo.active && promo.pct > discountPct) discountPct = promo.pct;
+
+  const discountAmount = Math.round(subtotal * discountPct) / 100;
+  const total = Math.round((subtotal - discountAmount) * 100) / 100;
+
+  return {
+    ok: true,
+    subtotal: Math.round(subtotal * 100) / 100,
+    discountPct: discountPct,
+    discountAmount: discountAmount,
+    total: total
+  };
+}
+
 /* ====== TOAST ====== */
 let toastTimeout = null;
 function showToast(text, kind = "default") {
@@ -3817,19 +3903,20 @@ function ScreenBookings() {
     }
   }, [view, date]);
 
-  async function load() {
-    setLoading(true);
+  async function load(opts) {
+    const silent = opts && opts.silent;
+    if (!silent) setLoading(true);
     const r = await api("adminListTimelineEntries", { dateFrom: range.from, dateTo: range.to });
     if (r.ok) setEntries(r.entries || []);
-    else showToast(r.error || "Failed to load", "error");
-    setLoading(false);
+    else if (!silent) showToast(r.error || "Failed to load", "error");
+    if (!silent) setLoading(false);
   }
 
   useEffect(() => { load(); }, [range.from, range.to]);
 
-  // Poll every 20s while on this screen
+  // Poll every 20s silently — no loading flicker
   useEffect(() => {
-    const id = setInterval(load, 20000);
+    const id = setInterval(() => load({ silent: true }), 20000);
     return () => clearInterval(id);
   }, [range.from, range.to]);
 
@@ -3965,7 +4052,7 @@ function ScreenBookings() {
             ))}
           </div>
 
-          {loading ? (
+          {entries === null ? (
             <div style={{ padding: 40, display: "flex", justifyContent: "center" }}>
               <BouncingBall size="md" />
             </div>
@@ -4064,23 +4151,23 @@ function ScreenBookings() {
 
       {/* WEEK VIEW */}
       {view === "week" && (
-        loading ? (
+        entries === null ? (
           <div style={{ padding: 40, display: "flex", justifyContent: "center" }}>
             <BouncingBall size="md" />
           </div>
         ) : (
-          <WeekView entries={entries || []} days={range.all || []} onDayClick={(iso) => { setView("day"); setDate(iso); }} />
+          <WeekView entries={entries} days={range.all || []} onDayClick={(iso) => { setView("day"); setDate(iso); }} />
         )
       )}
 
       {/* MONTH VIEW */}
       {view === "month" && (
-        loading ? (
+        entries === null ? (
           <div style={{ padding: 40, display: "flex", justifyContent: "center" }}>
             <BouncingBall size="md" />
           </div>
         ) : (
-          <MonthView entries={entries || []} centerDate={date} onDayClick={(iso) => { setView("day"); setDate(iso); }} />
+          <MonthView entries={entries} centerDate={date} onDayClick={(iso) => { setView("day"); setDate(iso); }} />
         )
       )}
 
@@ -4140,9 +4227,6 @@ function ScreenBookings() {
 
 /* Week view: 7 days stacked, each a mini timeline */
 function WeekView({ entries, days, onDayClick }) {
-  const [hoverIso, setHoverIso] = useState(null);
-  const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
-
   // Compute per-day breakdown
   const dayStats = useMemo(() => {
     const map = {};
@@ -4150,58 +4234,55 @@ function WeekView({ entries, days, onDayClick }) {
       const dayEntries = entries.filter(e => e.date === iso);
       const guestEntries = dayEntries.filter(e => e.entryType === "booking" && e.derivedStatus !== "cancelled");
       const coachEntries = dayEntries.filter(e => e.entryType === "coaching");
+      const walkinEntries = dayEntries.filter(e => e.entryType === "walkin");
       const courtRev = guestEntries.reduce((s, e) => s + (e.total || 0), 0);
       const coachingRev = coachEntries.reduce((s, e) => s + (e.facilityEarns || 0), 0);
+      const walkinRev = walkinEntries.reduce((s, e) => s + (e.total || 0), 0);
       map[iso] = {
-        entries: [...guestEntries, ...coachEntries].sort((a, b) => (a.time || "").localeCompare(b.time || "")),
         guestCount: guestEntries.length,
         coachCount: coachEntries.length,
+        walkinCount: walkinEntries.length,
         courtRev: courtRev,
         coachingRev: coachingRev,
-        totalRev: courtRev + coachingRev
+        walkinRev: walkinRev,
+        totalRev: courtRev + coachingRev + walkinRev
       };
     }
     return map;
   }, [entries, days]);
 
-  function handleMouseEnter(iso, e) {
-    setHoverIso(iso);
-    const rect = e.currentTarget.getBoundingClientRect();
-    setHoverPos({ x: rect.left + rect.width / 2, y: rect.bottom + 6 });
-  }
-
-  const hoverData = hoverIso && dayStats[hoverIso];
-
   return (
-    <div className="week-grid" style={{ position: "relative" }}>
+    <div className="week-grid">
       {days.map(iso => {
         const d = new Date(iso + "T12:00:00");
         const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
         const isToday = iso === todayISO();
-        const stats = dayStats[iso];
+        const stats = dayStats[iso] || { guestCount: 0, coachCount: 0, walkinCount: 0, totalRev: 0, courtRev: 0, coachingRev: 0, walkinRev: 0 };
 
-        // Build the breakdown string
-        const parts = [];
-        if (stats.guestCount > 0) parts.push(stats.guestCount + " booking" + (stats.guestCount === 1 ? "" : "s"));
-        if (stats.coachCount > 0) parts.push(stats.coachCount + " coaching");
-        const countText = parts.length > 0 ? parts.join(" · ") : "No activity";
+        const counts = [];
+        if (stats.guestCount > 0) counts.push(stats.guestCount + " booking" + (stats.guestCount === 1 ? "" : "s"));
+        if (stats.coachCount > 0) counts.push(stats.coachCount + " ★");
+        if (stats.walkinCount > 0) counts.push(stats.walkinCount + " ◉");
+        const countText = counts.length > 0 ? counts.join(" · ") : "No activity";
 
         return (
-          <div className="week-day" key={iso}
-            onMouseEnter={stats.entries.length > 0 ? (e) => handleMouseEnter(iso, e) : undefined}
-            onMouseLeave={() => setHoverIso(null)}
-          >
-            <div className={"week-day-head" + (isToday ? " is-today" : "")}>
-              <div className="label" onClick={() => onDayClick(iso)} style={{ cursor: "pointer" }}>
+          <div className="week-day" key={iso}>
+            <div
+              className={"week-day-head" + (isToday ? " is-today" : "")}
+              onClick={() => onDayClick(iso)}
+              style={{ cursor: "pointer" }}
+              title="Click to open this day's full view"
+            >
+              <div className="label">
                 {DOW[d.getDay()]} <span className="num">{d.getDate()}</span>
               </div>
               <div className="stats">
                 <span>{countText}</span>
                 {stats.totalRev > 0 && (
                   <span style={{ marginLeft: 10 }}>
-                    {stats.courtRev > 0 && <span title="Court rental revenue">${stats.courtRev.toFixed(0)} court</span>}
-                    {stats.courtRev > 0 && stats.coachingRev > 0 && " + "}
-                    {stats.coachingRev > 0 && <span title="Coaching revenue (facility share)" style={{ color: "var(--wood-2,#C9A24A)" }}>${stats.coachingRev.toFixed(0)} coaching</span>}
+                    {stats.courtRev > 0 && <span>${stats.courtRev.toFixed(0)} court</span>}
+                    {stats.coachingRev > 0 && <span style={{ marginLeft: 6, color: "var(--wood-2,#C9A24A)" }}>★ ${stats.coachingRev.toFixed(0)}</span>}
+                    {stats.walkinRev > 0 && <span style={{ marginLeft: 6, color: "var(--peach,#D9785C)" }}>◉ ${stats.walkinRev.toFixed(0)}</span>}
                   </span>
                 )}
               </div>
@@ -4210,33 +4291,6 @@ function WeekView({ entries, days, onDayClick }) {
           </div>
         );
       })}
-
-      {hoverData && hoverData.entries.length > 0 && (
-        <div
-          className="month-hover-popover"
-          style={{ left: hoverPos.x + "px", top: hoverPos.y + "px" }}
-        >
-          <div className="head">
-            <div className="title">{fmtDateLong(hoverIso)}</div>
-            <div className="meta">
-              {hoverData.guestCount} guest · {hoverData.coachCount > 0 ? hoverData.coachCount + " coaching · " : ""}
-              ${hoverData.totalRev.toFixed(0)} revenue
-            </div>
-          </div>
-          <div className="list">
-            {hoverData.entries.slice(0, 6).map((e, idx) => (
-              <div key={idx} className={"row" + (e.entryType === "coaching" ? " is-coach" : "")}>
-                <span className="t">{e.time}</span>
-                <span className="n">{e.entryType === "coaching" ? "★ " : ""}{e.name}</span>
-                <span className="c">C·{e.courtNumbers}</span>
-              </div>
-            ))}
-            {hoverData.entries.length > 6 && (
-              <div className="more">+ {hoverData.entries.length - 6} more · click day to view</div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -4253,6 +4307,18 @@ function MonthView({ entries, centerDate, onDayClick }) {
 
   const [hoverIso, setHoverIso] = useState(null);
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
+
+  // Track which month we've already animated — change month → re-animate;
+  // same month silent refresh → don't re-animate.
+  const [animatedFor, setAnimatedFor] = useState(null);
+  const monthKey = y + "-" + m;
+  const shouldAnimate = animatedFor !== monthKey;
+  useEffect(() => {
+    if (shouldAnimate) {
+      const t = setTimeout(() => setAnimatedFor(monthKey), 700); // after animation completes
+      return () => clearTimeout(t);
+    }
+  }, [monthKey, shouldAnimate]);
 
   // Build cells: leading empties + days + trailing empties
   const cells = [];
@@ -4337,6 +4403,7 @@ function MonthView({ entries, centerDate, onDayClick }) {
               key={iso}
               className={
                 "month-cell-v2"
+                + (shouldAnimate ? " do-anim" : " no-anim")
                 + (isTodayCell ? " today" : "")
                 + (isWknd ? " weekend" : "")
                 + (isPast ? " past" : "")
@@ -4346,7 +4413,7 @@ function MonthView({ entries, centerDate, onDayClick }) {
                 background: totalEvents > 0
                   ? `linear-gradient(135deg, rgba(61,122,79,${bgAlpha}) 0%, rgba(168,116,74,${bgAlpha * 0.5}) 100%)`
                   : undefined,
-                animationDelay: (i * 8) + "ms"
+                animationDelay: shouldAnimate ? (i * 8) + "ms" : "0ms"
               }}
               onClick={() => onDayClick(iso)}
               onMouseEnter={(e) => handleMouseEnter(iso, e)}
@@ -4593,12 +4660,19 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
     date: dateDefault || todayISO(),
     time: "18:00",
     slots: 2,
-    courts: [1],
+    courts: [],
     email: ""
   });
   const [availSlots, setAvailSlots] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [pricePreview, setPricePreview] = useState(null);
+  const [config, setConfig] = useState(null);
+  const [memberInfo, setMemberInfo] = useState(null);
+
+  // Load pricing config once when modal opens
+  useEffect(() => {
+    getCachedConfig().then(c => setConfig(c));
+  }, []);
 
   // Load availability for selected date
   useEffect(() => {
@@ -4607,33 +4681,30 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
     });
   }, [form.date]);
 
-  // Price preview when relevant fields change
+  // Member lookup — debounced so we don't hammer the API on every keystroke
   useEffect(() => {
-    if (!form.phone) {
-      setPricePreview(null);
+    if (!form.phone || form.phone.length < 6) {
+      setMemberInfo(null);
       return;
     }
-    api("calculatePrice", {
-      date: form.date,
-      time: form.time,
-      slots: form.slots,
-      courts: form.courts.length,
-      phone: form.phone
-    }).then(r => { if (r.ok) setPricePreview(r); });
-  }, [form.date, form.time, form.slots, form.courts.length, form.phone]);
+    const id = setTimeout(() => {
+      api("lookupMember", { phone: form.phone }).then(r => {
+        if (r.ok && r.member) setMemberInfo(r.member);
+        else setMemberInfo(null);
+      });
+    }, 350);
+    return () => clearTimeout(id);
+  }, [form.phone]);
 
   // Determine which courts are available for the chosen time + duration
   const courtAvailability = useMemo(() => {
-    if (!availSlots.length) return { available: [], unavailable: [] };
+    if (!availSlots.length) return { available: [], unavailable: [1,2,3,4,5,6,7,8] };
     const startIdx = availSlots.findIndex(s => s.time === form.time);
-    if (startIdx < 0) return { available: [], unavailable: [] };
-    // courts boolean array of length 8: index 0 = court 1, ..., index 7 = court 8
+    if (startIdx < 0) return { available: [], unavailable: [1,2,3,4,5,6,7,8] };
     const courtsAvail = new Set([1, 2, 3, 4, 5, 6, 7, 8]);
     for (let i = 0; i < form.slots; i++) {
       const s = availSlots[startIdx + i];
-      if (!s) {
-        return { available: [], unavailable: [1, 2, 3, 4, 5, 6, 7, 8] };
-      }
+      if (!s) return { available: [], unavailable: [1,2,3,4,5,6,7,8] };
       const courtsBoolArr = s.courts || [];
       for (let cIdx = 0; cIdx < 8; cIdx++) {
         const courtNum = cIdx + 1;
@@ -4641,9 +4712,47 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
       }
     }
     const available = Array.from(courtsAvail).sort();
-    const unavailable = [1, 2, 3, 4, 5, 6, 7, 8].filter(c => !courtsAvail.has(c));
+    const unavailable = [1,2,3,4,5,6,7,8].filter(c => !courtsAvail.has(c));
     return { available, unavailable };
   }, [availSlots, form.time, form.slots]);
+
+  // Auto-select first available court when:
+  //   - availability data loads
+  //   - the user changes date/time/duration causing court reshuffle
+  // If the currently-selected courts are no longer available, swap them out
+  useEffect(() => {
+    if (!courtAvailability.available.length) return;
+    const validCurrentlySelected = form.courts.filter(c => courtAvailability.available.includes(c));
+    if (validCurrentlySelected.length === form.courts.length && form.courts.length > 0) {
+      return;  // current selection is fine
+    }
+    // Either no selection or some/all selected courts are now unavailable
+    if (validCurrentlySelected.length === 0) {
+      setForm(f => ({ ...f, courts: [courtAvailability.available[0]] }));
+    } else {
+      setForm(f => ({ ...f, courts: validCurrentlySelected }));
+    }
+  }, [courtAvailability.available.join(",")]);
+
+  // CLIENT-SIDE price preview — fast, instant, no network call
+  useEffect(() => {
+    if (!config) {
+      setPricePreview(null);
+      return;
+    }
+    const isMember = !!memberInfo;
+    const tier = memberInfo ? memberInfo.tier : "";
+    const result = calculatePriceClient({
+      config: config,
+      isMember: isMember,
+      tier: tier,
+      date: form.date,
+      time: form.time,
+      slots: form.slots,
+      courts: form.courts.length || 1
+    });
+    setPricePreview(result);
+  }, [config, memberInfo, form.date, form.time, form.slots, form.courts.length]);
 
   function toggleCourt(c) {
     if (courtAvailability.unavailable.includes(c)) return;
@@ -4780,17 +4889,32 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
           </div>
         </div>
 
-        {pricePreview && (
-          <div className="modal-detail-row" style={{ marginTop: 12 }}>
-            <span className="k">Estimated total</span>
-            <span className="v" style={{ fontSize: 18, fontFamily: "var(--serif)", fontStyle: "italic" }}>
-              ${(pricePreview.total || 0).toFixed(2)}
-              {pricePreview.discountPct > 0 && (
-                <span style={{ marginLeft: 8, fontSize: 11, fontFamily: "var(--mono)", color: "var(--clay)" }}>
-                  −{pricePreview.discountPct}%
-                </span>
-              )}
+        {memberInfo && (
+          <div className="modal-detail-row" style={{ marginTop: 6, background: "rgba(168,116,74,0.08)", padding: "8px 10px", borderRadius: 4, borderLeft: "3px solid var(--wood)" }}>
+            <span className="k">Member detected</span>
+            <span className="v">
+              <span className={"tier-pill " + memberInfo.tier}>{memberInfo.tier}</span>
+              <span style={{ marginLeft: 6, fontFamily: "var(--mono)", fontSize: 11 }}>{memberInfo.memberNumber} · {memberInfo.name}</span>
             </span>
+          </div>
+        )}
+
+        {pricePreview && (
+          <div className="math-preview">
+            <div className="row">
+              <span className="k">Subtotal</span>
+              <span className="v">${pricePreview.subtotal.toFixed(2)}</span>
+            </div>
+            {pricePreview.discountPct > 0 && (
+              <div className="row" style={{ color: "var(--clay)" }}>
+                <span className="k">Discount ({pricePreview.discountPct}%)</span>
+                <span className="v">−${pricePreview.discountAmount.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="row total facility">
+              <span className="k">Estimated total</span>
+              <span className="v">${pricePreview.total.toFixed(2)}</span>
+            </div>
           </div>
         )}
 
