@@ -628,23 +628,81 @@ button { font-family: inherit; cursor: pointer; }
   font-size: 9px;
   letter-spacing: 0.06em;
 }
-.booking-block.status-awaiting    { background: var(--concrete-2); color: var(--ink); }
-.booking-block.status-at_risk     { background: var(--warn); color: var(--ink); }
-.booking-block.status-paid        { background: var(--green); color: var(--cream); border-color: var(--green); }
-.booking-block.status-no_show_freed{background: var(--clay); color: var(--cream); border-color: var(--clay); opacity: 0.7; }
-.booking-block.status-no_show_kept{ background: var(--clay-2); color: var(--cream); border-color: var(--clay); }
-.booking-block.status-completed   { background: var(--ink); color: var(--cream); opacity: 0.6; }
-.booking-block.status-cancelled   { display: none; }
-.booking-block.member {
-  border-color: var(--wood);
-  box-shadow: inset 0 0 0 1px var(--wood);
+/* ============================================================
+   TIMELINE BLOCK COLOR SYSTEM — two axes:
+     TYPE  → color (booking=green, coaching=wood, walkin=peach)
+     STATE → opacity + ring/pattern (awaiting/at-risk/paid/no-show/completed)
+     MEMBER → small ★ badge in top-right corner
+   ============================================================ */
+
+/* TYPE colors */
+.booking-block.type-booking  { background: var(--green); color: var(--cream); border-color: var(--green); }
+.booking-block.type-coaching { background: var(--wood); color: var(--cream); border-color: var(--wood); }
+.booking-block.type-walkin   { background: var(--peach,#D9785C); color: var(--cream); border-color: var(--peach,#D9785C); }
+
+/* Type icon prefix in the name */
+.booking-block.type-coaching .name::before { content: "★ "; opacity: 0.85; }
+.booking-block.type-walkin   .name::before { content: "◉ "; opacity: 0.85; }
+
+/* STATE modifiers — these are applied ON TOP of the type color */
+.booking-block.state-awaiting {
+  opacity: 0.6;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent, transparent 4px,
+    rgba(255,255,255,0.08) 4px, rgba(255,255,255,0.08) 8px
+  );
+}
+.booking-block.state-at_risk {
+  opacity: 1;
+  box-shadow: 0 0 0 2px var(--warn);
+}
+.booking-block.state-paid {
+  opacity: 1;
+}
+.booking-block.state-no_show_freed {
+  opacity: 0.5;
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent, transparent 5px,
+    rgba(0,0,0,0.35) 5px, rgba(0,0,0,0.35) 10px
+  );
+  text-decoration: line-through;
+}
+.booking-block.state-no_show_kept {
+  opacity: 0.75;
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent, transparent 5px,
+    rgba(255,255,255,0.18) 5px, rgba(255,255,255,0.18) 10px
+  );
+}
+.booking-block.state-completed {
+  opacity: 0.55;
+  filter: saturate(0.5);
+}
+.booking-block.state-cancelled { display: none; }
+
+/* Member: small star badge in top-right corner */
+.booking-block.member { /* no border change anymore — color is for type */ }
+.booking-block .member-flag {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--cream);
+  background: rgba(0,0,0,0.4);
+  border-radius: 2px;
+  padding: 1px 3px;
+  letter-spacing: 0;
 }
 
-/* Legend */
+/* Legend with grouped sections */
 .timeline-legend {
   display: flex;
-  gap: 18px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 10px;
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px dashed rgba(26,26,26,0.2);
@@ -652,6 +710,17 @@ button { font-family: inherit; cursor: pointer; }
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+.legend-group {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.legend-label {
+  font-weight: 700;
+  opacity: 0.5;
+  min-width: 50px;
 }
 .timeline-legend .swatch {
   display: inline-flex;
@@ -661,6 +730,57 @@ button { font-family: inherit; cursor: pointer; }
 .timeline-legend .swatch i {
   width: 14px; height: 14px;
   border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  display: inline-block;
+}
+/* Type swatches */
+.timeline-legend .sw-booking  { background: var(--green); border-color: var(--green); }
+.timeline-legend .sw-coaching { background: var(--wood); border-color: var(--wood); }
+.timeline-legend .sw-walkin   { background: var(--peach,#D9785C); border-color: var(--peach,#D9785C); }
+/* State swatches — neutral gray with the pattern overlay so they're type-agnostic */
+.timeline-legend .sw-state-awaiting {
+  background: var(--ink);
+  opacity: 0.6;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent, transparent 3px,
+    rgba(255,255,255,0.12) 3px, rgba(255,255,255,0.12) 6px
+  );
+}
+.timeline-legend .sw-state-at_risk {
+  background: var(--ink);
+  box-shadow: 0 0 0 2px var(--warn);
+}
+.timeline-legend .sw-state-paid {
+  background: var(--ink);
+}
+.timeline-legend .sw-state-no_show {
+  background: var(--ink);
+  opacity: 0.5;
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent, transparent 3px,
+    rgba(0,0,0,0.4) 3px, rgba(0,0,0,0.4) 6px
+  );
+}
+.timeline-legend .sw-state-completed {
+  background: var(--ink);
+  opacity: 0.55;
+  filter: saturate(0.5);
+}
+.timeline-legend .sw-member {
+  background: var(--paper);
+  border-color: var(--ink);
+  position: relative;
+}
+.timeline-legend .sw-member::after {
+  content: "★";
+  position: absolute;
+  top: -2px; right: -2px;
+  font-size: 8px;
+  color: var(--cream);
+  background: rgba(0,0,0,0.7);
+  padding: 0 2px;
   border-radius: 2px;
 }
 
@@ -1498,27 +1618,11 @@ button { font-family: inherit; cursor: pointer; }
   margin-bottom: 1px;
 }
 
-/* Coaching block in timeline — wood-toned to distinguish */
+/* Old status-coaching and status-walkin classes — left here for any older
+   code paths that haven't been migrated to the type-* system yet. Safe to
+   leave; the new type-* rules override them in newer markup. */
 .booking-block.status-coaching     { background: var(--wood); color: var(--cream); border-color: var(--wood); }
-.booking-block.status-coaching_paid{ background: var(--wood); color: var(--cream); border-color: var(--wood); }
-.booking-block.status-coaching::before,
-.booking-block.status-coaching_paid::before {
-  content: "★";
-  margin-right: 3px;
-  font-size: 9px;
-}
-
-/* Walk-in timeline blocks */
-.booking-block.status-walkin {
-  background: var(--peach, #D9785C);
-  color: var(--cream);
-  border-color: var(--peach, #D9785C);
-}
-.booking-block.status-walkin::before {
-  content: "◉";
-  margin-right: 3px;
-  font-size: 9px;
-}
+.booking-block.status-walkin       { background: var(--peach, #D9785C); color: var(--cream); border-color: var(--peach, #D9785C); }
 
 /* Add booking chooser big buttons */
 .big-choice {
@@ -3349,6 +3453,28 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
         .split(",").map(s => parseInt(s.trim())).filter(n => n >= 1 && n <= COURTS_COUNT);
       const isCoaching = b.entryType === "coaching";
       const isWalkIn = b.entryType === "walkin";
+
+      // Determine the TYPE (color axis) and STATE (texture/opacity axis)
+      // Type: booking | coaching | walkin
+      // State: awaiting | at_risk | paid | no_show_freed | no_show_kept | completed
+      let type, state;
+      if (isCoaching) {
+        type = "coaching";
+        const ps = String(b.paymentStatus || "").toLowerCase();
+        state = (ps === "paid") ? "paid" : "awaiting";
+      } else if (isWalkIn) {
+        type = "walkin";
+        // walk-in state based on whether players paid in full
+        const cap = b.playerCap || 15;
+        const count = b.playerCount || 0;
+        const rev = b.total || 0;
+        const expected = count * (b.rate || 0);
+        state = count === 0 ? "awaiting" : (rev >= expected && expected > 0 ? "paid" : "awaiting");
+      } else {
+        type = "booking";
+        state = derived;
+      }
+
       for (const c of courtNums) {
         out.push({
           court: c,
@@ -3366,6 +3492,9 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
             : b.time + "–" + b.timeEnd,
           time: b.time + "–" + b.timeEnd,
           total: b.total || 0,
+          type: type,
+          state: state,
+          // legacy `status` kept for any old CSS that still references it
           status: isCoaching ? "coaching" : isWalkIn ? "walkin" : derived,
           isMember: !!(b.memberTier && b.memberTier.length > 0),
           isCoaching: isCoaching,
@@ -3454,7 +3583,7 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
                     <div
                       key={c + "-" + b.bookingId + "-" + idx}
                       className={
-                        "booking-block status-" + b.status +
+                        "booking-block type-" + b.type + " state-" + b.state +
                         (b.isMember ? " member" : "") +
                         (onBlockClick ? " clickable" : "")
                       }
@@ -3464,6 +3593,7 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
                     >
                       <span className="name">{b.name}</span>
                       <span className="time">{b.time}</span>
+                      {b.isMember && <span className="member-flag" title="Member">★</span>}
                     </div>
                   );
                 })}
@@ -3480,12 +3610,21 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
       </div>
 
       <div className="timeline-legend">
-        <span className="swatch"><i style={{ background: "var(--concrete-2)" }} /> Awaiting</span>
-        <span className="swatch"><i style={{ background: "var(--warn)" }} /> At-risk</span>
-        <span className="swatch"><i style={{ background: "var(--green)" }} /> Paid</span>
-        <span className="swatch"><i style={{ background: "var(--clay)" }} /> No-show</span>
-        <span className="swatch"><i style={{ background: "var(--ink)", opacity: 0.6 }} /> Completed</span>
-        <span className="swatch"><i style={{ background: "transparent", borderColor: "var(--wood)", boxShadow: "inset 0 0 0 1px var(--wood)" }} /> Member</span>
+        <div className="legend-group">
+          <span className="legend-label">Type</span>
+          <span className="swatch"><i className="sw-booking" /> Court booking</span>
+          <span className="swatch"><i className="sw-coaching" /> ★ Coaching</span>
+          <span className="swatch"><i className="sw-walkin" /> ◉ Open Play</span>
+        </div>
+        <div className="legend-group">
+          <span className="legend-label">State</span>
+          <span className="swatch"><i className="sw-state-awaiting" /> Awaiting</span>
+          <span className="swatch"><i className="sw-state-at_risk" /> At-risk</span>
+          <span className="swatch"><i className="sw-state-paid" /> Paid</span>
+          <span className="swatch"><i className="sw-state-no_show" /> No-show</span>
+          <span className="swatch"><i className="sw-state-completed" /> Completed</span>
+          <span className="swatch"><i className="sw-member" /> ★ Member</span>
+        </div>
       </div>
     </div>
   );
@@ -3499,6 +3638,29 @@ function ScreenDashboard() {
   const [bookings, setBookings] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [clock, setClock] = useState(fmtClock());
+
+  // Click-to-detail modals — same pattern as ScreenBookings
+  const [detailBooking, setDetailBooking] = useState(null);
+  const [walkInBlock, setWalkInBlock] = useState(null);
+  const [coachingInfo, setCoachingInfo] = useState(null);
+
+  async function handleBlockClick(entry) {
+    if (!entry) return;
+    if (entry.entryType === "walkin") {
+      const r = await api("adminListWalkInBlocks", { dateFrom: entry.date, dateTo: entry.date });
+      if (r.ok) {
+        const fresh = (r.blocks || []).find(b => b.blockId === entry.bookingId || b.blockId === entry.blockId);
+        if (fresh) setWalkInBlock(fresh);
+        else showToast("Block not found", "error");
+      } else {
+        showToast(r.error || "Failed", "error");
+      }
+    } else if (entry.entryType === "coaching") {
+      setCoachingInfo(entry);
+    } else {
+      setDetailBooking(entry);
+    }
+  }
 
   async function refresh() {
     const today = todayISO();
@@ -3602,7 +3764,7 @@ function ScreenDashboard() {
       {bookings === null ? (
         <div className="empty"><BouncingBall size="sm" /></div>
       ) : (
-        <Timeline bookings={bookings} dateStr={today} />
+        <Timeline bookings={bookings} dateStr={today} onBlockClick={handleBlockClick} />
       )}
 
       {/* Action Queue + Today's Pulse */}
@@ -3610,6 +3772,28 @@ function ScreenDashboard() {
         <ActionQueuePanel data={data} onMarkPaid={refresh} />
         <TodaysPulsePanel data={data} />
       </div>
+
+      {/* Click-to-detail modals from the timeline */}
+      {detailBooking && (
+        <BookingDetailModal
+          booking={detailBooking}
+          onClose={() => setDetailBooking(null)}
+          onAction={() => { refresh(); setDetailBooking(null); }}
+        />
+      )}
+      {walkInBlock && (
+        <WalkInBlockModal
+          block={walkInBlock}
+          onClose={() => setWalkInBlock(null)}
+          onChanged={() => refresh()}
+        />
+      )}
+      {coachingInfo && (
+        <CoachingInfoModal
+          session={coachingInfo}
+          onClose={() => setCoachingInfo(null)}
+        />
+      )}
     </div>
   );
 }
@@ -7799,19 +7983,29 @@ function ScreenCustomers() {
   }, [search, typeFilter]);
 
   const counts = useMemo(() => {
-    if (!customers) return { all: 0, member: 0, guest: 0 };
+    if (!customers) return { all: 0, member: 0, guest: 0, walkin: 0, student: 0 };
     return {
       all: customers.length,
-      member: customers.filter(c => c.type === "member").length,
-      guest: customers.filter(c => c.type === "guest").length
+      member: customers.filter(c => c.sources.indexOf("member") >= 0).length,
+      guest: customers.filter(c => c.sources.indexOf("guest") >= 0).length,
+      walkin: customers.filter(c => c.sources.indexOf("walkin") >= 0).length,
+      student: customers.filter(c => c.sources.indexOf("student") >= 0).length
     };
   }, [customers]);
+
+  const FILTERS = [
+    { id: "all", label: "All" },
+    { id: "member", label: "Members" },
+    { id: "guest", label: "Court guests" },
+    { id: "walkin", label: "Walk-in players" },
+    { id: "student", label: "Coaching students" }
+  ];
 
   return (
     <div className="main">
       <div className="main-head">
         <div>
-          <div className="title">All customers · members + guests</div>
+          <div className="title">All customers · members · guests · walk-ins · students</div>
           <h1>Customers</h1>
         </div>
       </div>
@@ -7825,13 +8019,13 @@ function ScreenCustomers() {
           onChange={(e) => setSearch(e.target.value)}
         />
         <div className="filter-chips" style={{ margin: 0 }}>
-          {["all", "member", "guest"].map(t => (
+          {FILTERS.map(f => (
             <button
-              key={t}
-              className={"filter-chip" + (typeFilter === t ? " on" : "")}
-              onClick={() => setTypeFilter(t)}
+              key={f.id}
+              className={"filter-chip" + (typeFilter === f.id ? " on" : "")}
+              onClick={() => setTypeFilter(f.id)}
             >
-              {t === "all" ? "All" : t === "member" ? "Members" : "Guests"} · {counts[t] || 0}
+              {f.label} · {counts[f.id] || 0}
             </button>
           ))}
         </div>
@@ -7843,32 +8037,54 @@ function ScreenCustomers() {
         <div className="empty">No customers match</div>
       ) : (
         <div className="customer-list">
-          {customers.map(c => (
-            <div
-              key={c.phone}
-              className={"customer-row" + (c.type === "member" ? " is-member" : "")}
-              onClick={() => setHistoryCustomer(c)}
-            >
-              <div>
-                <div className="cust-name">
-                  {c.name || "Unknown"}
-                  {c.type === "member" && <span className={"tier-pill " + c.tier} style={{ marginLeft: 8 }}>{c.tier}</span>}
-                  {c.type === "guest" && <span style={{ marginLeft: 8, fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", opacity: 0.5 }}>GUEST</span>}
+          {customers.map(c => {
+            const totalActivity = (c.totalBookings || 0) + (c.totalWalkInVisits || 0) + (c.totalCoachingSessions || 0);
+            return (
+              <div
+                key={c.identityKey || c.phone}
+                className={"customer-row" + (c.sources.indexOf("member") >= 0 ? " is-member" : "")}
+                onClick={() => setHistoryCustomer(c)}
+              >
+                <div>
+                  <div className="cust-name">
+                    {c.name || (c.noPhone ? "(anonymous walk-in)" : "Unknown")}
+                    {c.sources.indexOf("member") >= 0 && <span className={"tier-pill " + c.tier} style={{ marginLeft: 8 }}>{c.tier}</span>}
+                    {c.sources.indexOf("walkin") >= 0 && (
+                      <span style={{ marginLeft: 6, fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--cream)", background: "var(--peach,#D9785C)", padding: "2px 6px", borderRadius: 3 }}>◉ Walk-in</span>
+                    )}
+                    {c.sources.indexOf("student") >= 0 && (
+                      <span style={{ marginLeft: 6, fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--cream)", background: "var(--wood)", padding: "2px 6px", borderRadius: 3 }}>★ Student</span>
+                    )}
+                    {c.sources.indexOf("guest") >= 0 && c.sources.indexOf("member") < 0 && (
+                      <span style={{ marginLeft: 6, fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", opacity: 0.5 }}>Guest</span>
+                    )}
+                    {c.noPhone && (
+                      <span style={{ marginLeft: 6, fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", opacity: 0.4, fontStyle: "italic" }}>no phone</span>
+                    )}
+                  </div>
+                  <div className="cust-meta">
+                    {c.phone || "(no phone)"}{c.memberNumber ? " · " + c.memberNumber : ""}{c.email ? " · " + c.email : ""}
+                  </div>
+                  {/* Sub-counts: bookings · walk-ins · coaching */}
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.55, marginTop: 4 }}>
+                    {c.totalBookings > 0 && <span>{c.totalBookings} booking{c.totalBookings === 1 ? "" : "s"}</span>}
+                    {c.totalBookings > 0 && (c.totalWalkInVisits > 0 || c.totalCoachingSessions > 0) && " · "}
+                    {c.totalWalkInVisits > 0 && <span style={{ color: "var(--peach,#D9785C)" }}>{c.totalWalkInVisits} walk-in{c.totalWalkInVisits === 1 ? "" : "s"}</span>}
+                    {c.totalWalkInVisits > 0 && c.totalCoachingSessions > 0 && " · "}
+                    {c.totalCoachingSessions > 0 && <span style={{ color: "var(--wood)" }}>{c.totalCoachingSessions} coaching</span>}
+                  </div>
                 </div>
-                <div className="cust-meta">
-                  {c.phone}{c.memberNumber ? " · " + c.memberNumber : ""}{c.email ? " · " + c.email : ""}
+                <div className="cust-stats">
+                  <div className="big">{totalActivity}</div>
+                  <div className="lbl">{totalActivity === 1 ? "visit" : "visits"}</div>
+                </div>
+                <div className="cust-last">
+                  <span className="lbl">Last seen</span>
+                  {c.lastSeen || "—"}
                 </div>
               </div>
-              <div className="cust-stats">
-                <div className="big">{c.totalBookings}</div>
-                <div className="lbl">{c.totalBookings === 1 ? "booking" : "bookings"}</div>
-              </div>
-              <div className="cust-last">
-                <span className="lbl">Last visit</span>
-                {c.lastBooking || "—"}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -7885,61 +8101,149 @@ function ScreenCustomers() {
 function CustomerHistoryModal({ customer, onClose }) {
   const [data, setData] = useState(null);
   useEffect(() => {
-    api("adminGetCustomerHistory", { phone: customer.phone }).then(r => {
+    api("adminGetCustomerHistory", {
+      identityKey: customer.identityKey || customer.phone,
+      phone: customer.phone || ""
+    }).then(r => {
       if (r.ok) setData(r);
     });
   }, []);
 
+  const primaryLabel = customer.sources.indexOf("member") >= 0
+    ? customer.memberNumber
+    : customer.sources.indexOf("walkin") >= 0
+    ? "◉ Walk-in player"
+    : customer.sources.indexOf("student") >= 0
+    ? "★ Coaching student"
+    : "Court guest";
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 640, maxHeight: "92vh" }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal" style={{ maxWidth: 720, maxHeight: "92vh" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
-            <div className="kicker">{customer.type === "member" ? customer.memberNumber : "Guest"} · {customer.phone}</div>
-            <h2>{customer.name || "Unknown"}</h2>
+            <div className="kicker">{primaryLabel}{customer.phone ? " · " + customer.phone : " · no phone"}</div>
+            <h2>{customer.name || "(anonymous)"}</h2>
           </div>
           <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        {/* Source badges row */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+          {customer.sources.map(s => {
+            const cfg = {
+              member: { label: customer.tier + " member", bg: "var(--ink)", color: "var(--cream)" },
+              guest: { label: "Court guest", bg: "var(--green)", color: "var(--cream)" },
+              walkin: { label: "◉ Walk-in player", bg: "var(--peach,#D9785C)", color: "var(--cream)" },
+              student: { label: "★ Coaching student", bg: "var(--wood)", color: "var(--cream)" }
+            }[s];
+            if (!cfg) return null;
+            return (
+              <span key={s} style={{
+                fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase",
+                fontWeight: 700, background: cfg.bg, color: cfg.color, padding: "4px 10px", borderRadius: 3
+              }}>{cfg.label}</span>
+            );
+          })}
         </div>
 
         {data === null ? (
           <div style={{ padding: 30, display: "flex", justifyContent: "center" }}><BouncingBall size="sm" /></div>
         ) : (
           <>
-            <div className="stat-grid" style={{ marginBottom: 18, gridTemplateColumns: "1fr 1fr" }}>
+            <div className="stat-grid" style={{ marginBottom: 18, gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
               <div className="stat-card accent-ink">
-                <div className="label">Lifetime bookings</div>
+                <div className="label">Bookings</div>
                 <div className="value">{data.totalBookings}</div>
+              </div>
+              <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}>
+                <div className="label">Walk-ins</div>
+                <div className="value" style={{ color: "var(--peach,#D9785C)" }}>{data.totalWalkInVisits}</div>
+              </div>
+              <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
+                <div className="label">Coaching</div>
+                <div className="value" style={{ color: "var(--wood)" }}>{data.totalCoachingSessions}</div>
               </div>
               <div className="stat-card accent-green">
                 <div className="label">Lifetime spend</div>
                 <div className="value">${data.totalSpent.toFixed(2)}</div>
-                <div className="sub">(paid bookings only)</div>
+                <div className="sub">(paid to facility)</div>
               </div>
             </div>
 
-            <div className="section-label">
-              <span><span className="num">01</span><span className="name">Booking History</span></span>
-              <span className="right">{data.bookings.length} entries</span>
-            </div>
-
-            {data.bookings.length === 0 ? (
-              <div className="empty-mini" style={{ padding: 20 }}>No bookings yet</div>
-            ) : (
-              <div style={{ maxHeight: 400, overflowY: "auto" }}>
-                {data.bookings.map(b => (
-                  <div key={b.bookingId} className="modal-detail-row" style={{ padding: "10px 0" }}>
-                    <span className="k">
-                      {b.date} · {b.time}
-                      <span style={{ marginLeft: 8 }} className={"status-pill " + b.derivedStatus}>
-                        {STATUS_LABELS[b.derivedStatus] || b.derivedStatus}
+            {/* Court bookings */}
+            {data.bookings.length > 0 && (
+              <>
+                <div className="section-label">
+                  <span><span className="num">01</span><span className="name">Court Bookings</span></span>
+                  <span className="right">{data.bookings.length} entries</span>
+                </div>
+                <div style={{ maxHeight: 240, overflowY: "auto", marginBottom: 16 }}>
+                  {data.bookings.map(b => (
+                    <div key={b.bookingId} className="modal-detail-row" style={{ padding: "10px 0" }}>
+                      <span className="k">
+                        {b.date} · {b.time}
+                        <span style={{ marginLeft: 8 }} className={"status-pill " + b.derivedStatus}>
+                          {STATUS_LABELS[b.derivedStatus] || b.derivedStatus}
+                        </span>
                       </span>
-                    </span>
-                    <span className="v">
-                      {b.slots * 0.5}h · C·{b.courtNumbers} · ${(b.total || 0).toFixed(2)}
-                    </span>
-                  </div>
-                ))}
-              </div>
+                      <span className="v">
+                        {b.slots * 0.5}h · C·{b.courtNumbers} · ${(b.total || 0).toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Walk-in visits */}
+            {data.walkIns && data.walkIns.length > 0 && (
+              <>
+                <div className="section-label">
+                  <span><span className="num">02</span><span className="name" style={{ color: "var(--peach,#D9785C)" }}>◉ Walk-in / Open Play</span></span>
+                  <span className="right">{data.walkIns.length} visits</span>
+                </div>
+                <div style={{ maxHeight: 240, overflowY: "auto", marginBottom: 16 }}>
+                  {data.walkIns.map(w => (
+                    <div key={w.playerId} className="modal-detail-row" style={{ padding: "10px 0" }}>
+                      <span className="k">
+                        {w.date} · {w.time}
+                        <span style={{ marginLeft: 8 }} className={"status-pill " + (String(w.paymentStatus).toLowerCase() === "paid" ? "paid" : "at_risk")}>
+                          {w.paymentStatus}
+                        </span>
+                      </span>
+                      <span className="v">C·{w.court} · ${(w.amount || 0).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Coaching sessions */}
+            {data.coachingSessions && data.coachingSessions.length > 0 && (
+              <>
+                <div className="section-label">
+                  <span><span className="num">03</span><span className="name" style={{ color: "var(--wood)" }}>★ Coaching Sessions</span></span>
+                  <span className="right">{data.coachingSessions.length} sessions</span>
+                </div>
+                <div style={{ maxHeight: 240, overflowY: "auto", marginBottom: 16 }}>
+                  {data.coachingSessions.map(s => (
+                    <div key={s.sessionId} className="modal-detail-row" style={{ padding: "10px 0" }}>
+                      <span className="k">
+                        {s.date} · {s.time}
+                        <span style={{ marginLeft: 8, fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.12em", opacity: 0.6 }}>
+                          with {s.coachName}
+                        </span>
+                      </span>
+                      <span className="v">{s.durationHours}h · C·{s.courtNumbers} · ${(s.lessonFee || 0).toFixed(2)} fee</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {data.bookings.length === 0 && (!data.walkIns || data.walkIns.length === 0) && (!data.coachingSessions || data.coachingSessions.length === 0) && (
+              <div className="empty-mini" style={{ padding: 30 }}>No activity yet</div>
             )}
 
             <div className="actions">
