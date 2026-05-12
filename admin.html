@@ -4979,7 +4979,9 @@ function ScreenBookings() {
                         </div>
                         <div className="actions">
                           <div className="total" style={{ color: "var(--peach,#D9785C)" }}>${(w.total || 0).toFixed(2)}</div>
-                          <button className="btn-sm primary" onClick={(e) => { e.stopPropagation(); }}>Manage players</button>
+                          <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.12em", opacity: 0.5, marginTop: 4 }}>
+                            click to manage
+                          </div>
                         </div>
                       </div>
                     );
@@ -8926,15 +8928,28 @@ function AddItemToTabModal({ tabId, products, onClose, onAdded }) {
 function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) {
   const [entries, setEntries] = useState(null);
   const [working, setWorking] = useState(false);
+  const [scope, setScope] = useState("default");  // "today" | "default" | "wide"
 
   useEffect(() => {
-    api("adminListSettleableEntries").then(r => {
+    // Build params based on scope
+    const params = {};
+    if (scope === "today") {
+      params.todayOnly = "true";
+    } else if (scope === "wide") {
+      // Past 7 days + future 30 days
+      const now = new Date();
+      const past = new Date(now); past.setDate(past.getDate() - 7);
+      const future = new Date(now); future.setDate(future.getDate() + 30);
+      params.dateFrom = past.getFullYear() + "-" + String(past.getMonth() + 1).padStart(2, "0") + "-" + String(past.getDate()).padStart(2, "0");
+      params.dateTo = future.getFullYear() + "-" + String(future.getMonth() + 1).padStart(2, "0") + "-" + String(future.getDate()).padStart(2, "0");
+    }
+    // else default: backend uses yesterday + today + next 2 days
+    setEntries(null);
+    api("adminListSettleableEntries", params).then(r => {
       if (!r.ok) {
         setEntries([]);
         return;
       }
-      // Backend returns flat entries with entryType "booking" or "walkin_player".
-      // Each is its own attachable item; no flattening needed.
       const flat = [];
       (r.entries || []).forEach(e => {
         if (e.entryType === "booking") {
@@ -8944,6 +8959,8 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
             label: e.label,
             phone: String(e.customerPhone || e.phone || ""),
             name: String(e.customerName || e.name || ""),
+            date: e.date || "",
+            time: e.time || "",
             amount: e.total || e.amount || 0,
             sub: e.derivedStatus ? e.derivedStatus.replace(/_/g, " ").toUpperCase() : ""
           });
@@ -8954,11 +8971,13 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
             label: e.label + (e.name ? " · " + e.name : ""),
             phone: String(e.customerPhone || e.phone || ""),
             name: String(e.customerName || e.name || ""),
+            date: e.date || "",
+            time: e.time || "",
             amount: e.total || e.amount || 0,
             sub: "WALK-IN"
           });
         } else if (e.entryType === "walkin_block") {
-          // Legacy support — flatten if backend ever returns the old shape
+          // Legacy support
           (e.unpaidPlayers || []).forEach(p => {
             flat.push({
               kind: "walkin_player",
@@ -8966,6 +8985,8 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
               label: e.label + " · " + (p.name || "Walk-in"),
               phone: String(p.phone || ""),
               name: String(p.name || ""),
+              date: e.date || "",
+              time: e.time || "",
               amount: p.amount || 0,
               sub: "WALK-IN"
             });
@@ -8974,7 +8995,7 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
       });
       setEntries(flat);
     });
-  }, []);
+  }, [scope]);
 
   async function attach(entry) {
     setWorking(true);
@@ -8991,7 +9012,7 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
     else showToast(r.error || "Failed", "error");
   }
 
-  // Sort entries: customer's phone matches first, then by kind (bookings first), then by amount
+  // Sort: customer-phone matches first, then chronologically (earliest first)
   const sorted = useMemo(() => {
     if (!entries) return [];
     const cp = (customerPhone || "").trim();
@@ -9004,8 +9025,10 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
       const bp = cpNorm && normalize(b.phone) === cpNorm;
       if (ap && !bp) return -1;
       if (!ap && bp) return 1;
-      if (a.kind !== b.kind) return a.kind === "booking" ? -1 : 1;
-      return b.amount - a.amount;
+      // Then by date+time ascending (earliest first)
+      const aKey = (a.date || "") + " " + (a.time || "");
+      const bKey = (b.date || "") + " " + (b.time || "");
+      return aKey.localeCompare(bKey);
     });
   }, [entries, customerPhone]);
 
@@ -9018,6 +9041,23 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
             <h2>Attach to Tab</h2>
           </div>
           <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        {/* Scope filter chips */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+          {[
+            { id: "today", label: "Today only" },
+            { id: "default", label: "Today ± 2 days" },
+            { id: "wide", label: "Past week + 30d ahead" }
+          ].map(s => (
+            <button
+              key={s.id}
+              className={"filter-chip" + (scope === s.id ? " on" : "")}
+              onClick={() => setScope(s.id)}
+            >
+              {s.label}
+            </button>
+          ))}
         </div>
 
         {entries === null ? (
@@ -9033,6 +9073,9 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
               const matchPhone = customerPhone && normalize(e.phone) === normalize(customerPhone);
               const kindColor = e.kind === "walkin_player" ? "var(--peach,#D9785C)" : "var(--green)";
               const kindLabel = e.kind === "walkin_player" ? "◉ WALK-IN" : "COURT";
+              // Build the name+phone line — show both if available
+              const nameDisplay = e.name || (e.kind === "walkin_player" ? "Walk-in player" : "Guest");
+              const phoneDisplay = e.phone || "";
               return (
                 <div key={e.kind + "-" + e.id}
                   style={{
@@ -9057,12 +9100,17 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
                   </div>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 13 }}>
-                      {e.label}
+                      {nameDisplay}
                       {matchPhone && <span style={{ marginLeft: 6, fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.12em", color: "var(--green)" }}>SAME PHONE</span>}
                     </div>
-                    <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, marginTop: 3 }}>
-                      {e.phone || (e.name ? e.name : "—")}
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.65, marginTop: 2 }}>
+                      {e.label}
                     </div>
+                    {phoneDisplay && (
+                      <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.5, marginTop: 2 }}>
+                        {phoneDisplay}
+                      </div>
+                    )}
                   </div>
                   <div style={{ fontFamily: "var(--mono)", fontWeight: 700 }}>${e.amount.toFixed(2)}</div>
                   <button className="btn-sm primary" onClick={() => attach(e)} disabled={working}>Attach</button>
