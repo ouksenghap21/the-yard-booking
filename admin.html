@@ -3272,7 +3272,70 @@ function setStoredPin(v) {
 }
 
 /* ====== API ====== */
-async function api(action, params = {}) {
+// ========== API CACHE ==========
+// Stale-while-revalidate: cached responses are returned instantly. Behind the
+// scenes, a background fetch runs to keep the cache fresh. Subscribers (via
+// the optional onUpdate callback) get the fresh data when it arrives.
+//
+// TTL per endpoint controls how long stale data is acceptable. Endpoints not
+// in this map are NEVER cached (mutations + sensitive reads).
+const API_CACHE_TTL = {
+  adminDashboard: 15000,
+  adminListTimelineEntries: 15000,
+  adminDashboardKpi: 30000,
+  adminOperationalKpi: 60000,
+  adminListSponsorships: 30000,
+  adminGetSponsorshipSettings: 120000,
+  adminFinancesMonth: 30000,
+  adminFinancesRange: 30000,
+  adminGetGoals: 120000,
+  adminGetPromo: 120000,
+  adminGetPosSettings: 120000,
+  adminListMembers: 30000,
+  adminListProducts: 15000,   // alias / not used directly but kept for clarity
+  posListProducts: 15000,
+  posListSales: 10000,
+  adminListCoaches: 60000,
+  adminListSettleableEntries: 10000,
+  tabListOpen: 10000,
+  adminListWalkInBlocks: 15000
+};
+
+const _apiCache = new Map();
+const _inflightFetches = new Map();
+
+function _apiCacheKey(action, params) {
+  // Stable key: sort params + JSON
+  const filteredKeys = Object.keys(params).filter(k => k !== "adminPin").sort();
+  const obj = {};
+  for (const k of filteredKeys) obj[k] = params[k];
+  return action + ":" + JSON.stringify(obj);
+}
+
+function invalidateApiCache(prefix) {
+  // Pass an action name to invalidate all variants of it. Pass "" to clear all.
+  if (!prefix) {
+    _apiCache.clear();
+    return;
+  }
+  for (const k of [..._apiCache.keys()]) {
+    if (k === prefix || k.startsWith(prefix + ":")) _apiCache.delete(k);
+  }
+}
+
+/**
+ * Synchronous cache lookup. Returns cached data if any (even if stale).
+ * Returns null if there's never been a successful fetch for this key.
+ * Use this on mount to render INSTANTLY with stale data, then call api()
+ * which will refresh in the background.
+ */
+function getCachedApi(action, params = {}) {
+  const key = _apiCacheKey(action, params);
+  const cached = _apiCache.get(key);
+  return cached ? cached.data : null;
+}
+
+async function _doFetchRaw(action, params) {
   const pin = getStoredPin();
   const url = new URL(API_URL);
   url.searchParams.set("action", action);
@@ -3284,11 +3347,104 @@ async function api(action, params = {}) {
   }
   try {
     const r = await fetch(url.toString(), { method: "GET" });
-    const j = await r.json();
-    return j;
+    return await r.json();
   } catch (e) {
     return { ok: false, error: e.message };
   }
+}
+
+// Mutation detection — any action that writes/changes state in sheets.
+// After such a call succeeds, related cache entries are invalidated so the
+// next read pulls fresh data.
+function _isMutation(action) {
+  if (!action) return false;
+  // Heuristics: prefixes that imply a write
+  if (action.indexOf("Create") >= 0) return true;
+  if (action.indexOf("Update") >= 0) return true;
+  if (action.indexOf("Cancel") >= 0) return true;
+  if (action.indexOf("Delete") >= 0) return true;
+  if (action.indexOf("Remove") >= 0) return true;
+  if (action.indexOf("Set") === 0 || action.indexOf("adminSet") === 0) return true;
+  if (action.indexOf("MarkPaid") >= 0 || action.indexOf("markPaid") >= 0) return true;
+  if (action.indexOf("Settle") >= 0) return true;
+  if (action.indexOf("Void") >= 0) return true;
+  if (action.indexOf("posCreate") === 0 || action.indexOf("posAdjust") === 0) return true;
+  if (action.indexOf("posVoid") === 0) return true;
+  if (action === "tabOpen" || action === "tabClose" || action === "tabAddItem"
+      || action === "tabRemoveItem" || action === "tabAttachBooking"
+      || action === "tabDetachBooking" || action === "tabAttachWalkInPlayer"
+      || action === "tabDetachWalkInPlayer") return true;
+  return false;
+}
+
+// Broad-stroke invalidation: clear most cached reads after any mutation.
+// Specific endpoints (settings) keep their cache because they're set elsewhere.
+function _invalidateForMutation(action) {
+  const KEEP = new Set([
+    "adminGetGoals", "adminGetPromo", "adminGetPosSettings", "adminGetSponsorshipSettings"
+  ]);
+  // Settings mutations invalidate their own corresponding read endpoint
+  if (action === "adminSetGoals") invalidateApiCache("adminGetGoals");
+  if (action === "adminSetPromo") invalidateApiCache("adminGetPromo");
+  if (action === "adminSetPosSettings") invalidateApiCache("adminGetPosSettings");
+  if (action === "adminSetSponsorshipSettings") invalidateApiCache("adminGetSponsorshipSettings");
+  // Operational mutations invalidate everything except settings caches
+  for (const k of [..._apiCache.keys()]) {
+    const ep = k.split(":")[0];
+    if (KEEP.has(ep)) continue;
+    _apiCache.delete(k);
+  }
+}
+
+async function api(action, params = {}, options = {}) {
+  const ttl = options.bypassCache ? 0 : (API_CACHE_TTL[action] || 0);
+  if (ttl === 0) {
+    // Not a cacheable read — treat as a mutation/sensitive call. Invalidate
+    // related cache entries after it completes so the next read picks up
+    // fresh data.
+    const result = await _doFetchRaw(action, params);
+    if (result && result.ok && _isMutation(action)) {
+      _invalidateForMutation(action);
+    }
+    return result;
+  }
+  const key = _apiCacheKey(action, params);
+  const cached = _apiCache.get(key);
+  const now = Date.now();
+
+  if (cached && (now - cached.time) < ttl) {
+    // FRESH ENOUGH — return immediately. If we're past 60% of the TTL,
+    // kick off a background refresh so the next access is also fast.
+    if ((now - cached.time) > ttl * 0.6) {
+      if (!_inflightFetches.has(key)) {
+        const p = _doFetchRaw(action, params).then(fresh => {
+          _inflightFetches.delete(key);
+          if (fresh && fresh.ok !== false) {
+            _apiCache.set(key, { data: fresh, time: Date.now() });
+            if (options.onUpdate) {
+              try { options.onUpdate(fresh); } catch (e) {}
+            }
+          }
+        });
+        _inflightFetches.set(key, p);
+      }
+    }
+    return cached.data;
+  }
+
+  // STALE OR MISSING — fetch synchronously. Coalesce in-flight requests.
+  if (_inflightFetches.has(key)) {
+    return _inflightFetches.get(key);
+  }
+  const p = _doFetchRaw(action, params).then(fresh => {
+    _inflightFetches.delete(key);
+    if (fresh && fresh.ok !== false) {
+      _apiCache.set(key, { data: fresh, time: Date.now() });
+    }
+    return fresh;
+  });
+  _inflightFetches.set(key, p);
+  return p;
 }
 
 /* ====== HELPERS ====== */
@@ -3797,13 +3953,25 @@ function ScreenDashboard() {
     }
   }
 
-  async function refresh() {
+  async function refresh(opts = {}) {
     const today = todayISO();
+    const bypass = !!opts.fresh;
+    // Synchronous cache priming on first paint — show stale data instantly
+    if (!bypass && !data) {
+      const cd = getCachedApi("adminDashboard");
+      const cb = getCachedApi("adminListTimelineEntries", { date: today });
+      const ck = getCachedApi("adminDashboardKpi");
+      const cok = getCachedApi("adminOperationalKpi");
+      if (cd && cd.ok) setData(cd);
+      if (cb && cb.ok) setBookings(cb.entries || []);
+      if (ck && ck.ok) setKpiData(ck);
+      if (cok && cok.ok) setOpKpiData(cok);
+    }
     const [d, b, k, ok] = await Promise.all([
-      api("adminDashboard"),
-      api("adminListTimelineEntries", { date: today }),
-      api("adminDashboardKpi"),
-      api("adminOperationalKpi")
+      api("adminDashboard", {}, { bypassCache: bypass }),
+      api("adminListTimelineEntries", { date: today }, { bypassCache: bypass }),
+      api("adminDashboardKpi", {}, { bypassCache: bypass }),
+      api("adminOperationalKpi", {}, { bypassCache: bypass })
     ]);
     if (d.ok) setData(d);
     if (b.ok) setBookings(b.entries || []);
@@ -3813,10 +3981,34 @@ function ScreenDashboard() {
   }
 
   useEffect(() => {
-    refresh();
-    const id = setInterval(refresh, POLL_INTERVAL_MS);
+    refresh();  // initial — uses cache if fresh
+    let intervalId = null;
+    function startPolling() {
+      if (intervalId) return;
+      intervalId = setInterval(() => refresh({ fresh: true }), POLL_INTERVAL_MS);
+    }
+    function stopPolling() {
+      if (!intervalId) return;
+      clearInterval(intervalId);
+      intervalId = null;
+    }
+    function onVisChange() {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        // When user returns to the tab, immediately fetch fresh data + resume polling
+        refresh({ fresh: true });
+        startPolling();
+      }
+    }
+    if (!document.hidden) startPolling();
+    document.addEventListener("visibilitychange", onVisChange);
     const clockId = setInterval(() => setClock(fmtClock()), 30000);
-    return () => { clearInterval(id); clearInterval(clockId); };
+    return () => {
+      stopPolling();
+      clearInterval(clockId);
+      document.removeEventListener("visibilitychange", onVisChange);
+    };
   }, []);
 
   if (!data) {
@@ -4550,8 +4742,21 @@ function ScreenBookings() {
 
   async function load(opts) {
     const silent = opts && opts.silent;
-    if (!silent) setLoading(true);
-    const r = await api("adminListTimelineEntries", { dateFrom: range.from, dateTo: range.to });
+    // Synchronous cache hit: render stale data instantly so the tab/date switch feels instant
+    if (!silent) {
+      const cached = getCachedApi("adminListTimelineEntries", { dateFrom: range.from, dateTo: range.to });
+      if (cached && cached.ok) {
+        setEntries(cached.entries || []);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+    }
+    const r = await api(
+      "adminListTimelineEntries",
+      { dateFrom: range.from, dateTo: range.to },
+      { bypassCache: !!silent }  // periodic polls bypass; initial/explicit reads use cache
+    );
     if (r.ok) setEntries(r.entries || []);
     else if (!silent) showToast(r.error || "Failed to load", "error");
     if (!silent) setLoading(false);
@@ -7602,6 +7807,9 @@ function ScreenPOS() {
   const [activeTabId, setActiveTabId] = useState(null);  // tab currently open in detail modal
 
   async function loadProducts() {
+    // Sync cache hit for instant render
+    const cached = getCachedApi("posListProducts");
+    if (cached && cached.ok) setProducts(cached.products || []);
     const r = await api("posListProducts");
     if (r.ok) setProducts(r.products || []);
   }
@@ -7617,6 +7825,8 @@ function ScreenPOS() {
   }
 
   async function loadTabCount() {
+    const cached = getCachedApi("tabListOpen");
+    if (cached && cached.ok) setOpenTabCount((cached.tabs || []).length);
     const r = await api("tabListOpen");
     if (r.ok) setOpenTabCount((r.tabs || []).length);
   }
@@ -8503,7 +8713,7 @@ function TabDetailModal({ tabId, products, onClose }) {
         <div className="section-label">
           <span><span className="num">02</span><span className="name" style={{ color: "var(--green)" }}>Court Bookings</span></span>
           <span className="right">
-            {isOpen && <button className="btn-sm primary" onClick={() => setShowAttachBooking(true)}>+ Attach booking</button>}
+            {isOpen && <button className="btn-sm primary" onClick={() => setShowAttachBooking(true)}>+ Attach booking / walk-in</button>}
           </span>
         </div>
         {data.bookings.length === 0 ? (
@@ -8719,32 +8929,83 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
 
   useEffect(() => {
     api("adminListSettleableEntries").then(r => {
-      if (r.ok) {
-        // Only show bookings (skip walk-in players from this picker for clarity)
-        const bookings = (r.entries || []).filter(e => e.kind === "booking");
-        setEntries(bookings);
+      if (!r.ok) {
+        setEntries([]);
+        return;
       }
+      // Backend returns flat entries with entryType "booking" or "walkin_player".
+      // Each is its own attachable item; no flattening needed.
+      const flat = [];
+      (r.entries || []).forEach(e => {
+        if (e.entryType === "booking") {
+          flat.push({
+            kind: "booking",
+            id: e.id,
+            label: e.label,
+            phone: String(e.customerPhone || e.phone || ""),
+            name: String(e.customerName || e.name || ""),
+            amount: e.total || e.amount || 0,
+            sub: e.derivedStatus ? e.derivedStatus.replace(/_/g, " ").toUpperCase() : ""
+          });
+        } else if (e.entryType === "walkin_player") {
+          flat.push({
+            kind: "walkin_player",
+            id: e.id,
+            label: e.label + (e.name ? " · " + e.name : ""),
+            phone: String(e.customerPhone || e.phone || ""),
+            name: String(e.customerName || e.name || ""),
+            amount: e.total || e.amount || 0,
+            sub: "WALK-IN"
+          });
+        } else if (e.entryType === "walkin_block") {
+          // Legacy support — flatten if backend ever returns the old shape
+          (e.unpaidPlayers || []).forEach(p => {
+            flat.push({
+              kind: "walkin_player",
+              id: p.playerId,
+              label: e.label + " · " + (p.name || "Walk-in"),
+              phone: String(p.phone || ""),
+              name: String(p.name || ""),
+              amount: p.amount || 0,
+              sub: "WALK-IN"
+            });
+          });
+        }
+      });
+      setEntries(flat);
     });
   }, []);
 
-  async function attach(bookingId) {
+  async function attach(entry) {
     setWorking(true);
-    const r = await api("tabAttachBooking", { tabId: tabId, bookingId: bookingId });
+    let r;
+    if (entry.kind === "booking") {
+      r = await api("tabAttachBooking", { tabId: tabId, bookingId: entry.id });
+    } else if (entry.kind === "walkin_player") {
+      r = await api("tabAttachWalkInPlayer", { tabId: tabId, playerId: entry.id });
+    } else {
+      r = { ok: false, error: "Unknown entry type" };
+    }
     setWorking(false);
     if (r.ok) onAttached();
     else showToast(r.error || "Failed", "error");
   }
 
-  // Sort entries: customer's phone matches first, then by date/time
+  // Sort entries: customer's phone matches first, then by kind (bookings first), then by amount
   const sorted = useMemo(() => {
     if (!entries) return [];
-    const cp = customerPhone || "";
+    const cp = (customerPhone || "").trim();
+    function normalize(p) {
+      return String(p || "").replace(/[\s\-\(\)\+]/g, "");
+    }
+    const cpNorm = normalize(cp);
     return [...entries].sort((a, b) => {
-      const ap = (a.phone || "") === cp;
-      const bp = (b.phone || "") === cp;
+      const ap = cpNorm && normalize(a.phone) === cpNorm;
+      const bp = cpNorm && normalize(b.phone) === cpNorm;
       if (ap && !bp) return -1;
       if (!ap && bp) return 1;
-      return String(a.date + a.time).localeCompare(b.date + b.time);
+      if (a.kind !== b.kind) return a.kind === "booking" ? -1 : 1;
+      return b.amount - a.amount;
     });
   }, [entries, customerPhone]);
 
@@ -8753,8 +9014,8 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
       <div className="modal" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
-            <div className="kicker">Pick an unpaid booking</div>
-            <h2>Attach Booking</h2>
+            <div className="kicker">Pick an unpaid booking or walk-in</div>
+            <h2>Attach to Tab</h2>
           </div>
           <button className="x" onClick={onClose}>×</button>
         </div>
@@ -8762,36 +9023,49 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
         {entries === null ? (
           <div style={{ padding: 30, display: "flex", justifyContent: "center" }}><BouncingBall size="sm" /></div>
         ) : sorted.length === 0 ? (
-          <div className="empty">No unpaid bookings to attach</div>
+          <div className="empty">No unpaid bookings or walk-ins available to attach</div>
         ) : (
           <div style={{ maxHeight: 420, overflowY: "auto" }}>
             {sorted.map(e => {
-              const matchPhone = customerPhone && e.phone === customerPhone;
+              function normalize(p) {
+                return String(p || "").replace(/[\s\-\(\)\+]/g, "");
+              }
+              const matchPhone = customerPhone && normalize(e.phone) === normalize(customerPhone);
+              const kindColor = e.kind === "walkin_player" ? "var(--peach,#D9785C)" : "var(--green)";
+              const kindLabel = e.kind === "walkin_player" ? "◉ WALK-IN" : "COURT";
               return (
-                <div key={e.id}
+                <div key={e.kind + "-" + e.id}
                   style={{
                     padding: "10px 12px",
                     border: matchPhone ? "1.5px solid var(--green)" : "1px solid rgba(26,26,26,0.08)",
                     borderRadius: 3,
                     marginBottom: 6,
                     display: "grid",
-                    gridTemplateColumns: "1fr auto auto",
+                    gridTemplateColumns: "auto 1fr auto auto",
                     gap: 10,
                     alignItems: "center",
                     background: matchPhone ? "rgba(61,122,79,0.06)" : "var(--paper)"
                   }}
                 >
+                  <div style={{
+                    fontFamily: "var(--mono)", fontSize: 8, fontWeight: 700,
+                    letterSpacing: "0.14em", padding: "3px 6px",
+                    color: kindColor, border: "1px solid " + kindColor,
+                    borderRadius: 3
+                  }}>
+                    {kindLabel}
+                  </div>
                   <div>
-                    <div style={{ fontWeight: 700 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>
                       {e.label}
                       {matchPhone && <span style={{ marginLeft: 6, fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.12em", color: "var(--green)" }}>SAME PHONE</span>}
                     </div>
                     <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, marginTop: 3 }}>
-                      {e.phone}
+                      {e.phone || (e.name ? e.name : "—")}
                     </div>
                   </div>
                   <div style={{ fontFamily: "var(--mono)", fontWeight: 700 }}>${e.amount.toFixed(2)}</div>
-                  <button className="btn-sm primary" onClick={() => attach(e.id)} disabled={working}>Attach</button>
+                  <button className="btn-sm primary" onClick={() => attach(e)} disabled={working}>Attach</button>
                 </div>
               );
             })}
@@ -9333,6 +9607,32 @@ function AttachPickerModal({ alreadyAttached, onClose, onPick }) {
               );
             })}
 
+            {entries.filter(e => e.entryType === "walkin_player").map(p => {
+              const already = isAttached("walkin_player", p.id);
+              return (
+                <div key={p.id} className="att-pick-row" style={{ opacity: already ? 0.4 : 1 }}>
+                  <div>
+                    <div className="title">◉ {p.customerName || p.name || "Walk-in"}</div>
+                    <div className="sub">{p.label} · {p.customerPhone || p.phone || ""}</div>
+                    <div className="id">{p.id}</div>
+                  </div>
+                  <div className="amt">${(p.total || p.amount || 0).toFixed(2)}</div>
+                  <button
+                    className="btn-sm primary"
+                    disabled={already}
+                    onClick={() => onPick({
+                      kind: "walkin_player",
+                      id: p.id,
+                      label: "Walk-in · " + (p.customerName || p.name || "Player"),
+                      sub: p.label,
+                      price: p.total || p.amount || 0
+                    })}
+                  >{already ? "Added" : "Attach"}</button>
+                </div>
+              );
+            })}
+
+            {/* Legacy: keep handling old walkin_block shape if backend ever emits it */}
             {entries.filter(e => e.entryType === "walkin_block").map(blk => (
               <div key={blk.id}>
                 <div style={{
@@ -11457,19 +11757,37 @@ function App() {
   const [authed, setAuthed] = useState(!!getStoredPin());
   const [screen, setScreen] = useState("dashboard");
 
-  // Validate the stored PIN on boot (e.g. PIN may have been changed)
+  // Validate the stored PIN on boot, then prefetch common tabs so navigation feels instant
   useEffect(() => {
     if (!authed) return;
     api("adminDashboard").then(r => {
       if (!r.ok) {
         setStoredPin("");
+        invalidateApiCache("");
         setAuthed(false);
+        return;
       }
+      // Warm-up: kick off background fetches for the most-used tabs so cache
+      // is hot by the time the user clicks them. Failures are silently ignored
+      // (these will be retried on first real visit).
+      const today = todayISO();
+      setTimeout(() => {
+        api("adminListTimelineEntries", { dateFrom: today, dateTo: today }).catch(() => {});
+        api("posListProducts").catch(() => {});
+        api("adminListMembers").catch(() => {});
+        api("tabListOpen").catch(() => {});
+      }, 200);  // small delay so dashboard loads first
+      setTimeout(() => {
+        api("adminDashboardKpi").catch(() => {});
+        api("adminOperationalKpi").catch(() => {});
+        api("adminListSponsorships").catch(() => {});
+      }, 800);
     });
   }, []);
 
   function signOut() {
     setStoredPin("");
+    invalidateApiCache("");  // wipe all cached responses so next user starts clean
     setAuthed(false);
   }
 
@@ -11490,6 +11808,46 @@ function App() {
     { id: "sms",       label: "SMS Log",   ready: true },
     { id: "settings",  label: "Settings",  ready: true }
   ];
+
+  // Prefetch data for a tab when the user hovers (before they actually click)
+  function prefetchForTab(id) {
+    const today = todayISO();
+    switch (id) {
+      case "dashboard":
+        api("adminDashboard").catch(() => {});
+        api("adminListTimelineEntries", { dateFrom: today, dateTo: today }).catch(() => {});
+        api("adminDashboardKpi").catch(() => {});
+        api("adminOperationalKpi").catch(() => {});
+        break;
+      case "bookings":
+        api("adminListTimelineEntries", { dateFrom: today, dateTo: today }).catch(() => {});
+        break;
+      case "pos":
+        api("posListProducts").catch(() => {});
+        api("tabListOpen").catch(() => {});
+        break;
+      case "members":
+        api("adminListMembers").catch(() => {});
+        break;
+      case "coaching":
+        api("adminListCoaches").catch(() => {});
+        break;
+      case "finances": {
+        const now = new Date();
+        api("adminFinancesMonth", { year: now.getFullYear(), month: now.getMonth() + 1 }).catch(() => {});
+        break;
+      }
+      case "sponsorships":
+        api("adminListSponsorships").catch(() => {});
+        break;
+      case "settings":
+        api("adminGetPromo").catch(() => {});
+        api("adminGetPosSettings").catch(() => {});
+        api("adminGetGoals").catch(() => {});
+        api("adminGetSponsorshipSettings").catch(() => {});
+        break;
+    }
+  }
 
   function go(id) {
     const t = tabs.find(x => x.id === id);
@@ -11539,6 +11897,8 @@ function App() {
               key={t.id}
               className={(screen === t.id ? "active " : "") + (!t.ready ? "soon" : "")}
               onClick={() => go(t.id)}
+              onMouseEnter={() => t.ready && prefetchForTab(t.id)}
+              onFocus={() => t.ready && prefetchForTab(t.id)}
             >
               <span className="label">{t.label}</span>
               {!t.ready && <span className="soon-tag">Soon</span>}
