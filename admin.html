@@ -644,43 +644,69 @@ button { font-family: inherit; cursor: pointer; }
 .booking-block.type-coaching .name::before { content: "★ "; opacity: 0.85; }
 .booking-block.type-walkin   .name::before { content: "◉ "; opacity: 0.85; }
 
-/* STATE modifiers — these are applied ON TOP of the type color */
-.booking-block.state-awaiting {
-  opacity: 0.6;
+/* STATE modifiers — applied via a ::before overlay so the text stays
+   full-opacity and remains readable on small blocks. The block itself
+   stays opaque; the overlay carries the fade/stripes. */
+.booking-block::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+}
+.booking-block .name,
+.booking-block .time,
+.booking-block .member-flag {
+  position: relative;
+  z-index: 1;
+}
+
+/* AWAITING: subtle dim + light diagonal stripes on the background overlay */
+.booking-block.state-awaiting::before {
+  background-color: rgba(241,234,214,0.35);  /* cream tint overlay */
   background-image: repeating-linear-gradient(
     -45deg,
-    transparent, transparent 4px,
-    rgba(255,255,255,0.08) 4px, rgba(255,255,255,0.08) 8px
+    transparent, transparent 6px,
+    rgba(26,26,26,0.10) 6px, rgba(26,26,26,0.10) 9px
   );
 }
+
+/* AT-RISK: bright yellow ring, no overlay (block stays vivid for urgency) */
 .booking-block.state-at_risk {
-  opacity: 1;
   box-shadow: 0 0 0 2px var(--warn);
+  z-index: 5;  /* slightly raised so the ring isn't clipped by neighbors */
 }
-.booking-block.state-paid {
-  opacity: 1;
+
+/* PAID: full color, no overlay */
+.booking-block.state-paid::before {
+  background: transparent;
 }
-.booking-block.state-no_show_freed {
-  opacity: 0.5;
+
+/* NO-SHOW FREED: dark hash overlay + strikethrough on text */
+.booking-block.state-no_show_freed::before {
   background-image: repeating-linear-gradient(
     45deg,
     transparent, transparent 5px,
-    rgba(0,0,0,0.35) 5px, rgba(0,0,0,0.35) 10px
+    rgba(0,0,0,0.45) 5px, rgba(0,0,0,0.45) 10px
   );
-  text-decoration: line-through;
 }
-.booking-block.state-no_show_kept {
-  opacity: 0.75;
+.booking-block.state-no_show_freed .name { text-decoration: line-through; }
+
+/* NO-SHOW KEPT: light hash overlay */
+.booking-block.state-no_show_kept::before {
   background-image: repeating-linear-gradient(
     45deg,
     transparent, transparent 5px,
-    rgba(255,255,255,0.18) 5px, rgba(255,255,255,0.18) 10px
+    rgba(255,255,255,0.25) 5px, rgba(255,255,255,0.25) 10px
   );
 }
-.booking-block.state-completed {
-  opacity: 0.55;
-  filter: saturate(0.5);
+
+/* COMPLETED: gentle gray overlay to indicate past/settled */
+.booking-block.state-completed::before {
+  background-color: rgba(26,26,26,0.35);
 }
+
 .booking-block.state-cancelled { display: none; }
 
 /* Member: small star badge in top-right corner */
@@ -3110,6 +3136,90 @@ button { font-family: inherit; cursor: pointer; }
   .upcoming-card { grid-template-columns: 70px 1fr auto; gap: 10px; }
 }
 
+/* ============================================================
+   FINANCES TAB — daily revenue chart + split bars
+   ============================================================ */
+.finance-chart {
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 6px;
+  padding: 18px 16px 10px;
+  margin-bottom: 18px;
+}
+.finance-chart .bars {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  height: 200px;
+  padding-bottom: 24px;
+  border-bottom: 1.5px solid var(--ink);
+  position: relative;
+}
+.finance-chart .bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  position: relative;
+  cursor: default;
+  min-width: 0;
+}
+.finance-chart .bar-col.weekend {
+  background: linear-gradient(180deg, transparent 0%, rgba(168,116,74,0.06) 80%);
+}
+.finance-chart .bar-col.today {
+  background: linear-gradient(180deg, transparent 0%, rgba(61,122,79,0.18) 80%);
+}
+.finance-chart .stack {
+  width: 100%;
+  display: flex;
+  flex-direction: column-reverse;
+  min-height: 1px;
+  transition: height 0.3s ease;
+}
+.finance-chart .seg {
+  width: 100%;
+  border-top: 1px solid rgba(26,26,26,0.15);
+}
+.finance-chart .seg:first-child { border-top: none; }
+.finance-chart .seg-court { background: var(--green); }
+.finance-chart .seg-coach { background: var(--wood); }
+.finance-chart .seg-walk  { background: var(--peach, #D9785C); }
+.finance-chart .seg-pos   { background: var(--ink); }
+.finance-chart .day-label {
+  position: absolute;
+  bottom: -22px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  opacity: 0.55;
+}
+.finance-chart .bar-col.today .day-label { color: var(--green); font-weight: 700; opacity: 1; }
+.finance-chart-legend {
+  margin-top: 20px;
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.finance-chart-legend .leg-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.finance-chart-legend .leg-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  border: 1.5px solid var(--ink);
+  display: inline-block;
+}
+
   </style>
 
   <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
@@ -5019,7 +5129,7 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
     });
     setSubmitting(false);
     if (r.ok) {
-      showToast("Walk-in booked", "success");
+      showToast("Booking created", "success");
       onCreated && onCreated();
     } else {
       showToast(r.error || "Failed", "error");
@@ -8258,6 +8368,448 @@ function CustomerHistoryModal({ customer, onClose }) {
 
 
 /* ====================================================================
+   FINANCES — Month overview with revenue breakdown, charts, top customers
+   ==================================================================== */
+
+function ScreenFinances() {
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  async function load() {
+    setLoading(true);
+    const r = await api("adminFinancesMonth", { year: year, month: month });
+    if (r.ok) setData(r);
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, [year, month]);
+
+  // Month navigation
+  function prevMonth() {
+    let m = month - 1, y = year;
+    if (m < 1) { m = 12; y = year - 1; }
+    setMonth(m); setYear(y);
+  }
+  function nextMonth() {
+    let m = month + 1, y = year;
+    if (m > 12) { m = 1; y = year + 1; }
+    // Don't go beyond current month
+    const limit = new Date();
+    if (y > limit.getFullYear() || (y === limit.getFullYear() && m > limit.getMonth() + 1)) return;
+    setMonth(m); setYear(y);
+  }
+  function thisMonth() {
+    setMonth(now.getMonth() + 1); setYear(now.getFullYear());
+  }
+
+  const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const isCurrent = data && data.isCurrentMonth;
+  const atCurrent = (year === now.getFullYear() && month === now.getMonth() + 1);
+
+  return (
+    <div className="main">
+      <div className="main-head">
+        <div>
+          <div className="title">Revenue · receivables · trends</div>
+          <h1>Finances</h1>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button className="date-pill" onClick={prevMonth}>← Prev</button>
+          <div style={{
+            fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 22, fontWeight: 400,
+            padding: "0 14px"
+          }}>
+            {MONTH_NAMES[month - 1]} {year}
+            {isCurrent && (
+              <span style={{
+                marginLeft: 10, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.18em",
+                textTransform: "uppercase", color: "var(--green)", verticalAlign: "middle"
+              }}>· CURRENT</span>
+            )}
+          </div>
+          <button className="date-pill" onClick={nextMonth} disabled={atCurrent}
+            style={{ opacity: atCurrent ? 0.4 : 1, cursor: atCurrent ? "not-allowed" : "pointer" }}>
+            Next →
+          </button>
+          {!atCurrent && <button className="date-pill" onClick={thisMonth}>This Month</button>}
+        </div>
+      </div>
+
+      {loading && !data ? (
+        <div style={{ padding: 60, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
+      ) : !data ? (
+        <div className="empty">Failed to load</div>
+      ) : (
+        <FinancesView data={data} onChanged={load} />
+      )}
+    </div>
+  );
+}
+
+function FinancesView({ data, onChanged }) {
+  const h = data.headline;
+  const splits = data.splits;
+  const total = h.totalRevenue || 0;
+  const pct = (n) => total > 0 ? Math.round((n / total) * 100) : 0;
+
+  return (
+    <>
+      {/* Headline stat cards */}
+      <div className="stat-grid" style={{ gridTemplateColumns: "1.4fr 1fr 1fr 1fr 1fr", marginBottom: 18 }}>
+        <div className="stat-card accent-green" style={{ background: "var(--green)", color: "var(--cream)" }}>
+          <div className="label" style={{ color: "var(--cream)", opacity: 0.7 }}>Total revenue</div>
+          <div className="value" style={{ color: "var(--cream)", fontSize: 44 }}>${h.totalRevenue.toFixed(2)}</div>
+          <div className="sub" style={{ color: "var(--cream)", opacity: 0.7 }}>
+            {data.summary.paidBookings + data.summary.paidWalkInPlayers + data.summary.paidCoachingSessions + data.summary.posTransactions} paid transactions
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="label">Court rental</div>
+          <div className="value">${h.courtRev.toFixed(0)}</div>
+          <div className="sub">{pct(h.courtRev)}% · {data.summary.paidBookings} paid bookings</div>
+        </div>
+        <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}>
+          <div className="label">◉ Walk-in</div>
+          <div className="value" style={{ color: "var(--peach,#D9785C)" }}>${h.walkinRev.toFixed(0)}</div>
+          <div className="sub">{pct(h.walkinRev)}% · {data.summary.paidWalkInPlayers} players</div>
+        </div>
+        <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
+          <div className="label">★ Coaching</div>
+          <div className="value" style={{ color: "var(--wood)" }}>${h.coachingRev.toFixed(0)}</div>
+          <div className="sub">{pct(h.coachingRev)}% · {data.summary.paidCoachingSessions} sessions</div>
+        </div>
+        <div className="stat-card">
+          <div className="label">POS</div>
+          <div className="value">${h.posRev.toFixed(0)}</div>
+          <div className="sub">{pct(h.posRev)}% · {data.summary.posTransactions} txns</div>
+        </div>
+      </div>
+
+      {/* Outstanding — split by AGE: pending (informational) vs overdue (real receivables) */}
+      <OutstandingPanel outstanding={data.outstanding} headline={h} onChanged={onChanged} />
+
+      {/* Daily trend chart */}
+      <div className="section-label">
+        <span><span className="num">01</span><span className="name">Daily Revenue Trend</span></span>
+        <span className="right">{data.daysInMonth} days in {data.isCurrentMonth ? "month so far · " + data.daysElapsed + " elapsed" : "month"}</span>
+      </div>
+      <DailyRevenueChart daily={data.daily} />
+
+      {/* Splits side-by-side */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 28, marginBottom: 24 }}>
+        <div>
+          <div className="section-label">
+            <span><span className="num">02</span><span className="name">Member vs Guest Revenue</span></span>
+          </div>
+          <SplitBar
+            segments={[
+              { label: "Member", value: splits.memberVsNonMember.member, color: "var(--ink)" },
+              { label: "Non-member", value: splits.memberVsNonMember.nonMember, color: "var(--concrete-2)" }
+            ]}
+          />
+        </div>
+        <div>
+          <div className="section-label">
+            <span><span className="num">03</span><span className="name">Court Time Mix</span></span>
+          </div>
+          <SplitBar
+            segments={[
+              { label: "Off-peak weekday", value: splits.peakVsOffpeak.offpeak, color: "var(--concrete-2)" },
+              { label: "Peak weekday", value: splits.peakVsOffpeak.peak, color: "var(--green)" },
+              { label: "Weekend", value: splits.peakVsOffpeak.weekend, color: "var(--wood)" }
+            ]}
+          />
+        </div>
+      </div>
+
+      {/* Top customers + Top products */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 16 }}>
+        <div>
+          <div className="section-label">
+            <span><span className="num">04</span><span className="name">Top Customers · by spend</span></span>
+            <span className="right">{data.topCustomers.length}</span>
+          </div>
+          {data.topCustomers.length === 0 ? (
+            <div className="empty-mini" style={{ padding: 20 }}>No customer spend recorded</div>
+          ) : (
+            <div>
+              {data.topCustomers.map((c, i) => (
+                <div key={c.phone} className="modal-detail-row" style={{ padding: "8px 0" }}>
+                  <span className="k">
+                    <span style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.5, marginRight: 8 }}>#{i + 1}</span>
+                    {c.name || "Unknown"} <span style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, marginLeft: 6 }}>{c.phone}</span>
+                  </span>
+                  <span className="v">${c.total.toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div>
+          <div className="section-label">
+            <span><span className="num">05</span><span className="name">Top POS Products · by revenue</span></span>
+            <span className="right">{data.topProducts.length}</span>
+          </div>
+          {data.topProducts.length === 0 ? (
+            <div className="empty-mini" style={{ padding: 20 }}>No POS sales recorded</div>
+          ) : (
+            <div>
+              {data.topProducts.map((p, i) => (
+                <div key={p.sku} className="modal-detail-row" style={{ padding: "8px 0" }}>
+                  <span className="k">
+                    <span style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.5, marginRight: 8 }}>#{i + 1}</span>
+                    {p.name}
+                    <span style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, marginLeft: 6 }}>×{p.qty}</span>
+                  </span>
+                  <span className="v">${p.total.toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* Simple bar chart for daily revenue, drawn with divs (no chart lib).
+   Each bar shows total revenue for that day, with a tooltip on hover. */
+function DailyRevenueChart({ daily }) {
+  const max = useMemo(() => Math.max(1, ...daily.map(d => d.total)), [daily]);
+  const todayISOStr = todayISO();
+
+  return (
+    <div className="finance-chart">
+      <div className="bars">
+        {daily.map(d => {
+          const h = max > 0 ? (d.total / max) * 100 : 0;
+          const day = parseInt(d.date.substring(8, 10));
+          const isToday = d.date === todayISOStr;
+          const isWknd = (() => {
+            const dow = new Date(d.date + "T12:00:00").getDay();
+            return dow === 0 || dow === 6;
+          })();
+          return (
+            <div key={d.date} className={"bar-col" + (isToday ? " today" : "") + (isWknd ? " weekend" : "")}
+              title={d.date + " · $" + d.total.toFixed(2) + " ($" + d.court.toFixed(0) + " court · $" + d.walkin.toFixed(0) + " walk-in · $" + d.coaching.toFixed(0) + " coaching · $" + d.pos.toFixed(0) + " POS)"}>
+              <div className="stack" style={{ height: h + "%" }}>
+                {d.court > 0 && <div className="seg seg-court" style={{ flex: d.court }} />}
+                {d.coaching > 0 && <div className="seg seg-coach" style={{ flex: d.coaching }} />}
+                {d.walkin > 0 && <div className="seg seg-walk" style={{ flex: d.walkin }} />}
+                {d.pos > 0 && <div className="seg seg-pos" style={{ flex: d.pos }} />}
+              </div>
+              <div className="day-label">{day}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="finance-chart-legend">
+        <span className="leg-item"><i className="leg-swatch seg-court" /> Court</span>
+        <span className="leg-item"><i className="leg-swatch seg-coach" /> Coaching</span>
+        <span className="leg-item"><i className="leg-swatch seg-walk" /> Walk-in</span>
+        <span className="leg-item"><i className="leg-swatch seg-pos" /> POS</span>
+      </div>
+    </div>
+  );
+}
+
+function OutstandingPanel({ outstanding, headline, onChanged }) {
+  const [showAllPending, setShowAllPending] = useState(false);
+  const [showAllOverdue, setShowAllOverdue] = useState(false);
+  const [working, setWorking] = useState(false);
+
+  const pending = outstanding && outstanding.pending ? outstanding.pending : [];
+  const overdue = outstanding && outstanding.overdue ? outstanding.overdue : [];
+
+  async function markBookingPaid(item) {
+    if (!confirm("Mark this booking as paid?\n\n" + item.name + " · $" + item.amount.toFixed(2))) return;
+    setWorking(true);
+    const r = await api("adminMarkPaid", { bookingId: item.id });
+    setWorking(false);
+    if (r.ok) {
+      showToast("Marked paid", "success");
+      onChanged && onChanged();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  async function markWalkInPaid(item) {
+    if (!confirm("Mark this walk-in player as paid?\n\n" + item.name + " · $" + item.amount.toFixed(2))) return;
+    setWorking(true);
+    const r = await api("adminMarkWalkInPlayerPaid", { playerId: item.id, paymentMethod: "Cash" });
+    setWorking(false);
+    if (r.ok) {
+      showToast("Marked paid", "success");
+      onChanged && onChanged();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  async function markCoachingPaid(item) {
+    if (!confirm("Mark this coaching session as paid?\n\nCoach " + item.coachName + " · $" + item.amount.toFixed(2))) return;
+    setWorking(true);
+    const r = await api("adminMarkCoachingSessionsPaid", {
+      sessionIds: JSON.stringify([item.id]),
+      paymentMethod: "Cash"
+    });
+    setWorking(false);
+    if (r.ok) {
+      showToast("Marked paid", "success");
+      onChanged && onChanged();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  function markPaid(item) {
+    if (item.entryType === "booking") return markBookingPaid(item);
+    if (item.entryType === "walkin") return markWalkInPaid(item);
+    if (item.entryType === "coaching") return markCoachingPaid(item);
+  }
+
+  function renderRow(item, isOverdue) {
+    const icon = item.entryType === "coaching" ? "★" : item.entryType === "walkin" ? "◉" : "⬛";
+    const ageLabel = item.ageHours < 0
+      ? "in " + Math.abs(Math.round(item.ageHours)) + "h"
+      : item.ageHours < 24
+      ? Math.round(item.ageHours) + "h ago"
+      : Math.round(item.ageHours / 24) + "d ago";
+    return (
+      <div key={item.entryType + "-" + item.id} className="modal-detail-row" style={{ padding: "10px 0" }}>
+        <span className="k">
+          <span style={{ marginRight: 6, opacity: 0.7 }}>{icon}</span>
+          <strong>{item.name || "(no name)"}</strong>
+          {item.courtNumbers && <span style={{ marginLeft: 6, fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>C·{item.courtNumbers}</span>}
+          <span style={{ marginLeft: 8, fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55 }}>{item.date} · {item.time}</span>
+          <span style={{
+            marginLeft: 8, fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase",
+            color: isOverdue ? "var(--clay)" : "var(--ink)", opacity: isOverdue ? 1 : 0.5, fontWeight: 700
+          }}>{ageLabel}</span>
+        </span>
+        <span className="v" style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <span style={{ color: isOverdue ? "var(--clay)" : "var(--ink)" }}>${item.amount.toFixed(2)}</span>
+          <button className="btn-sm primary" onClick={() => markPaid(item)} disabled={working}>Mark paid</button>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* Outstanding stat cards — concise */}
+      <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr", marginBottom: 22 }}>
+        <div className="stat-card" style={{ borderColor: headline.overdueTotal > 0 ? "var(--clay)" : "var(--ink)" }}>
+          <div className="label">Overdue · &gt;24h</div>
+          <div className="value" style={{ color: headline.overdueTotal > 0 ? "var(--clay)" : "var(--ink)" }}>${headline.overdueTotal.toFixed(2)}</div>
+          <div className="sub">{headline.overdueCount} item{headline.overdueCount === 1 ? "" : "s"} · needs chasing</div>
+        </div>
+        <div className="stat-card">
+          <div className="label">Pending · today</div>
+          <div className="value">${headline.pendingTotal.toFixed(2)}</div>
+          <div className="sub">{headline.pendingCount} item{headline.pendingCount === 1 ? "" : "s"} · settles at counter</div>
+        </div>
+        <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
+          <div className="label">★ Coaching share owed</div>
+          <div className="value" style={{ color: "var(--wood)" }}>${headline.overdueCoaching.toFixed(2)}</div>
+          <div className="sub">facility share unpaid by coaches</div>
+        </div>
+        <div className="stat-card">
+          <div className="label">Court + Walk-in overdue</div>
+          <div className="value">${(headline.overdueBookings + headline.overdueWalkin).toFixed(2)}</div>
+          <div className="sub">customers who left without paying</div>
+        </div>
+      </div>
+
+      {/* Inline lists, collapsed by default */}
+      {overdue.length > 0 && (
+        <>
+          <div className="section-label">
+            <span>
+              <span className="num" style={{ color: "var(--clay)" }}>!</span>
+              <span className="name" style={{ color: "var(--clay)" }}>Overdue Items · needs chasing</span>
+            </span>
+            <span className="right">{overdue.length}</span>
+          </div>
+          <div style={{ background: "rgba(198,79,58,0.04)", borderLeft: "3px solid var(--clay)", padding: "4px 14px", marginBottom: 18 }}>
+            {(showAllOverdue ? overdue : overdue.slice(0, 5)).map(item => renderRow(item, true))}
+            {overdue.length > 5 && (
+              <button className="btn-sm ghost" style={{ marginTop: 8, marginBottom: 6 }} onClick={() => setShowAllOverdue(!showAllOverdue)}>
+                {showAllOverdue ? "Show less" : "Show all " + overdue.length + " overdue"}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
+      {pending.length > 0 && (
+        <>
+          <div className="section-label" style={{ opacity: 0.7 }}>
+            <span>
+              <span className="num">~</span>
+              <span className="name">Pending · in progress or settling at counter</span>
+            </span>
+            <span className="right">{pending.length}</span>
+          </div>
+          <div style={{ background: "rgba(26,26,26,0.025)", padding: "4px 14px", marginBottom: 22 }}>
+            {(showAllPending ? pending : pending.slice(0, 3)).map(item => renderRow(item, false))}
+            {pending.length > 3 && (
+              <button className="btn-sm ghost" style={{ marginTop: 8, marginBottom: 6 }} onClick={() => setShowAllPending(!showAllPending)}>
+                {showAllPending ? "Show less" : "Show all " + pending.length + " pending"}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
+      {overdue.length === 0 && pending.length === 0 && (
+        <div className="empty-mini" style={{ padding: 16, marginBottom: 18, textAlign: "center" }}>
+          ✓ Everything is settled · no outstanding receivables
+        </div>
+      )}
+    </>
+  );
+}
+
+function SplitBar({ segments }) {
+  const total = segments.reduce((s, x) => s + x.value, 0);
+  if (total === 0) {
+    return <div className="empty-mini" style={{ padding: 16 }}>No revenue yet</div>;
+  }
+  return (
+    <div>
+      <div style={{ display: "flex", height: 36, borderRadius: 3, overflow: "hidden", border: "1.5px solid var(--ink)" }}>
+        {segments.map((s, i) => {
+          const pct = total > 0 ? (s.value / total) * 100 : 0;
+          if (pct < 0.5) return null;
+          return (
+            <div key={i} style={{
+              flex: pct, background: s.color, color: pct > 8 ? "var(--cream)" : "transparent",
+              fontFamily: "var(--mono)", fontSize: 11, fontWeight: 700,
+              display: "flex", alignItems: "center", justifyContent: "center"
+            }} title={s.label + ": $" + s.value.toFixed(2) + " (" + pct.toFixed(1) + "%)">
+              {pct >= 8 ? Math.round(pct) + "%" : ""}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 12 }}>
+        {segments.map((s, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.06em" }}>
+            <span style={{ width: 12, height: 12, background: s.color, borderRadius: 2, border: "1px solid var(--ink)" }} />
+            <span>{s.label} · ${s.value.toFixed(2)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+/* ====================================================================
    SMS LOG
    ==================================================================== */
 
@@ -8569,6 +9121,7 @@ function App() {
     { id: "members",   label: "Members",   ready: true },
     { id: "coaching",  label: "Coaching",  ready: true },
     { id: "customers", label: "Customers", ready: true },
+    { id: "finances",  label: "Finances",  ready: true },
     { id: "sms",       label: "SMS Log",   ready: true },
     { id: "settings",  label: "Settings",  ready: true }
   ];
@@ -8588,6 +9141,7 @@ function App() {
     case "settings":  body = <ScreenSettings />; break;
     case "pos":       body = <ScreenPOS />; break;
     case "customers": body = <ScreenCustomers />; break;
+    case "finances":  body = <ScreenFinances />; break;
     case "sms":       body = <ScreenSmsLog />; break;
     default:          body = <ScreenDashboard />;
   }
