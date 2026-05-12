@@ -3769,6 +3769,8 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
 function ScreenDashboard() {
   const [data, setData] = useState(null);
   const [bookings, setBookings] = useState(null);
+  const [kpiData, setKpiData] = useState(null);
+  const [opKpiData, setOpKpiData] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [clock, setClock] = useState(fmtClock());
 
@@ -3797,12 +3799,16 @@ function ScreenDashboard() {
 
   async function refresh() {
     const today = todayISO();
-    const [d, b] = await Promise.all([
+    const [d, b, k, ok] = await Promise.all([
       api("adminDashboard"),
-      api("adminListTimelineEntries", { date: today })
+      api("adminListTimelineEntries", { date: today }),
+      api("adminDashboardKpi"),
+      api("adminOperationalKpi")
     ]);
     if (d.ok) setData(d);
     if (b.ok) setBookings(b.entries || []);
+    if (k.ok) setKpiData(k);
+    if (ok.ok) setOpKpiData(ok);
     setLastUpdated(new Date());
   }
 
@@ -3900,6 +3906,16 @@ function ScreenDashboard() {
         <Timeline bookings={bookings} dateStr={today} onBlockClick={handleBlockClick} />
       )}
 
+      {/* Monthly KPI Goals (only shown when at least one goal is set in Settings) */}
+      {kpiData && kpiData.anyGoalSet && (
+        <KpiGoalsPanel kpiData={kpiData} />
+      )}
+
+      {/* Operational diagnostics — court utilization, active members, self-service % */}
+      {opKpiData && (
+        <OperationalKpiPanel data={opKpiData} />
+      )}
+
       {/* Action Queue + Today's Pulse */}
       <div className="two-col">
         <ActionQueuePanel data={data} onMarkPaid={refresh} />
@@ -3930,6 +3946,282 @@ function ScreenDashboard() {
     </div>
   );
 }
+
+/* ====================================================================
+   KPI GOALS PANEL — monthly targets with progress bars
+   ==================================================================== */
+function KpiGoalsPanel({ kpiData }) {
+  const kpis = kpiData.kpis || {};
+  const items = [
+    { key: "monthlyRevenue", label: "Monthly Revenue", unit: "$", data: kpis.monthlyRevenue, color: "var(--green)" },
+    { key: "monthlyBookings", label: "Paid Bookings", unit: "", data: kpis.monthlyBookings, color: "var(--ink)" },
+    { key: "monthlyNewMembers", label: "New Members", unit: "", data: kpis.monthlyNewMembers, color: "var(--wood)" },
+    { key: "monthlyPosRevenue", label: "POS Revenue", unit: "$", data: kpis.monthlyPosRevenue, color: "var(--peach,#D9785C)" }
+  ].filter(x => x.data !== null);
+
+  const paceColor = {
+    "achieved": "var(--green)",
+    "ahead": "var(--green)",
+    "on-track": "var(--wood)",
+    "behind": "var(--clay)"
+  };
+  const paceLabel = {
+    "achieved": "✓ ACHIEVED",
+    "ahead": "AHEAD",
+    "on-track": "ON TRACK",
+    "behind": "BEHIND"
+  };
+
+  function formatVal(unit, n) {
+    if (unit === "$") return "$" + n.toFixed(2);
+    return n.toString();
+  }
+
+  return (
+    <div className="settings-card" style={{ marginBottom: 18, padding: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
+        <h3 style={{ margin: 0 }}>Monthly Goals · {kpiData.monthStr}</h3>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.14em", opacity: 0.55, textTransform: "uppercase" }}>
+          Day {kpiData.daysElapsed} of {kpiData.daysInMonth} · {kpiData.daysRemaining} days left
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(" + items.length + ", 1fr)", gap: 14 }}>
+        {items.map(item => {
+          const d = item.data;
+          const cappedPct = Math.min(100, d.pct);
+          const pColor = paceColor[d.pace] || "var(--ink)";
+          return (
+            <div key={item.key} style={{
+              padding: 14,
+              border: "1.5px solid var(--ink)",
+              borderRadius: 4,
+              background: "var(--paper)"
+            }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.16em", opacity: 0.55, textTransform: "uppercase", marginBottom: 4 }}>
+                {item.label}
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 6 }}>
+                <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 26, fontWeight: 700 }}>
+                  {formatVal(item.unit, d.actual)}
+                </div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55 }}>
+                  / {formatVal(item.unit, d.target)}
+                </div>
+              </div>
+
+              {/* Progress bar */}
+              <div style={{
+                position: "relative",
+                height: 6,
+                background: "rgba(26,26,26,0.08)",
+                borderRadius: 3,
+                marginBottom: 8,
+                overflow: "hidden"
+              }}>
+                <div style={{
+                  position: "absolute",
+                  left: 0, top: 0, bottom: 0,
+                  width: cappedPct + "%",
+                  background: item.color,
+                  borderRadius: 3,
+                  transition: "width 0.4s ease"
+                }} />
+                {/* Pace marker (expected position based on days elapsed) */}
+                {d.pace !== "achieved" && (
+                  <div style={{
+                    position: "absolute",
+                    left: ((kpiData.daysElapsed / kpiData.daysInMonth) * 100) + "%",
+                    top: -2, bottom: -2,
+                    width: 2,
+                    background: "rgba(26,26,26,0.4)"
+                  }} title="Expected pace" />
+                )}
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{
+                  fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.14em", fontWeight: 700,
+                  color: pColor, textTransform: "uppercase"
+                }}>
+                  {paceLabel[d.pace] || d.pace} · {d.pct}%
+                </div>
+                {d.pace !== "achieved" && (
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.55 }}>
+                    pace: {formatVal(item.unit, d.expectedNow)}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
+/* ====================================================================
+   OPERATIONAL KPI PANEL — court utilization, active members, self-service %
+   Informational only (no targets), but shown prominently on dashboard.
+   ==================================================================== */
+function OperationalKpiPanel({ data }) {
+  const u = data.utilization || {};
+  const am = data.activeMembers || {};
+  const ss = data.selfService || {};
+
+  // When a target is set, pace from backend dictates color.
+  // When no target, fall back to absolute-value coloring (>=60% green, >=30% wood, else clay).
+  const PACE_COLOR = {
+    "achieved": "var(--green)",
+    "on-track": "var(--wood)",
+    "behind": "var(--clay)"
+  };
+  const PACE_LABEL = {
+    "achieved": "✓ ACHIEVED",
+    "on-track": "ON TRACK",
+    "behind": "BEHIND"
+  };
+  function fallbackColor(pct) {
+    if (pct >= 60) return "var(--green)";
+    if (pct >= 30) return "var(--wood)";
+    return "var(--clay)";
+  }
+  function colorFor(pace, pct) {
+    return pace ? (PACE_COLOR[pace] || "var(--ink)") : fallbackColor(pct);
+  }
+
+  const items = [
+    {
+      label: "Peak Utilization",
+      sub: "weekday 17:00+ & weekends",
+      pct: u.peak ? u.peak.pct : 0,
+      target: u.peak ? u.peak.target : 0,
+      pace: u.peak ? u.peak.pace : null,
+      isPercentage: true,
+      denom: u.peak ? Math.round(u.peak.usedHours) + " / " + u.peak.capacityHours + " court-hrs" : ""
+    },
+    {
+      label: "Off-Peak Utilization",
+      sub: "weekday 06:00–17:00",
+      pct: u.offPeak ? u.offPeak.pct : 0,
+      target: u.offPeak ? u.offPeak.target : 0,
+      pace: u.offPeak ? u.offPeak.pace : null,
+      isPercentage: true,
+      denom: u.offPeak ? Math.round(u.offPeak.usedHours) + " / " + u.offPeak.capacityHours + " court-hrs" : ""
+    },
+    {
+      label: "Active Members",
+      sub: "played in last 30 days",
+      pct: am.target > 0
+        ? Math.min(100, Math.round((am.recent30d / am.target) * 100))
+        : (am.totalActive > 0 ? am.pct : 0),
+      target: am.target || 0,
+      pace: am.pace,
+      isPercentage: false,
+      actualValue: am.recent30d,
+      denom: am.target > 0
+        ? am.recent30d + " / " + am.target + " target · " + am.totalActive + " in system"
+        : am.totalActive + " total · " + am.pct + "% of system"
+    },
+    {
+      label: "Self-Service Bookings",
+      sub: "this month — Web vs admin-entered",
+      pct: ss.pct,
+      target: 0,
+      pace: null,
+      isPercentage: true,
+      denom: ss.selfServiceCount + " / " + ss.totalCount
+    }
+  ];
+
+  return (
+    <div className="settings-card" style={{ marginBottom: 18, padding: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
+        <h3 style={{ margin: 0 }}>Operational Health · {data.monthStr}</h3>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.14em", opacity: 0.55, textTransform: "uppercase" }}>
+          From Operational Plan targets
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+        {items.map((item, idx) => {
+          const color = colorFor(item.pace, item.pct);
+          const barFillPct = Math.min(100, item.pct);
+          // Position of target marker as % of bar width (capped at 100)
+          const targetMarkerPct = item.target > 0 && item.isPercentage
+            ? Math.min(100, item.target)
+            : null;
+          return (
+            <div key={idx} style={{
+              padding: 14,
+              border: "1.5px solid var(--ink)",
+              borderRadius: 4,
+              background: "var(--paper)"
+            }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.16em", opacity: 0.55, textTransform: "uppercase", marginBottom: 2 }}>
+                {item.label}
+              </div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.45, marginBottom: 8 }}>
+                {item.sub}
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 6 }}>
+                <div style={{
+                  fontFamily: "var(--serif)", fontStyle: "italic",
+                  fontSize: 28, fontWeight: 700, color: color
+                }}>
+                  {item.isPercentage ? item.pct + "%" : (item.actualValue !== undefined ? item.actualValue : item.pct + "%")}
+                </div>
+                {item.target > 0 && (
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55 }}>
+                    / {item.isPercentage ? item.target + "%" : item.target}
+                  </div>
+                )}
+              </div>
+              {/* Progress bar */}
+              <div style={{
+                position: "relative", height: 6,
+                background: "rgba(26,26,26,0.08)",
+                borderRadius: 3, marginBottom: 6, overflow: "hidden"
+              }}>
+                <div style={{
+                  position: "absolute", left: 0, top: 0, bottom: 0,
+                  width: barFillPct + "%",
+                  background: color,
+                  borderRadius: 3,
+                  transition: "width 0.4s ease"
+                }} />
+                {/* Target marker line */}
+                {targetMarkerPct !== null && (
+                  <div style={{
+                    position: "absolute",
+                    left: targetMarkerPct + "%",
+                    top: -2, bottom: -2, width: 2,
+                    background: "rgba(26,26,26,0.5)"
+                  }} title={"Target: " + item.target + "%"} />
+                )}
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.55 }}>
+                  {item.denom}
+                </div>
+                {item.pace && (
+                  <div style={{
+                    fontFamily: "var(--mono)", fontSize: 9, fontWeight: 700,
+                    letterSpacing: "0.14em", color: color
+                  }}>
+                    {PACE_LABEL[item.pace]}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 
 /* ====================================================================
    ACTION QUEUE PANEL
@@ -4418,7 +4710,12 @@ function ScreenBookings() {
                     ★ Coaching sessions · {dayCoaching.length}
                   </div>
                   {dayCoaching.map(s => (
-                    <div key={s.bookingId} className="booking-row" style={{ borderLeft: "5px solid var(--wood)", background: "rgba(168,116,74,0.04)" }}>
+                    <div
+                      key={s.bookingId}
+                      className="booking-row"
+                      style={{ borderLeft: "5px solid var(--wood)", background: "rgba(168,116,74,0.04)", cursor: "pointer" }}
+                      onClick={() => handleBlockClick(s)}
+                    >
                       <div className="when">{s.time}<span className="endtime">→ {s.timeEnd}</span></div>
                       <div className="who">
                         <div className="name">
@@ -7300,6 +7597,7 @@ function ScreenPOS() {
   const [showAttachPicker, setShowAttachPicker] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showOpenTabs, setShowOpenTabs] = useState(false);
+  const [showQuickNewTab, setShowQuickNewTab] = useState(false);
   const [openTabCount, setOpenTabCount] = useState(0);
   const [activeTabId, setActiveTabId] = useState(null);  // tab currently open in detail modal
 
@@ -7556,6 +7854,7 @@ function ScreenPOS() {
               }}>{openTabCount}</span>
             )}
           </button>
+          <button className="btn" onClick={() => setShowQuickNewTab(true)}>+ New Tab</button>
           <button className="btn" onClick={() => setShowHistory(true)}>Sale history</button>
           <button className="btn" onClick={() => setShowStockMgmt(true)}>Manage stock</button>
           <button className="btn primary" onClick={() => { setEditProduct(null); setShowProductModal(true); }}>+ Product</button>
@@ -7829,6 +8128,17 @@ function ScreenPOS() {
         />
       )}
 
+      {showQuickNewTab && (
+        <NewTabModal
+          onClose={() => setShowQuickNewTab(false)}
+          onCreated={(tabId) => {
+            setShowQuickNewTab(false);
+            loadTabCount();
+            setActiveTabId(tabId);  // jump straight to detail view
+          }}
+        />
+      )}
+
       {activeTabId && (
         <TabDetailModal
           tabId={activeTabId}
@@ -7972,7 +8282,11 @@ function NewTabModal({ onClose, onCreated }) {
     });
     setWorking(false);
     if (r.ok) {
-      showToast("Tab opened: " + r.tabId, "success");
+      if (r.duplicatePhoneTabId) {
+        showToast("Tab opened: " + r.tabId + " · ⚠ same phone is on " + r.duplicatePhoneTabId, "success");
+      } else {
+        showToast("Tab opened: " + r.tabId, "success");
+      }
       onCreated(r.tabId);
     } else {
       showToast(r.error || "Failed to open tab", "error");
@@ -9646,40 +9960,62 @@ function CustomerHistoryModal({ customer, onClose }) {
 
 function ScreenFinances() {
   const now = new Date();
+  const [granularity, setGranularity] = useState("monthly");  // "daily" | "weekly" | "monthly"
+  const [periodOffset, setPeriodOffset] = useState(0);  // 0 = current, -1 = previous, etc
+
+  // For monthly: also track explicit year/month so we have full month name
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [data, setData] = useState(null);
+
+  const [data, setData] = useState(null);  // full monthly report when granularity === monthly
+  const [rangeData, setRangeData] = useState(null);  // daily/weekly report
   const [loading, setLoading] = useState(true);
 
   async function load() {
     setLoading(true);
-    const r = await api("adminFinancesMonth", { year: year, month: month });
-    if (r.ok) setData(r);
+    if (granularity === "monthly") {
+      // Use the full monthly endpoint (top customers, products, splits, outstanding)
+      // Map offset back to year/month for the call
+      const ref = new Date();
+      ref.setMonth(ref.getMonth() + periodOffset);
+      const y = ref.getFullYear();
+      const m = ref.getMonth() + 1;
+      setYear(y); setMonth(m);
+      const r = await api("adminFinancesMonth", { year: y, month: m });
+      if (r.ok) { setData(r); setRangeData(null); }
+    } else {
+      // Use the leaner range endpoint
+      const r = await api("adminFinancesRange", { granularity: granularity, periodOffset: periodOffset });
+      if (r.ok) { setRangeData(r); setData(null); }
+    }
     setLoading(false);
   }
-  useEffect(() => { load(); }, [year, month]);
+  useEffect(() => { load(); }, [granularity, periodOffset]);
 
-  // Month navigation
-  function prevMonth() {
-    let m = month - 1, y = year;
-    if (m < 1) { m = 12; y = year - 1; }
-    setMonth(m); setYear(y);
+  function changeGranularity(g) {
+    setPeriodOffset(0);  // reset to current period when switching granularity
+    setGranularity(g);
   }
-  function nextMonth() {
-    let m = month + 1, y = year;
-    if (m > 12) { m = 1; y = year + 1; }
-    // Don't go beyond current month
-    const limit = new Date();
-    if (y > limit.getFullYear() || (y === limit.getFullYear() && m > limit.getMonth() + 1)) return;
-    setMonth(m); setYear(y);
+
+  function prevPeriod() { setPeriodOffset(periodOffset - 1); }
+  function nextPeriod() {
+    if (periodOffset >= 0) return;  // can't go to future
+    setPeriodOffset(periodOffset + 1);
   }
-  function thisMonth() {
-    setMonth(now.getMonth() + 1); setYear(now.getFullYear());
-  }
+  function currentPeriod() { setPeriodOffset(0); }
 
   const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-  const isCurrent = data && data.isCurrentMonth;
-  const atCurrent = (year === now.getFullYear() && month === now.getMonth() + 1);
+  const isCurrent = periodOffset === 0;
+
+  // Compute display label for the period
+  let periodLabel;
+  if (granularity === "monthly") {
+    periodLabel = MONTH_NAMES[month - 1] + " " + year;
+  } else if (rangeData) {
+    periodLabel = rangeData.label;
+  } else {
+    periodLabel = "—";
+  }
 
   return (
     <div className="main">
@@ -9689,12 +10025,35 @@ function ScreenFinances() {
           <h1>Finances</h1>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button className="date-pill" onClick={prevMonth}>← Prev</button>
+          {/* Granularity toggle */}
+          <div style={{ display: "flex", border: "1.5px solid var(--ink)", borderRadius: 999, overflow: "hidden", marginRight: 8 }}>
+            {["daily", "weekly", "monthly"].map(g => (
+              <button
+                key={g}
+                onClick={() => changeGranularity(g)}
+                style={{
+                  padding: "8px 14px",
+                  background: granularity === g ? "var(--ink)" : "transparent",
+                  color: granularity === g ? "var(--cream)" : "var(--ink)",
+                  border: "none",
+                  fontFamily: "var(--mono)",
+                  fontSize: 10,
+                  letterSpacing: "0.18em",
+                  textTransform: "uppercase",
+                  fontWeight: 700,
+                  cursor: "pointer"
+                }}
+              >
+                {g.charAt(0).toUpperCase() + g.slice(1)}
+              </button>
+            ))}
+          </div>
+          <button className="date-pill" onClick={prevPeriod}>← Prev</button>
           <div style={{
-            fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 22, fontWeight: 400,
-            padding: "0 14px"
+            fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 20, fontWeight: 400,
+            padding: "0 14px", minWidth: 160, textAlign: "center"
           }}>
-            {MONTH_NAMES[month - 1]} {year}
+            {periodLabel}
             {isCurrent && (
               <span style={{
                 marginLeft: 10, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.18em",
@@ -9702,35 +10061,38 @@ function ScreenFinances() {
               }}>· CURRENT</span>
             )}
           </div>
-          <button className="date-pill" onClick={nextMonth} disabled={atCurrent}
-            style={{ opacity: atCurrent ? 0.4 : 1, cursor: atCurrent ? "not-allowed" : "pointer" }}>
+          <button className="date-pill" onClick={nextPeriod} disabled={isCurrent}
+            style={{ opacity: isCurrent ? 0.4 : 1, cursor: isCurrent ? "not-allowed" : "pointer" }}>
             Next →
           </button>
-          {!atCurrent && <button className="date-pill" onClick={thisMonth}>This Month</button>}
+          {!isCurrent && <button className="date-pill" onClick={currentPeriod}>This {granularity === "daily" ? "Day" : granularity === "weekly" ? "Week" : "Month"}</button>}
         </div>
       </div>
 
-      {loading && !data ? (
+      {loading && !data && !rangeData ? (
         <div style={{ padding: 60, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
-      ) : !data ? (
-        <div className="empty">Failed to load</div>
-      ) : (
+      ) : data ? (
         <FinancesView data={data} onChanged={load} />
+      ) : rangeData ? (
+        <FinancesRangeView data={rangeData} granularity={granularity} />
+      ) : (
+        <div className="empty">Failed to load</div>
       )}
     </div>
   );
 }
 
-function FinancesView({ data, onChanged }) {
+/* Lean view for daily/weekly granularity — just headline + chart + summary */
+function FinancesRangeView({ data, granularity }) {
   const h = data.headline;
-  const splits = data.splits;
   const total = h.totalRevenue || 0;
   const pct = (n) => total > 0 ? Math.round((n / total) * 100) : 0;
+  const series = data.series || [];
+  const maxVal = Math.max(1, ...series.map(s => s.total));
 
   return (
     <>
-      {/* Headline stat cards */}
-      <div className="stat-grid" style={{ gridTemplateColumns: "1.4fr 1fr 1fr 1fr 1fr", marginBottom: 18 }}>
+      <div className="stat-grid" style={{ gridTemplateColumns: "1.4fr 1fr 1fr 1fr 1fr 1fr", marginBottom: 18 }}>
         <div className="stat-card accent-green" style={{ background: "var(--green)", color: "var(--cream)" }}>
           <div className="label" style={{ color: "var(--cream)", opacity: 0.7 }}>Total revenue</div>
           <div className="value" style={{ color: "var(--cream)", fontSize: 44 }}>${h.totalRevenue.toFixed(2)}</div>
@@ -9757,6 +10119,114 @@ function FinancesView({ data, onChanged }) {
           <div className="label">POS</div>
           <div className="value">${h.posRev.toFixed(0)}</div>
           <div className="sub">{pct(h.posRev)}% · {data.summary.posTransactions} txns</div>
+        </div>
+        <div className="stat-card" style={{ borderColor: "var(--clay)" }}>
+          <div className="label">⬛ Sponsorships</div>
+          <div className="value" style={{ color: "var(--clay)" }}>${(h.sponsorshipRev || 0).toFixed(0)}</div>
+          <div className="sub">
+            {pct(h.sponsorshipRev || 0)}%
+            {(h.sponsorshipMonthly || h.sponsorshipOneOff) ? " · " + (h.sponsorshipMonthly ? "MRR $" + h.sponsorshipMonthly.toFixed(0) : "") + (h.sponsorshipMonthly && h.sponsorshipOneOff ? " + " : "") + (h.sponsorshipOneOff ? "one-off $" + h.sponsorshipOneOff.toFixed(0) : "") : ""}
+          </div>
+        </div>
+      </div>
+
+      {/* Mini chart — bars per bucket */}
+      {series.length > 0 && (
+        <div className="settings-card" style={{ padding: 20 }}>
+          <h3 style={{ marginBottom: 14 }}>
+            {granularity === "daily" ? "Hourly will surface in a future release" : granularity === "weekly" ? "Daily breakdown" : "Daily breakdown"}
+          </h3>
+          {granularity === "daily" ? (
+            // Daily granularity = one day, so just show the breakdown numerically
+            <div style={{ fontFamily: "var(--mono)", fontSize: 12, opacity: 0.75 }}>
+              {series[0]?.total > 0
+                ? <div>For {data.label}: court ${series[0].court.toFixed(2)} · walk-in ${series[0].walkin.toFixed(2)} · coaching ${series[0].coaching.toFixed(2)} · POS ${series[0].pos.toFixed(2)}</div>
+                : <div>No revenue recorded for {data.label}.</div>}
+            </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 200, padding: "0 6px" }}>
+              {series.map(s => {
+                const h = Math.max(2, (s.total / maxVal) * 180);
+                return (
+                  <div key={s.bucket} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                    <div style={{
+                      width: "100%", maxWidth: 40,
+                      height: h + "px",
+                      background: s.total > 0 ? "var(--green)" : "rgba(26,26,26,0.1)",
+                      borderRadius: 2,
+                      position: "relative"
+                    }}
+                    title={s.bucket + ": $" + s.total.toFixed(2)}
+                    >
+                      {s.total > 0 && (
+                        <div style={{ position: "absolute", top: -16, left: "50%", transform: "translateX(-50%)", fontFamily: "var(--mono)", fontSize: 9, opacity: 0.7, whiteSpace: "nowrap" }}>
+                          ${s.total.toFixed(0)}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.04em", opacity: 0.6 }}>{s.label}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="settings-card" style={{ padding: 20, opacity: 0.7, marginTop: 14 }}>
+        <h3>Want more detail?</h3>
+        <div className="desc">
+          Switch to <b>Monthly</b> view for top customers, top products, peak vs off-peak breakdown, member vs non-member splits, and outstanding receivables.
+        </div>
+      </div>
+    </>
+  );
+}
+
+function FinancesView({ data, onChanged }) {
+  const h = data.headline;
+  const splits = data.splits;
+  const total = h.totalRevenue || 0;
+  const pct = (n) => total > 0 ? Math.round((n / total) * 100) : 0;
+
+  return (
+    <>
+      {/* Headline stat cards */}
+      <div className="stat-grid" style={{ gridTemplateColumns: "1.4fr 1fr 1fr 1fr 1fr 1fr", marginBottom: 18 }}>
+        <div className="stat-card accent-green" style={{ background: "var(--green)", color: "var(--cream)" }}>
+          <div className="label" style={{ color: "var(--cream)", opacity: 0.7 }}>Total revenue</div>
+          <div className="value" style={{ color: "var(--cream)", fontSize: 44 }}>${h.totalRevenue.toFixed(2)}</div>
+          <div className="sub" style={{ color: "var(--cream)", opacity: 0.7 }}>
+            {data.summary.paidBookings + data.summary.paidWalkInPlayers + data.summary.paidCoachingSessions + data.summary.posTransactions} paid transactions
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="label">Court rental</div>
+          <div className="value">${h.courtRev.toFixed(0)}</div>
+          <div className="sub">{pct(h.courtRev)}% · {data.summary.paidBookings} paid bookings</div>
+        </div>
+        <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}>
+          <div className="label">◉ Walk-in</div>
+          <div className="value" style={{ color: "var(--peach,#D9785C)" }}>${h.walkinRev.toFixed(0)}</div>
+          <div className="sub">{pct(h.walkinRev)}% · {data.summary.paidWalkInPlayers} players</div>
+        </div>
+        <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
+          <div className="label">★ Coaching</div>
+          <div className="value" style={{ color: "var(--wood)" }}>${h.coachingRev.toFixed(0)}</div>
+          <div className="sub">{pct(h.coachingRev)}% · {data.summary.paidCoachingSessions} sessions</div>
+        </div>
+        <div className="stat-card">
+          <div className="label">POS</div>
+          <div className="value">${h.posRev.toFixed(0)}</div>
+          <div className="sub">{pct(h.posRev)}% · {data.summary.posTransactions} txns</div>
+        </div>
+        <div className="stat-card" style={{ borderColor: "var(--clay)" }}>
+          <div className="label">⬛ Sponsorships</div>
+          <div className="value" style={{ color: "var(--clay)" }}>${(h.sponsorshipRev || 0).toFixed(0)}</div>
+          <div className="sub">
+            {pct(h.sponsorshipRev || 0)}%
+            {(h.sponsorshipMonthly || h.sponsorshipOneOff) ? " · " + (h.sponsorshipMonthly ? "MRR $" + h.sponsorshipMonthly.toFixed(0) : "") + (h.sponsorshipMonthly && h.sponsorshipOneOff ? " + " : "") + (h.sponsorshipOneOff ? "one-off $" + h.sponsorshipOneOff.toFixed(0) : "") : ""}
+          </div>
         </div>
       </div>
 
@@ -10083,6 +10553,355 @@ function SplitBar({ segments }) {
 
 
 /* ====================================================================
+   SPONSORSHIPS — banner sales inventory + revenue tracking
+   ==================================================================== */
+
+function ScreenSponsorships() {
+  const [data, setData] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [editBanner, setEditBanner] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  async function load() {
+    const r = await api("adminListSponsorships");
+    if (r.ok) setData(r);
+  }
+  useEffect(() => { load(); }, []);
+
+  if (!data) {
+    return (
+      <div className="main">
+        <div style={{ padding: 60, display: "flex", justifyContent: "center" }}>
+          <BouncingBall size="md" />
+        </div>
+      </div>
+    );
+  }
+
+  const inv = data.inventory;
+  const rev = data.revenue;
+  const filtered = (data.banners || []).filter(b => statusFilter === "all" || b.status === statusFilter);
+
+  function statusPill(status) {
+    const colors = {
+      active: { bg: "rgba(61,122,79,0.15)", color: "var(--green)" },
+      scheduled: { bg: "rgba(168,116,74,0.15)", color: "var(--wood)" },
+      expired: { bg: "rgba(26,26,26,0.08)", color: "var(--ink)" },
+      cancelled: { bg: "rgba(217,120,92,0.15)", color: "var(--clay)" }
+    };
+    const c = colors[status] || colors.expired;
+    return (
+      <span style={{
+        fontFamily: "var(--mono)", fontSize: 9, fontWeight: 700,
+        letterSpacing: "0.14em", padding: "2px 8px", borderRadius: 999,
+        textTransform: "uppercase", background: c.bg, color: c.color
+      }}>
+        {status}
+      </span>
+    );
+  }
+
+  return (
+    <div className="main">
+      <div className="main-head">
+        <div>
+          <div className="title">Banner inventory · sponsor revenue</div>
+          <h1>Sponsorships</h1>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button className="btn primary" onClick={() => setShowAdd(true)}>+ New Banner</button>
+        </div>
+      </div>
+
+      {/* Inventory summary */}
+      <div className="stat-grid" style={{ gridTemplateColumns: "1.2fr 1fr 1fr 1fr", marginBottom: 18 }}>
+        <div className="stat-card" style={{ background: "var(--ink)", color: "var(--cream)" }}>
+          <div className="label" style={{ color: "var(--cream)", opacity: 0.7 }}>Slot Usage</div>
+          <div className="value" style={{ color: "var(--cream)", fontSize: 40 }}>
+            {inv.slotsUsed}<span style={{ fontSize: 22, opacity: 0.55 }}> / {inv.totalSlots}</span>
+          </div>
+          <div className="sub" style={{ color: "var(--cream)", opacity: 0.7 }}>
+            {inv.utilizationPct}% sold · {inv.slotsAvailable} available
+          </div>
+        </div>
+        <div className="stat-card" style={{ borderColor: "var(--green)" }}>
+          <div className="label">Monthly recurring</div>
+          <div className="value" style={{ color: "var(--green)" }}>${rev.mrr.toFixed(0)}</div>
+          <div className="sub">MRR · active subscriptions</div>
+        </div>
+        <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
+          <div className="label">One-off this month</div>
+          <div className="value" style={{ color: "var(--wood)" }}>${rev.oneOffThisMonth.toFixed(0)}</div>
+          <div className="sub">Banners sold this month</div>
+        </div>
+        <div className="stat-card">
+          <div className="label">This month total</div>
+          <div className="value">${rev.thisMonthTotal.toFixed(0)}</div>
+          <div className="sub">MRR + one-off</div>
+        </div>
+      </div>
+
+      {/* Filter chips */}
+      <div className="filter-chips" style={{ marginBottom: 14 }}>
+        {["all", "active", "scheduled", "expired", "cancelled"].map(s => (
+          <button
+            key={s}
+            className={"filter-chip" + (statusFilter === s ? " on" : "")}
+            onClick={() => setStatusFilter(s)}
+            style={{ textTransform: "capitalize" }}
+          >
+            {s} {s !== "all" && "(" + (data.banners || []).filter(b => b.status === s).length + ")"}
+          </button>
+        ))}
+      </div>
+
+      {/* Banner list */}
+      {filtered.length === 0 ? (
+        <div className="empty">
+          {statusFilter === "all"
+            ? "No banners yet. Click \"+ New Banner\" to add your first sponsor."
+            : "No " + statusFilter + " banners."}
+        </div>
+      ) : (
+        <div className="settings-card" style={{ padding: 0 }}>
+          {filtered.map((b, idx) => (
+            <div
+              key={b.bannerId}
+              onClick={() => setEditBanner(b)}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1.5fr 1.2fr auto auto",
+                gap: 14,
+                padding: "14px 18px",
+                cursor: "pointer",
+                borderBottom: idx === filtered.length - 1 ? "none" : "1px solid rgba(26,26,26,0.08)",
+                alignItems: "center"
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = "rgba(61,122,79,0.04)"}
+              onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+            >
+              <div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.5, letterSpacing: "0.12em" }}>
+                  {b.bannerId}
+                </div>
+                <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 17, fontWeight: 600, marginTop: 3 }}>
+                  {b.location}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{b.sponsorName}</div>
+                {b.sponsorContact && (
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, marginTop: 3 }}>{b.sponsorContact}</div>
+                )}
+              </div>
+              <div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, letterSpacing: "0.1em", marginBottom: 3 }}>
+                  {b.saleType === "monthly" ? "MONTHLY SUB" : "ONE-OFF"}
+                </div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.7 }}>
+                  {b.startDate}{b.endDate ? " → " + b.endDate : ""}
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 22, fontWeight: 700 }}>
+                  ${b.price.toFixed(0)}
+                </div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.5 }}>
+                  {b.saleType === "monthly" ? "per month" : "total"}
+                </div>
+              </div>
+              <div>{statusPill(b.status)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showAdd && (
+        <SponsorshipModal
+          onClose={() => setShowAdd(false)}
+          onSaved={() => { setShowAdd(false); load(); }}
+        />
+      )}
+
+      {editBanner && (
+        <SponsorshipModal
+          banner={editBanner}
+          onClose={() => setEditBanner(null)}
+          onSaved={() => { setEditBanner(null); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function SponsorshipModal({ banner, onClose, onSaved }) {
+  const isNew = !banner;
+  const [form, setForm] = useState({
+    location: banner ? banner.location : "",
+    sponsorName: banner ? banner.sponsorName : "",
+    sponsorContact: banner ? banner.sponsorContact : "",
+    saleType: banner ? banner.saleType : "monthly",
+    price: banner ? banner.price : 0,
+    startDate: banner ? banner.startDate : todayISO(),
+    endDate: banner ? banner.endDate : "",
+    status: banner ? banner.rawStatus : "active",
+    notes: banner ? banner.notes : ""
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!form.location.trim()) return showToast("Location required", "error");
+    if (!form.sponsorName.trim()) return showToast("Sponsor name required", "error");
+    if (form.saleType === "one_off" && !form.endDate) return showToast("One-off banners need an End Date", "error");
+
+    setSaving(true);
+    const params = { ...form };
+    if (!isNew) params.bannerId = banner.bannerId;
+    const action = isNew ? "adminCreateSponsorship" : "adminUpdateSponsorship";
+    const r = await api(action, params);
+    setSaving(false);
+    if (r.ok) {
+      if (r.warning) showToast(r.warning, "error");
+      else showToast(isNew ? "Banner added" : "Saved", "success");
+      onSaved && onSaved();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  async function cancelBanner() {
+    if (!confirm("Cancel this banner? It will be marked cancelled but kept for records.")) return;
+    setSaving(true);
+    const r = await api("adminCancelSponsorship", { bannerId: banner.bannerId });
+    setSaving(false);
+    if (r.ok) {
+      showToast("Cancelled", "success");
+      onSaved && onSaved();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">{isNew ? "Add sponsor banner" : banner.bannerId}</div>
+            <h2>{isNew ? "New Banner" : banner.sponsorName}</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        <div className="field">
+          <div className="field-label">Location / Position</div>
+          <input
+            type="text"
+            value={form.location}
+            placeholder="e.g. Court 1 wall, Entrance, Above bar"
+            onChange={(e) => setForm({ ...form, location: e.target.value })}
+          />
+        </div>
+
+        <div className="field">
+          <div className="field-label">Sponsor name</div>
+          <input
+            type="text"
+            value={form.sponsorName}
+            placeholder="e.g. ABA Bank, Cellcard"
+            onChange={(e) => setForm({ ...form, sponsorName: e.target.value })}
+          />
+        </div>
+
+        <div className="field">
+          <div className="field-label">Sponsor contact (optional)</div>
+          <input
+            type="text"
+            value={form.sponsorContact}
+            placeholder="phone / email / Instagram"
+            onChange={(e) => setForm({ ...form, sponsorContact: e.target.value })}
+          />
+        </div>
+
+        <div className="field-row">
+          <div className="field">
+            <div className="field-label">Sale type</div>
+            <select value={form.saleType} onChange={(e) => setForm({ ...form, saleType: e.target.value })}>
+              <option value="monthly">Monthly subscription</option>
+              <option value="one_off">One-off payment</option>
+            </select>
+          </div>
+          <div className="field">
+            <div className="field-label">Price · USD</div>
+            <input
+              type="number"
+              min="0"
+              step="10"
+              value={form.price}
+              onChange={(e) => setForm({ ...form, price: parseFloat(e.target.value) || 0 })}
+            />
+          </div>
+        </div>
+
+        <div className="field-row">
+          <div className="field">
+            <div className="field-label">Start date</div>
+            <input
+              type="date"
+              value={form.startDate}
+              onChange={(e) => setForm({ ...form, startDate: e.target.value })}
+            />
+          </div>
+          <div className="field">
+            <div className="field-label">
+              End date {form.saleType === "monthly" ? "(optional)" : "(required)"}
+            </div>
+            <input
+              type="date"
+              value={form.endDate}
+              onChange={(e) => setForm({ ...form, endDate: e.target.value })}
+            />
+          </div>
+        </div>
+
+        {!isNew && (
+          <div className="field">
+            <div className="field-label">Status</div>
+            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+              <option value="active">Active</option>
+              <option value="expired">Expired</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+        )}
+
+        <div className="field">
+          <div className="field-label">Notes (optional)</div>
+          <textarea
+            value={form.notes}
+            onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            placeholder="Renewal date, contract reference, etc."
+          />
+        </div>
+
+        <div className="actions">
+          {!isNew && banner.status === "active" && (
+            <button className="btn ghost" onClick={cancelBanner} disabled={saving} style={{ color: "var(--clay)", marginRight: "auto" }}>
+              Cancel banner
+            </button>
+          )}
+          <button className="btn ghost" onClick={onClose} disabled={saving}>Close</button>
+          <button className="btn primary" onClick={save} disabled={saving}>
+            {saving ? "Saving…" : isNew ? "Add banner" : "Save changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/* ====================================================================
    SMS LOG
    ==================================================================== */
 
@@ -10191,6 +11010,13 @@ function ScreenSettings() {
   const [promo, setPromo] = useState({ active: false, pct: 50, label: "Soft launch −50%" });
   const [posSettings, setPosSettings] = useState({ memberDiscountPct: 10, memberDiscountDefault: 10 });
   const [savingPos, setSavingPos] = useState(false);
+  const [goals, setGoals] = useState({
+    monthlyRevenue: 0, monthlyBookings: 0, monthlyNewMembers: 0, monthlyPosRevenue: 0,
+    peakUtilizationPct: 0, offPeakUtilizationPct: 0, activeMembers: 0
+  });
+  const [savingGoals, setSavingGoals] = useState(false);
+  const [sponsorSettings, setSponsorSettings] = useState({ totalSlots: 12, totalSlotsDefault: 12 });
+  const [savingSponsor, setSavingSponsor] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -10207,6 +11033,15 @@ function ScreenSettings() {
       setPosSettings({
         memberDiscountPct: ps.memberDiscountPct,
         memberDiscountDefault: ps.memberDiscountDefault
+      });
+    }
+    const g = await api("adminGetGoals");
+    if (g.ok) setGoals(g.goals);
+    const sp = await api("adminGetSponsorshipSettings");
+    if (sp.ok) {
+      setSponsorSettings({
+        totalSlots: sp.totalSlots,
+        totalSlotsDefault: sp.totalSlotsDefault
       });
     }
     setLoading(false);
@@ -10262,6 +11097,38 @@ function ScreenSettings() {
         memberDiscountPct: r.memberDiscountPct,
         memberDiscountDefault: r.memberDiscountDefault
       });
+    } else {
+      showToast(r.error || "Save failed", "error");
+    }
+  }
+
+  async function saveGoals() {
+    setSavingGoals(true);
+    const r = await api("adminSetGoals", {
+      monthlyRevenue: goals.monthlyRevenue,
+      monthlyBookings: goals.monthlyBookings,
+      monthlyNewMembers: goals.monthlyNewMembers,
+      monthlyPosRevenue: goals.monthlyPosRevenue,
+      peakUtilizationPct: goals.peakUtilizationPct,
+      offPeakUtilizationPct: goals.offPeakUtilizationPct,
+      activeMembers: goals.activeMembers
+    });
+    setSavingGoals(false);
+    if (r.ok) {
+      showToast("Goals saved", "success");
+      setGoals(r.goals);
+    } else {
+      showToast(r.error || "Save failed", "error");
+    }
+  }
+
+  async function saveSponsorSettings() {
+    setSavingSponsor(true);
+    const r = await api("adminSetSponsorshipSettings", { totalSlots: sponsorSettings.totalSlots });
+    setSavingSponsor(false);
+    if (r.ok) {
+      showToast("Sponsorship settings saved", "success");
+      setSponsorSettings({ totalSlots: r.totalSlots, totalSlotsDefault: r.totalSlotsDefault });
     } else {
       showToast(r.error || "Save failed", "error");
     }
@@ -10393,6 +11260,146 @@ function ScreenSettings() {
         )}
       </div>
 
+      <div className="settings-card">
+        <h3>Monthly KPI Goals</h3>
+        <div className="desc">
+          Set monthly targets to track on the dashboard. Leave blank or set to <b>0</b> to disable a KPI.
+          Progress bars show pace vs. expected (days elapsed in month).
+          <br />
+          <span style={{ fontSize: 11, opacity: 0.7 }}>
+            Operational targets (utilization, active members) come from your Operational Plan.
+          </span>
+        </div>
+
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", fontWeight: 700, color: "var(--green)", marginTop: 12, marginBottom: 6 }}>
+          Financial
+        </div>
+
+        <div className="settings-row">
+          <div className="field-label">Revenue · $</div>
+          <input
+            type="number"
+            min="0"
+            step="100"
+            value={goals.monthlyRevenue}
+            onChange={(e) => setGoals({ ...goals, monthlyRevenue: parseFloat(e.target.value) || 0 })}
+            placeholder="e.g. 13750 (Y1 average ~$165k/12)"
+          />
+        </div>
+        <div className="settings-row">
+          <div className="field-label">Paid bookings · count</div>
+          <input
+            type="number"
+            min="0"
+            step="10"
+            value={goals.monthlyBookings}
+            onChange={(e) => setGoals({ ...goals, monthlyBookings: parseInt(e.target.value) || 0 })}
+            placeholder="e.g. 250"
+          />
+        </div>
+        <div className="settings-row">
+          <div className="field-label">New members · count</div>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            value={goals.monthlyNewMembers}
+            onChange={(e) => setGoals({ ...goals, monthlyNewMembers: parseInt(e.target.value) || 0 })}
+            placeholder="e.g. 1 (plan: 1 Standard/month)"
+          />
+        </div>
+        <div className="settings-row">
+          <div className="field-label">POS revenue · $</div>
+          <input
+            type="number"
+            min="0"
+            step="50"
+            value={goals.monthlyPosRevenue}
+            onChange={(e) => setGoals({ ...goals, monthlyPosRevenue: parseFloat(e.target.value) || 0 })}
+            placeholder="e.g. 1500"
+          />
+        </div>
+
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", fontWeight: 700, color: "var(--wood)", marginTop: 18, marginBottom: 6 }}>
+          Operational (from Operational Plan)
+        </div>
+
+        <div className="settings-row">
+          <div className="field-label">Peak utilization · %</div>
+          <input
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            value={goals.peakUtilizationPct}
+            onChange={(e) => setGoals({ ...goals, peakUtilizationPct: parseFloat(e.target.value) || 0 })}
+            placeholder="e.g. 37 (plan: ~37% stabilized)"
+          />
+        </div>
+        <div className="settings-row">
+          <div className="field-label">Off-peak utilization · %</div>
+          <input
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            value={goals.offPeakUtilizationPct}
+            onChange={(e) => setGoals({ ...goals, offPeakUtilizationPct: parseFloat(e.target.value) || 0 })}
+            placeholder="e.g. 23 (plan: ~23% stabilized)"
+          />
+        </div>
+        <div className="settings-row">
+          <div className="field-label">Active members · count</div>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            value={goals.activeMembers}
+            onChange={(e) => setGoals({ ...goals, activeMembers: parseInt(e.target.value) || 0 })}
+            placeholder="e.g. 23 (plan: M3 target) or 30 (Y1 end)"
+          />
+        </div>
+
+        <div className="settings-row" style={{ marginTop: 14 }}>
+          <div className="actions">
+            <button className="btn primary" onClick={saveGoals} disabled={savingGoals}>
+              {savingGoals ? "Saving…" : "Save goals"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-card">
+        <h3>Sponsorship · Total Banner Slots</h3>
+        <div className="desc">
+          How many banner slots are available at the facility? This is the denominator for
+          "Slot Usage" on the Sponsorships tab. Adjust as you add or remove physical signage locations.
+        </div>
+
+        <div className="settings-row">
+          <div className="field-label">Total slots</div>
+          <input
+            type="number"
+            min="0"
+            max="1000"
+            step="1"
+            value={sponsorSettings.totalSlots}
+            onChange={(e) => setSponsorSettings({ ...sponsorSettings, totalSlots: parseInt(e.target.value) || 0 })}
+          />
+          <span style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.12em", opacity: 0.55, marginLeft: 8 }}>
+            DEFAULT: {sponsorSettings.totalSlotsDefault}
+          </span>
+        </div>
+
+        <div className="settings-row">
+          <div className="actions">
+            <button className="btn primary" onClick={saveSponsorSettings} disabled={savingSponsor}>
+              {savingSponsor ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className="settings-card" style={{ opacity: 0.6 }}>
         <h3>More settings</h3>
         <div className="desc">Pricing rules, operating hours, grace period, and birthday window will appear here in a future release. For now, these are configured in the Pricing sheet and Script Properties.</div>
@@ -10479,6 +11486,7 @@ function App() {
     { id: "coaching",  label: "Coaching",  ready: true },
     { id: "customers", label: "Customers", ready: true },
     { id: "finances",  label: "Finances",  ready: true },
+    { id: "sponsorships", label: "Sponsorships", ready: true },
     { id: "sms",       label: "SMS Log",   ready: true },
     { id: "settings",  label: "Settings",  ready: true }
   ];
@@ -10499,6 +11507,7 @@ function App() {
     case "pos":       body = <ScreenPOS />; break;
     case "customers": body = <ScreenCustomers />; break;
     case "finances":  body = <ScreenFinances />; break;
+    case "sponsorships": body = <ScreenSponsorships />; break;
     case "sms":       body = <ScreenSmsLog />; break;
     default:          body = <ScreenDashboard />;
   }
