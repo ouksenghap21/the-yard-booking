@@ -7299,6 +7299,9 @@ function ScreenPOS() {
   const [confirmSale, setConfirmSale] = useState(null);
   const [showAttachPicker, setShowAttachPicker] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showOpenTabs, setShowOpenTabs] = useState(false);
+  const [openTabCount, setOpenTabCount] = useState(0);
+  const [activeTabId, setActiveTabId] = useState(null);  // tab currently open in detail modal
 
   async function loadProducts() {
     const r = await api("posListProducts");
@@ -7315,9 +7318,15 @@ function ScreenPOS() {
     }
   }
 
+  async function loadTabCount() {
+    const r = await api("tabListOpen");
+    if (r.ok) setOpenTabCount((r.tabs || []).length);
+  }
+
   useEffect(() => {
     loadProducts();
     loadTodayStats();
+    loadTabCount();
   }, []);
 
   // Categories present in products
@@ -7360,7 +7369,8 @@ function ScreenPOS() {
       }
       return [...prev, {
         sku: p.sku, name: p.name, category: p.category,
-        price: p.price, quantity: 1, stockLimit: p.stock
+        price: p.price, quantity: 1, stockLimit: p.stock,
+        memberEligible: p.memberEligible !== false
       }];
     });
   }
@@ -7385,13 +7395,47 @@ function ScreenPOS() {
 
   // Compute totals — INCLUDES attached bookings/walk-in players
   const cartSubtotal = useMemo(() => cart.reduce((s, x) => s + x.price * x.quantity, 0), [cart]);
+  // Eligible-only subtotal — drinks and other ineligible items excluded
+  const eligibleSubtotal = useMemo(() => cart.reduce((s, x) => x.memberEligible !== false ? s + x.price * x.quantity : s, 0), [cart]);
   const attachedSubtotal = useMemo(() => attached.reduce((s, x) => s + (x.price || 0), 0), [attached]);
   const subtotal = useMemo(() => cartSubtotal + attachedSubtotal, [cartSubtotal, attachedSubtotal]);
 
+  // Member discount: looked up from customer phone, only on ELIGIBLE products
+  const [memberTier, setMemberTier] = useState("");
+  const [memberDiscountPct, setMemberDiscountPct] = useState(10);  // fetched from POS settings
+
+  // Fetch the current member discount % once on mount
+  useEffect(() => {
+    api("adminGetPosSettings").then(r => {
+      if (r.ok && typeof r.memberDiscountPct === "number") {
+        setMemberDiscountPct(r.memberDiscountPct);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!customerPhone || customerPhone.length < 6) { setMemberTier(""); return; }
+    let cancelled = false;
+    api("adminGetMemberByPhone", { phone: customerPhone }).then(r => {
+      if (cancelled) return;
+      if (r.ok && r.member && r.member.status === "active" && !r.member.isExpired) {
+        setMemberTier(r.member.tier || "");
+      } else {
+        setMemberTier("");
+      }
+    });
+    return () => { cancelled = true; };
+  }, [customerPhone]);
+  const memberDiscountAmount = useMemo(() => {
+    return memberTier && eligibleSubtotal > 0 ? Math.round(eligibleSubtotal * memberDiscountPct) / 100 : 0;
+  }, [memberTier, eligibleSubtotal, memberDiscountPct]);
+
   const computedDiscountAmount = useMemo(() => {
-    if (discountPct > 0) return Math.round(subtotal * discountPct) / 100;
-    return Math.min(parseFloat(discountAmount) || 0, subtotal);
-  }, [subtotal, discountPct, discountAmount]);
+    const afterMember = subtotal - memberDiscountAmount;
+    if (discountPct > 0) return memberDiscountAmount + Math.round(afterMember * discountPct) / 100;
+    const staffAmt = Math.min(parseFloat(discountAmount) || 0, afterMember);
+    return memberDiscountAmount + staffAmt;
+  }, [subtotal, memberDiscountAmount, discountPct, discountAmount]);
   const total = useMemo(() => {
     return Math.round((subtotal - computedDiscountAmount) * 100) / 100;
   }, [subtotal, computedDiscountAmount]);
@@ -7501,6 +7545,17 @@ function ScreenPOS() {
           <div style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", opacity: 0.6 }}>
             Today: ${todayStats.revenue.toFixed(2)} · {todayStats.transactions} sales
           </div>
+          <button className="btn" onClick={() => setShowOpenTabs(true)} style={{ position: "relative" }}>
+            Open tabs
+            {openTabCount > 0 && (
+              <span style={{
+                marginLeft: 6,
+                background: "var(--clay)", color: "var(--cream)",
+                padding: "1px 6px", borderRadius: 8,
+                fontSize: 10, fontFamily: "var(--mono)", fontWeight: 700
+              }}>{openTabCount}</span>
+            )}
+          </button>
           <button className="btn" onClick={() => setShowHistory(true)}>Sale history</button>
           <button className="btn" onClick={() => setShowStockMgmt(true)}>Manage stock</button>
           <button className="btn primary" onClick={() => { setEditProduct(null); setShowProductModal(true); }}>+ Product</button>
@@ -7655,10 +7710,16 @@ function ScreenPOS() {
                   <span className="k">Subtotal</span>
                   <span className="v">${subtotal.toFixed(2)}</span>
                 </div>
-                {computedDiscountAmount > 0 && (
+                {memberDiscountAmount > 0 && (
+                  <div className="row" style={{ color: "var(--green)" }}>
+                    <span className="k">{memberTier} {memberDiscountPct}% (pro-shop)</span>
+                    <span className="v">−${memberDiscountAmount.toFixed(2)}</span>
+                  </div>
+                )}
+                {computedDiscountAmount > memberDiscountAmount && (
                   <div className="row" style={{ color: "var(--clay)" }}>
-                    <span className="k">Discount {discountPct > 0 && "(" + discountPct + "%)"}</span>
-                    <span className="v">−${computedDiscountAmount.toFixed(2)}</span>
+                    <span className="k">Staff discount {discountPct > 0 && "(" + discountPct + "%)"}</span>
+                    <span className="v">−${(computedDiscountAmount - memberDiscountAmount).toFixed(2)}</span>
                   </div>
                 )}
                 <div className="row total">
@@ -7759,9 +7820,850 @@ function ScreenPOS() {
       {showHistory && (
         <SaleHistoryModal onClose={() => setShowHistory(false)} />
       )}
+
+      {showOpenTabs && (
+        <OpenTabsModal
+          onClose={() => setShowOpenTabs(false)}
+          onSelect={(tabId) => { setShowOpenTabs(false); setActiveTabId(tabId); }}
+          onChanged={loadTabCount}
+        />
+      )}
+
+      {activeTabId && (
+        <TabDetailModal
+          tabId={activeTabId}
+          products={products}
+          onClose={() => { setActiveTabId(null); loadTabCount(); loadProducts(); loadTodayStats(); }}
+        />
+      )}
     </div>
   );
 }
+
+function OpenTabsModal({ onClose, onSelect, onChanged }) {
+  const [tabs, setTabs] = useState(null);
+  const [showNewTab, setShowNewTab] = useState(false);
+
+  async function load() {
+    const r = await api("tabListOpen");
+    if (r.ok) setTabs(r.tabs || []);
+  }
+  useEffect(() => { load(); }, []);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 720, maxHeight: "92vh" }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">Running customer tabs</div>
+            <h2>Open Tabs</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.14em", opacity: 0.6 }}>
+            {tabs === null ? "Loading…" : tabs.length + " open"}
+          </div>
+          <button className="btn primary" onClick={() => setShowNewTab(true)}>+ New Tab</button>
+        </div>
+
+        {tabs === null ? (
+          <div style={{ padding: 40, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
+        ) : tabs.length === 0 ? (
+          <div className="empty">No open tabs · click + New Tab to start one</div>
+        ) : (
+          <div>
+            {tabs.map(t => (
+              <div key={t.tabId}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr auto",
+                  gap: 10,
+                  padding: "14px 12px",
+                  border: t.isStale ? "1.5px solid var(--clay)" : "1.5px solid var(--ink)",
+                  borderRadius: 4,
+                  marginBottom: 10,
+                  cursor: "pointer",
+                  background: t.isStale ? "rgba(217,120,92,0.06)" : "var(--paper)",
+                  position: "relative"
+                }}
+                onClick={() => onSelect(t.tabId)}
+                onMouseEnter={(e) => e.currentTarget.style.background = t.isStale ? "rgba(217,120,92,0.12)" : "rgba(61,122,79,0.04)"}
+                onMouseLeave={(e) => e.currentTarget.style.background = t.isStale ? "rgba(217,120,92,0.06)" : "var(--paper)"}
+              >
+                {t.isStale && (
+                  <div style={{
+                    position: "absolute", top: 6, right: 8,
+                    fontFamily: "var(--mono)", fontSize: 9, fontWeight: 700,
+                    color: "var(--clay)", letterSpacing: "0.14em"
+                  }}>STALE · {t.ageHours}H</div>
+                )}
+                <div>
+                  <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 18 }}>
+                    {t.customerName || "(no name)"}
+                    {t.customerPhone && <span style={{ marginLeft: 8, fontFamily: "var(--mono)", fontSize: 11, opacity: 0.55, fontStyle: "normal" }}>{t.customerPhone}</span>}
+                  </div>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, letterSpacing: "0.08em", marginTop: 3 }}>
+                    {t.tabId} · opened {t.openedAt.substring(11, 16)}
+                    {!t.isStale && t.ageHours >= 1 && <span> · {t.ageHours}h ago</span>}
+                  </div>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.7, marginTop: 6 }}>
+                    {t.itemCount > 0 && <span>{t.itemCount} item{t.itemCount === 1 ? "" : "s"} ${t.itemTotal.toFixed(2)}</span>}
+                    {t.itemCount > 0 && (t.bookingCount > 0 || t.playerCount > 0) && " · "}
+                    {t.bookingCount > 0 && <span style={{ color: "var(--green)" }}>{t.bookingCount} booking{t.bookingCount === 1 ? "" : "s"} ${t.bookingTotal.toFixed(2)}</span>}
+                    {t.bookingCount > 0 && t.playerCount > 0 && " · "}
+                    {t.playerCount > 0 && <span style={{ color: "var(--peach,#D9785C)" }}>{t.playerCount} walk-in{t.playerCount === 1 ? "" : "s"} ${t.playerTotal.toFixed(2)}</span>}
+                    {t.itemCount === 0 && t.bookingCount === 0 && t.playerCount === 0 && (
+                      <span style={{ opacity: 0.5, fontStyle: "italic" }}>empty</span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 26, fontWeight: 700 }}>
+                    ${t.runningTotal.toFixed(2)}
+                  </div>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.14em", opacity: 0.5, textTransform: "uppercase" }}>
+                    running
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose}>Close</button>
+        </div>
+
+        {showNewTab && (
+          <NewTabModal
+            onClose={() => setShowNewTab(false)}
+            onCreated={(tabId) => {
+              setShowNewTab(false);
+              load();
+              onChanged && onChanged();
+              onSelect(tabId);  // jump straight to the new tab
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NewTabModal({ onClose, onCreated }) {
+  const [phone, setPhone] = useState("");
+  const [name, setName] = useState("");
+  const [notes, setNotes] = useState("");
+  const [working, setWorking] = useState(false);
+
+  async function submit() {
+    if (!phone.trim() && !name.trim()) {
+      showToast("Enter a name or phone for the tab", "error");
+      return;
+    }
+    setWorking(true);
+    const r = await api("tabOpen", {
+      customerPhone: phone.trim(),
+      customerName: name.trim(),
+      notes: notes.trim(),
+      openedBy: "Staff"
+    });
+    setWorking(false);
+    if (r.ok) {
+      showToast("Tab opened: " + r.tabId, "success");
+      onCreated(r.tabId);
+    } else {
+      showToast(r.error || "Failed to open tab", "error");
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 200 }}>
+      <div className="modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">For accumulating items + pay-at-end</div>
+            <h2>New Tab</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label className="field-label">Customer name</label>
+          <input
+            className="field-input"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Linda Nguyen / Walk-up at C·3 / etc."
+            autoFocus
+          />
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label className="field-label">Phone (optional but recommended)</label>
+          <input
+            className="field-input"
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="91234002"
+          />
+          <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", opacity: 0.55, marginTop: 4 }}>
+            Phone lets us apply member discounts and link this tab to customer history.
+          </div>
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <label className="field-label">Notes</label>
+          <input
+            className="field-input"
+            type="text"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="e.g. court 3 group, kids' birthday"
+          />
+        </div>
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn primary" onClick={submit} disabled={working}>
+            {working ? "Opening…" : "Open Tab"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TabDetailModal({ tabId, products, onClose }) {
+  const [data, setData] = useState(null);
+  const [working, setWorking] = useState(false);
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [showAttachBooking, setShowAttachBooking] = useState(false);
+  const [showClose, setShowClose] = useState(false);
+
+  async function load() {
+    const r = await api("tabGetDetail", { tabId: tabId });
+    if (r.ok) setData(r);
+    else { showToast(r.error || "Failed", "error"); onClose(); }
+  }
+  useEffect(() => { load(); }, [tabId]);
+
+  async function removeItem(itemId) {
+    if (!confirm("Remove this item from the tab?")) return;
+    setWorking(true);
+    const r = await api("tabRemoveItem", { tabId: tabId, itemId: itemId });
+    setWorking(false);
+    if (r.ok) load();
+    else showToast(r.error || "Failed", "error");
+  }
+
+  async function detachBooking(bookingId) {
+    if (!confirm("Detach this booking from the tab? It will go back to Pending (needs separate payment).")) return;
+    setWorking(true);
+    const r = await api("tabDetachBooking", { bookingId: bookingId });
+    setWorking(false);
+    if (r.ok) load();
+    else showToast(r.error || "Failed", "error");
+  }
+
+  async function detachPlayer(playerId) {
+    if (!confirm("Detach this walk-in player from the tab?")) return;
+    setWorking(true);
+    const r = await api("tabDetachWalkInPlayer", { playerId: playerId });
+    setWorking(false);
+    if (r.ok) load();
+    else showToast(r.error || "Failed", "error");
+  }
+
+  async function cancelTab() {
+    if (!confirm("Cancel this tab? Items will be discarded. Attached bookings/walk-ins will revert to Pending (need separate payment).")) return;
+    setWorking(true);
+    const r = await api("tabCancel", { tabId: tabId });
+    setWorking(false);
+    if (r.ok) {
+      showToast("Tab cancelled", "success");
+      onClose();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  if (data === null) {
+    return (
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal" style={{ maxWidth: 720 }} onClick={(e) => e.stopPropagation()}>
+          <div style={{ padding: 60, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
+        </div>
+      </div>
+    );
+  }
+
+  const tab = data.tab;
+  const isOpen = tab.status === "Open";
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 760, maxHeight: "92vh" }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">
+              {tab.tabId} · opened {tab.openedAt.substring(11, 16)} by {tab.openedBy}
+              {tab.status !== "Open" && <span style={{ marginLeft: 8, color: "var(--clay)" }}>· {tab.status.toUpperCase()}</span>}
+            </div>
+            <h2>{tab.customerName || "(no name)"} <span style={{ fontSize: 13, fontFamily: "var(--mono)", opacity: 0.5, fontStyle: "normal" }}>{tab.customerPhone}</span></h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        {tab.notes && (
+          <div style={{
+            padding: "8px 12px", marginBottom: 14,
+            background: "rgba(168,116,74,0.06)", borderLeft: "3px solid var(--wood)",
+            fontFamily: "var(--mono)", fontSize: 11, opacity: 0.85
+          }}>
+            {tab.notes}
+          </div>
+        )}
+
+        {/* Running total summary */}
+        <div style={{
+          display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1.2fr",
+          gap: 10, marginBottom: 18,
+          padding: 14, border: "1.5px solid var(--ink)", borderRadius: 4,
+          background: "var(--paper)"
+        }}>
+          <div>
+            <div className="kicker">Items</div>
+            <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 22 }}>${data.itemTotal.toFixed(2)}</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.5 }}>{data.items.length} line{data.items.length === 1 ? "" : "s"}</div>
+          </div>
+          <div>
+            <div className="kicker">Courts</div>
+            <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 22, color: "var(--green)" }}>${data.bookingTotal.toFixed(2)}</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.5 }}>{data.bookings.length} booking{data.bookings.length === 1 ? "" : "s"}</div>
+          </div>
+          <div>
+            <div className="kicker">Walk-in</div>
+            <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 22, color: "var(--peach,#D9785C)" }}>${data.playerTotal.toFixed(2)}</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.5 }}>{data.walkInPlayers.length} player{data.walkInPlayers.length === 1 ? "" : "s"}</div>
+          </div>
+          <div style={{ borderLeft: "1.5px solid var(--ink)", paddingLeft: 14 }}>
+            <div className="kicker">Total</div>
+            <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 30, fontWeight: 700 }}>${data.runningTotal.toFixed(2)}</div>
+          </div>
+        </div>
+
+        {/* Items section */}
+        <div className="section-label">
+          <span><span className="num">01</span><span className="name">Items</span></span>
+          <span className="right">
+            {isOpen && <button className="btn-sm primary" onClick={() => setShowAddItem(true)}>+ Add item</button>}
+          </span>
+        </div>
+        {data.items.length === 0 ? (
+          <div className="empty-mini" style={{ padding: 14, opacity: 0.5 }}>No items yet</div>
+        ) : (
+          <div style={{ marginBottom: 14 }}>
+            {data.items.map(it => (
+              <div key={it.itemId} className="modal-detail-row" style={{ padding: "8px 0" }}>
+                <span className="k">
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.4, marginRight: 8 }}>{it.addedAt}</span>
+                  <strong>{it.name}</strong>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, marginLeft: 6 }}>{it.quantity} × ${it.price.toFixed(2)}</span>
+                </span>
+                <span className="v" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  ${it.lineTotal.toFixed(2)}
+                  {isOpen && (
+                    <button className="btn-sm" onClick={() => removeItem(it.itemId)} disabled={working}
+                      style={{ color: "var(--clay)" }}>×</button>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Bookings section */}
+        <div className="section-label">
+          <span><span className="num">02</span><span className="name" style={{ color: "var(--green)" }}>Court Bookings</span></span>
+          <span className="right">
+            {isOpen && <button className="btn-sm primary" onClick={() => setShowAttachBooking(true)}>+ Attach booking</button>}
+          </span>
+        </div>
+        {data.bookings.length === 0 ? (
+          <div className="empty-mini" style={{ padding: 14, opacity: 0.5 }}>No bookings attached</div>
+        ) : (
+          <div style={{ marginBottom: 14 }}>
+            {data.bookings.map(b => (
+              <div key={b.bookingId} className="modal-detail-row" style={{ padding: "8px 0" }}>
+                <span className="k">
+                  <strong>{b.name}</strong>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, marginLeft: 6 }}>
+                    {b.date} · {b.time}–{b.timeEnd} · C·{b.courtNumbers}
+                  </span>
+                </span>
+                <span className="v" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  ${b.total.toFixed(2)}
+                  {isOpen && (
+                    <button className="btn-sm" onClick={() => detachBooking(b.bookingId)} disabled={working}
+                      style={{ color: "var(--clay)" }}>detach</button>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Walk-in players section */}
+        {data.walkInPlayers.length > 0 && (
+          <>
+            <div className="section-label">
+              <span><span className="num">03</span><span className="name" style={{ color: "var(--peach,#D9785C)" }}>Walk-in Players</span></span>
+              <span className="right">{data.walkInPlayers.length}</span>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              {data.walkInPlayers.map(p => (
+                <div key={p.playerId} className="modal-detail-row" style={{ padding: "8px 0" }}>
+                  <span className="k">
+                    <strong>{p.name}</strong>
+                    <span style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, marginLeft: 6 }}>
+                      C·{p.court} · {p.date} {p.time}
+                    </span>
+                  </span>
+                  <span className="v" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    ${p.amount.toFixed(2)}
+                    {isOpen && (
+                      <button className="btn-sm" onClick={() => detachPlayer(p.playerId)} disabled={working}
+                        style={{ color: "var(--clay)" }}>detach</button>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Actions */}
+        <div className="actions" style={{ borderTop: "1px solid rgba(26,26,26,0.1)", paddingTop: 14, marginTop: 14 }}>
+          {isOpen ? (
+            <>
+              <button className="btn" onClick={cancelTab} disabled={working} style={{ color: "var(--clay)", marginRight: "auto" }}>
+                Cancel tab
+              </button>
+              <button className="btn" onClick={onClose}>Close (keep open)</button>
+              <button className="btn primary" onClick={() => setShowClose(true)} disabled={working || data.runningTotal === 0}>
+                Close & Settle ${data.runningTotal.toFixed(2)}
+              </button>
+            </>
+          ) : (
+            <>
+              {tab.saleId && (
+                <span style={{ marginRight: "auto", fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55 }}>
+                  Sale: {tab.saleId}
+                </span>
+              )}
+              <button className="btn primary" onClick={onClose}>Close</button>
+            </>
+          )}
+        </div>
+
+        {showAddItem && (
+          <AddItemToTabModal
+            tabId={tabId}
+            products={products}
+            onClose={() => setShowAddItem(false)}
+            onAdded={() => { setShowAddItem(false); load(); }}
+          />
+        )}
+
+        {showAttachBooking && (
+          <AttachBookingToTabModal
+            tabId={tabId}
+            customerPhone={tab.customerPhone}
+            onClose={() => setShowAttachBooking(false)}
+            onAttached={() => { setShowAttachBooking(false); load(); }}
+          />
+        )}
+
+        {showClose && (
+          <CloseTabModal
+            tabId={tabId}
+            total={data.runningTotal}
+            itemTotal={data.itemTotal}
+            eligibleItemTotal={data.eligibleItemTotal}
+            bookingTotal={data.bookingTotal}
+            playerTotal={data.playerTotal}
+            customerPhone={tab.customerPhone}
+            onClose={() => setShowClose(false)}
+            onClosed={() => { setShowClose(false); onClose(); }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AddItemToTabModal({ tabId, products, onClose, onAdded }) {
+  const [sku, setSku] = useState("");
+  const [quantity, setQuantity] = useState(1);
+  const [search, setSearch] = useState("");
+  const [working, setWorking] = useState(false);
+
+  const filtered = useMemo(() => {
+    if (!products) return [];
+    const q = search.toLowerCase();
+    return products.filter(p =>
+      p.active && (!q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
+    );
+  }, [products, search]);
+
+  async function submit() {
+    if (!sku) { showToast("Pick a product", "error"); return; }
+    setWorking(true);
+    const r = await api("tabAddItem", {
+      tabId: tabId,
+      sku: sku,
+      quantity: quantity
+    });
+    setWorking(false);
+    if (r.ok) onAdded();
+    else showToast(r.error || "Failed", "error");
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 200 }}>
+      <div className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">Add to {tabId}</div>
+            <h2>Add Item</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        <input
+          type="text"
+          placeholder="Search products…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          autoFocus
+          style={{ width: "100%", padding: "8px 10px", marginBottom: 12, fontFamily: "var(--mono)", fontSize: 12, border: "1.5px solid var(--ink)", borderRadius: 3 }}
+        />
+
+        <div style={{ maxHeight: 280, overflowY: "auto", marginBottom: 14, border: "1px solid rgba(26,26,26,0.1)", borderRadius: 3 }}>
+          {filtered.length === 0 ? (
+            <div className="empty-mini" style={{ padding: 18 }}>No products match</div>
+          ) : filtered.map(p => (
+            <div key={p.sku}
+              onClick={() => setSku(p.sku)}
+              style={{
+                padding: "10px 12px",
+                cursor: "pointer",
+                borderBottom: "1px solid rgba(26,26,26,0.06)",
+                background: sku === p.sku ? "rgba(61,122,79,0.1)" : "transparent",
+                display: "grid",
+                gridTemplateColumns: "1fr auto",
+                gap: 10
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 700 }}>{p.name}</div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.5, marginTop: 2 }}>
+                  {p.sku} · stock: {p.stock}
+                </div>
+              </div>
+              <div style={{ fontFamily: "var(--mono)", fontWeight: 700 }}>${p.price.toFixed(2)}</div>
+            </div>
+          ))}
+        </div>
+
+        {sku && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <label style={{ fontFamily: "var(--mono)", fontSize: 11 }}>Quantity:</label>
+            <button className="btn-sm" onClick={() => setQuantity(Math.max(1, quantity - 1))}>−</button>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 16, fontWeight: 700, minWidth: 30, textAlign: "center" }}>{quantity}</span>
+            <button className="btn-sm" onClick={() => setQuantity(quantity + 1)}>+</button>
+          </div>
+        )}
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn primary" onClick={submit} disabled={working || !sku}>
+            {working ? "Adding…" : "Add to tab"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) {
+  const [entries, setEntries] = useState(null);
+  const [working, setWorking] = useState(false);
+
+  useEffect(() => {
+    api("adminListSettleableEntries").then(r => {
+      if (r.ok) {
+        // Only show bookings (skip walk-in players from this picker for clarity)
+        const bookings = (r.entries || []).filter(e => e.kind === "booking");
+        setEntries(bookings);
+      }
+    });
+  }, []);
+
+  async function attach(bookingId) {
+    setWorking(true);
+    const r = await api("tabAttachBooking", { tabId: tabId, bookingId: bookingId });
+    setWorking(false);
+    if (r.ok) onAttached();
+    else showToast(r.error || "Failed", "error");
+  }
+
+  // Sort entries: customer's phone matches first, then by date/time
+  const sorted = useMemo(() => {
+    if (!entries) return [];
+    const cp = customerPhone || "";
+    return [...entries].sort((a, b) => {
+      const ap = (a.phone || "") === cp;
+      const bp = (b.phone || "") === cp;
+      if (ap && !bp) return -1;
+      if (!ap && bp) return 1;
+      return String(a.date + a.time).localeCompare(b.date + b.time);
+    });
+  }, [entries, customerPhone]);
+
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 200 }}>
+      <div className="modal" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">Pick an unpaid booking</div>
+            <h2>Attach Booking</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        {entries === null ? (
+          <div style={{ padding: 30, display: "flex", justifyContent: "center" }}><BouncingBall size="sm" /></div>
+        ) : sorted.length === 0 ? (
+          <div className="empty">No unpaid bookings to attach</div>
+        ) : (
+          <div style={{ maxHeight: 420, overflowY: "auto" }}>
+            {sorted.map(e => {
+              const matchPhone = customerPhone && e.phone === customerPhone;
+              return (
+                <div key={e.id}
+                  style={{
+                    padding: "10px 12px",
+                    border: matchPhone ? "1.5px solid var(--green)" : "1px solid rgba(26,26,26,0.08)",
+                    borderRadius: 3,
+                    marginBottom: 6,
+                    display: "grid",
+                    gridTemplateColumns: "1fr auto auto",
+                    gap: 10,
+                    alignItems: "center",
+                    background: matchPhone ? "rgba(61,122,79,0.06)" : "var(--paper)"
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 700 }}>
+                      {e.label}
+                      {matchPhone && <span style={{ marginLeft: 6, fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.12em", color: "var(--green)" }}>SAME PHONE</span>}
+                    </div>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, marginTop: 3 }}>
+                      {e.phone}
+                    </div>
+                  </div>
+                  <div style={{ fontFamily: "var(--mono)", fontWeight: 700 }}>${e.amount.toFixed(2)}</div>
+                  <button className="btn-sm primary" onClick={() => attach(e.id)} disabled={working}>Attach</button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTotal, playerTotal, customerPhone, onClose, onClosed }) {
+  const [paymentMethod, setPaymentMethod] = useState("Cash");
+  const [cashReceived, setCashReceived] = useState("");
+  const [discountPct, setDiscountPct] = useState(0);
+  const [notes, setNotes] = useState("");
+  const [working, setWorking] = useState(false);
+  const [memberTier, setMemberTier] = useState("");
+  const [memberDiscountPct, setMemberDiscountPct] = useState(10);
+
+  // Look up member tier when modal opens (for discount preview)
+  useEffect(() => {
+    if (!customerPhone) return;
+    api("adminGetMemberByPhone", { phone: customerPhone }).then(r => {
+      if (r.ok && r.member && r.member.status === "active" && !r.member.isExpired) {
+        setMemberTier(r.member.tier || "");
+      }
+    });
+  }, [customerPhone]);
+
+  // Fetch current member discount percentage (could be owner-overridden)
+  useEffect(() => {
+    api("adminGetPosSettings").then(r => {
+      if (r.ok && typeof r.memberDiscountPct === "number") {
+        setMemberDiscountPct(r.memberDiscountPct);
+      }
+    });
+  }, []);
+
+  // Member discount applies to ELIGIBLE products only (drinks excluded by default).
+  // Court & walk-in totals already have their bigger member discount baked in.
+  const eligibleBase = eligibleItemTotal !== undefined ? eligibleItemTotal : (itemTotal || 0);
+  const memberDiscountAmount = memberTier && eligibleBase > 0
+    ? Math.round(eligibleBase * memberDiscountPct) / 100
+    : 0;
+  const afterMember = total - memberDiscountAmount;
+  const staffDiscountAmount = discountPct > 0 ? Math.round(afterMember * discountPct) / 100 : 0;
+  const totalDiscount = memberDiscountAmount + staffDiscountAmount;
+  const finalTotal = Math.round((total - totalDiscount) * 100) / 100;
+  const cashGiven = parseFloat(cashReceived) || 0;
+  const change = Math.max(0, cashGiven - finalTotal);
+
+  async function submit() {
+    if (paymentMethod === "Cash" && cashGiven < finalTotal) {
+      showToast("Cash received less than total", "error");
+      return;
+    }
+    setWorking(true);
+    const r = await api("tabClose", {
+      tabId: tabId,
+      paymentMethod: paymentMethod,
+      cashReceived: cashGiven,
+      discountPct: discountPct,
+      notes: notes
+    });
+    setWorking(false);
+    if (r.ok) {
+      showToast("Tab settled · $" + r.total.toFixed(2) + (r.changeGiven > 0 ? " · Change: $" + r.changeGiven.toFixed(2) : ""), "success");
+      onClosed();
+    } else {
+      showToast(r.error || "Failed to settle", "error");
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 300 }}>
+      <div className="modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">
+              {tabId} · final settlement
+              {memberTier && <span style={{ marginLeft: 8, color: "var(--green)" }}>· {memberTier.toUpperCase()} MEMBER</span>}
+            </div>
+            <h2>Close Tab</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label className="field-label">Payment method</label>
+          <select className="field-input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
+            <option value="Cash">Cash</option>
+            <option value="ABA">ABA</option>
+            <option value="Wing">Wing</option>
+            <option value="Card">Card</option>
+          </select>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label className="field-label">Additional staff discount %</label>
+          <input className="field-input" type="number" min="0" max="100" value={discountPct} onChange={(e) => setDiscountPct(parseFloat(e.target.value) || 0)} placeholder="0 (member discount applied automatically)" />
+          {memberTier && (
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", opacity: 0.6, marginTop: 4 }}>
+              MEMBER {memberDiscountPct}% APPLIED AUTOMATICALLY ON ELIGIBLE ITEMS (NOT DRINKS) — ENTER STAFF OVERRIDE HERE IF DESIRED
+            </div>
+          )}
+        </div>
+
+        {paymentMethod === "Cash" && (
+          <div style={{ marginBottom: 12 }}>
+            <label className="field-label">Cash received</label>
+            <input className="field-input" type="number" min="0" step="0.01" value={cashReceived} onChange={(e) => setCashReceived(e.target.value)} autoFocus />
+          </div>
+        )}
+
+        <div style={{ marginBottom: 12 }}>
+          <label className="field-label">Notes</label>
+          <input className="field-input" type="text" value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </div>
+
+        <div style={{ background: "var(--ink)", color: "var(--cream)", padding: 14, borderRadius: 3, marginBottom: 14 }}>
+          {(itemTotal > 0 || bookingTotal > 0 || playerTotal > 0) && (
+            <>
+              {itemTotal > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, fontSize: 11, opacity: 0.7 }}>
+                  <span style={{ fontFamily: "var(--mono)" }}>Pro shop items</span>
+                  <span style={{ fontFamily: "var(--mono)" }}>${itemTotal.toFixed(2)}</span>
+                </div>
+              )}
+              {bookingTotal > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, fontSize: 11, opacity: 0.7 }}>
+                  <span style={{ fontFamily: "var(--mono)" }}>Court rentals (member-priced)</span>
+                  <span style={{ fontFamily: "var(--mono)" }}>${bookingTotal.toFixed(2)}</span>
+                </div>
+              )}
+              {playerTotal > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, fontSize: 11, opacity: 0.7 }}>
+                  <span style={{ fontFamily: "var(--mono)" }}>Walk-in players</span>
+                  <span style={{ fontFamily: "var(--mono)" }}>${playerTotal.toFixed(2)}</span>
+                </div>
+              )}
+              <div style={{ borderTop: "1px solid rgba(241,234,214,0.15)", margin: "6px 0" }} />
+            </>
+          )}
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.7 }}>Subtotal</span>
+            <span style={{ fontFamily: "var(--mono)" }}>${total.toFixed(2)}</span>
+          </div>
+          {memberDiscountAmount > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, color: "var(--green)" }}>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 11 }}>{memberTier} {memberDiscountPct}% (eligible items)</span>
+              <span style={{ fontFamily: "var(--mono)" }}>−${memberDiscountAmount.toFixed(2)}</span>
+            </div>
+          )}
+          {staffDiscountAmount > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, color: "var(--peach,#D9785C)" }}>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 11 }}>Staff discount {discountPct}%</span>
+              <span style={{ fontFamily: "var(--mono)" }}>−${staffDiscountAmount.toFixed(2)}</span>
+            </div>
+          )}
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(241,234,214,0.2)" }}>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 700 }}>TOTAL</span>
+            <span style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 22, fontWeight: 700 }}>${finalTotal.toFixed(2)}</span>
+          </div>
+          {paymentMethod === "Cash" && cashGiven > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, opacity: 0.8 }}>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 11 }}>Change</span>
+              <span style={{ fontFamily: "var(--mono)" }}>${change.toFixed(2)}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn primary" onClick={submit} disabled={working || finalTotal <= 0}>
+            {working ? "Settling…" : "Confirm Payment"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 function SaleHistoryModal({ onClose }) {
   const [range, setRange] = useState("2w");   // "1w" | "2w" | "1m" | "3m" | "all"
@@ -8164,18 +9066,40 @@ function AttachPickerModal({ alreadyAttached, onClose, onPick }) {
 
 function ProductModal({ product, onClose, onSaved }) {
   const isNew = !product;
-  const [form, setForm] = useState({
-    sku: product ? product.sku : "",
-    name: product ? product.name : "",
-    category: product ? product.category : "Drinks",
-    price: product ? product.price : 0,
-    cost: product ? product.cost : 0,
-    stock: product ? product.stock : 0,
-    reorderLevel: product ? product.reorderLevel : 0,
-    active: product ? product.active : true,
-    notes: product ? product.notes : ""
+  const [form, setForm] = useState(() => {
+    const initialCategory = product ? product.category : "Drinks";
+    const initialEligible = product
+      ? (product.memberEligible !== false)
+      : (initialCategory.toLowerCase() !== "drinks");
+    return {
+      sku: product ? product.sku : "",
+      name: product ? product.name : "",
+      category: initialCategory,
+      price: product ? product.price : 0,
+      cost: product ? product.cost : 0,
+      stock: product ? product.stock : 0,
+      reorderLevel: product ? product.reorderLevel : 0,
+      active: product ? product.active : true,
+      notes: product ? product.notes : "",
+      memberEligible: initialEligible
+    };
   });
+
   const [saving, setSaving] = useState(false);
+
+  // Smart-default: when category changes (NEW products only, before saving),
+  // suggest the right eligibility default. Don't override if user already toggled.
+  const [categoryTouched, setCategoryTouched] = useState(false);
+  function changeCategory(newCat) {
+    setForm(prev => {
+      const next = { ...prev, category: newCat };
+      // Auto-suggest eligibility if user hasn't manually changed it for THIS product
+      if (!categoryTouched) {
+        next.memberEligible = newCat.toLowerCase() !== "drinks";
+      }
+      return next;
+    });
+  }
 
   async function save() {
     if (!form.sku) return showToast("SKU required", "error");
@@ -8213,7 +9137,7 @@ function ProductModal({ product, onClose, onSaved }) {
           </div>
           <div className="field">
             <div className="field-label">Category</div>
-            <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+            <select value={form.category} onChange={(e) => changeCategory(e.target.value)}>
               <option value="Drinks">Drinks</option>
               <option value="Paddles">Paddles</option>
               <option value="Accessories">Accessories</option>
@@ -8269,6 +9193,21 @@ function ProductModal({ product, onClose, onSaved }) {
           <label htmlFor="active-cb" style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 600 }}>
             Active · show in POS grid
           </label>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 0 10px 0" }}>
+          <input
+            type="checkbox"
+            id="member-elig-cb"
+            checked={form.memberEligible}
+            onChange={(e) => { setCategoryTouched(true); setForm({ ...form, memberEligible: e.target.checked }); }}
+          />
+          <label htmlFor="member-elig-cb" style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 600 }}>
+            Eligible for member discount
+          </label>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", opacity: 0.55 }}>
+            (drinks typically not eligible)
+          </span>
         </div>
 
         <div className="actions">
@@ -9250,6 +10189,8 @@ function ScreenSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [promo, setPromo] = useState({ active: false, pct: 50, label: "Soft launch −50%" });
+  const [posSettings, setPosSettings] = useState({ memberDiscountPct: 10, memberDiscountDefault: 10 });
+  const [savingPos, setSavingPos] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -9259,6 +10200,13 @@ function ScreenSettings() {
         active: !!r.active,
         pct: r.pct || 50,
         label: r.label || "Soft launch −50%"
+      });
+    }
+    const ps = await api("adminGetPosSettings");
+    if (ps.ok) {
+      setPosSettings({
+        memberDiscountPct: ps.memberDiscountPct,
+        memberDiscountDefault: ps.memberDiscountDefault
       });
     }
     setLoading(false);
@@ -9280,6 +10228,39 @@ function ScreenSettings() {
         active: !!r.active,
         pct: r.pct || 50,
         label: r.label || ""
+      });
+    } else {
+      showToast(r.error || "Save failed", "error");
+    }
+  }
+
+  async function savePosSettings() {
+    setSavingPos(true);
+    const r = await api("adminSetPosSettings", {
+      memberDiscountPct: posSettings.memberDiscountPct
+    });
+    setSavingPos(false);
+    if (r.ok) {
+      showToast("POS settings saved", "success");
+      setPosSettings({
+        memberDiscountPct: r.memberDiscountPct,
+        memberDiscountDefault: r.memberDiscountDefault
+      });
+    } else {
+      showToast(r.error || "Save failed", "error");
+    }
+  }
+
+  async function resetPosSettings() {
+    if (!confirm("Reset member discount % to default (" + posSettings.memberDiscountDefault + "%)?")) return;
+    setSavingPos(true);
+    const r = await api("adminSetPosSettings", { memberDiscountPct: "" });
+    setSavingPos(false);
+    if (r.ok) {
+      showToast("Reset to default", "success");
+      setPosSettings({
+        memberDiscountPct: r.memberDiscountPct,
+        memberDiscountDefault: r.memberDiscountDefault
       });
     } else {
       showToast(r.error || "Save failed", "error");
@@ -9366,6 +10347,48 @@ function ScreenSettings() {
           <div className="settings-warning">
             <b>HEADS-UP:</b> All bookings will receive a {promo.pct}% discount as long as this is active.
             Toggle off to return to standard pricing + member discounts.
+          </div>
+        )}
+      </div>
+
+      <div className="settings-card">
+        <h3>Pro Shop · Member Discount</h3>
+        <div className="desc">
+          Members get this discount on <b>eligible</b> POS items (accessories, paddles, apparel by default — drinks are typically excluded).
+          Court rentals already have their tier discount built in (50% Founding / 30% Standard), so this <b>does not stack</b> on courts.
+          Per-product eligibility can be toggled in the product edit modal.
+        </div>
+
+        <div className="settings-row">
+          <div className="field-label">Discount %</div>
+          <input
+            type="number"
+            min="0"
+            max="100"
+            step="0.5"
+            value={posSettings.memberDiscountPct}
+            onChange={(e) => setPosSettings({ ...posSettings, memberDiscountPct: parseFloat(e.target.value) || 0 })}
+          />
+          <span style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.12em", opacity: 0.55, marginLeft: 8 }}>
+            DEFAULT: {posSettings.memberDiscountDefault}%
+          </span>
+        </div>
+
+        <div className="settings-row">
+          <div className="actions">
+            <button className="btn ghost" onClick={resetPosSettings} disabled={savingPos}>
+              Reset to default
+            </button>
+            <button className="btn primary" onClick={savePosSettings} disabled={savingPos}>
+              {savingPos ? "Saving…" : "Save changes"}
+            </button>
+          </div>
+        </div>
+
+        {posSettings.memberDiscountPct !== posSettings.memberDiscountDefault && (
+          <div className="settings-warning">
+            <b>OVERRIDE ACTIVE:</b> Current rate is {posSettings.memberDiscountPct}% (default is {posSettings.memberDiscountDefault}%).
+            All eligible POS sales to members use this rate.
           </div>
         )}
       </div>
