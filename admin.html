@@ -4845,6 +4845,7 @@ function ScreenBookings() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [entries, setEntries] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);  // soft loading state — keep old data visible
   const [detailBooking, setDetailBooking] = useState(null);
   const [walkInBlock, setWalkInBlock] = useState(null); // walk-in block modal
   const [coachingInfo, setCoachingInfo] = useState(null); // simple coaching info modal
@@ -4914,9 +4915,17 @@ function ScreenBookings() {
     if (!silent) {
       const cached = getCachedApi("adminListTimelineEntries", { dateFrom: range.from, dateTo: range.to });
       if (cached && cached.ok) {
+        // Best path: we have cached data for THIS date range → show it instantly
         setEntries(cached.entries || []);
         setLoading(false);
+        setRefreshing(true);  // subtle indicator while we refresh
+      } else if (entries !== null) {
+        // No cache for new date, but we have data showing from previous date —
+        // keep it visible (dimmed) instead of flashing empty state. Better UX
+        // than the "No bookings" flash that confuses users mid-fetch.
+        setRefreshing(true);
       } else {
+        // No cache and no current data — first load. Show spinner.
         setLoading(true);
       }
     }
@@ -4927,7 +4936,7 @@ function ScreenBookings() {
     );
     if (r.ok) setEntries(r.entries || []);
     else if (!silent) showToast(r.error || "Failed to load", "error");
-    if (!silent) setLoading(false);
+    if (!silent) { setLoading(false); setRefreshing(false); }
   }
 
   useEffect(() => { load(); }, [range.from, range.to]);
@@ -5005,7 +5014,18 @@ function ScreenBookings() {
       <div className="main-head">
         <div>
           <div className="title">{title}</div>
-          <h1>Bookings</h1>
+          <h1>
+            Bookings
+            {refreshing && (
+              <span style={{
+                marginLeft: 12, fontFamily: "var(--mono)", fontSize: 10,
+                letterSpacing: "0.18em", color: "var(--green)", textTransform: "uppercase",
+                fontWeight: 700, verticalAlign: "middle"
+              }}>
+                · refreshing…
+              </span>
+            )}
+          </h1>
         </div>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <div className="range-toggle">
@@ -5057,7 +5077,7 @@ function ScreenBookings() {
 
       {/* DAY VIEW */}
       {view === "day" && (
-        <>
+        <div style={{ opacity: refreshing ? 0.55 : 1, transition: "opacity 0.15s" }}>
           <div className="filter-chips">
             {Object.keys(STATUS_LABELS).map(s => (
               <button
@@ -5182,7 +5202,7 @@ function ScreenBookings() {
               )}
             </>
           )}
-        </>
+        </div>
       )}
 
       {/* WEEK VIEW */}
@@ -10986,16 +11006,27 @@ function ScreenFinances() {
   }
   function currentPeriod() { setPeriodOffset(0); }
 
+  const [showReportPicker, setShowReportPicker] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  async function downloadAccountingReport() {
+
+  async function downloadAccountingReportForRange(opts) {
     setDownloading(true);
+    setShowReportPicker(false);
     try {
-      // Always pull the monthly report for the currently-viewed period
-      const ref = new Date();
-      ref.setMonth(ref.getMonth() + periodOffset);
-      const y = ref.getFullYear();
-      const m = ref.getMonth() + 1;
-      const r = await api("adminAccountingReport", { year: y, month: m });
+      const params = {};
+      if (opts.year && opts.month) {
+        params.year = opts.year;
+        params.month = opts.month;
+      } else if (opts.fromStr && opts.toStr) {
+        params.fromStr = opts.fromStr;
+        params.toStr = opts.toStr;
+        if (opts.label) params.label = opts.label;
+      } else {
+        showToast("Invalid date range", "error");
+        return;
+      }
+      showToast("Generating report…", "info");
+      const r = await api("adminAccountingReport", params);
       if (!r.ok) {
         showToast(r.error || "Failed to load report data", "error");
         return;
@@ -11074,10 +11105,10 @@ function ScreenFinances() {
           {!isCurrent && <button className="date-pill" onClick={currentPeriod}>This {granularity === "daily" ? "Day" : granularity === "weekly" ? "Week" : "Month"}</button>}
           <button
             className="btn primary"
-            onClick={downloadAccountingReport}
+            onClick={() => setShowReportPicker(true)}
             disabled={downloading}
             style={{ marginLeft: 8 }}
-            title="Download a PDF accounting report for the selected month"
+            title="Download a PDF accounting report"
           >
             {downloading ? "Preparing…" : "↓ Accounting Report"}
           </button>
@@ -11093,9 +11124,258 @@ function ScreenFinances() {
       ) : (
         <div className="empty">Failed to load</div>
       )}
+
+      {showReportPicker && (
+        <AccountingReportPickerModal
+          onClose={() => setShowReportPicker(false)}
+          onPick={downloadAccountingReportForRange}
+        />
+      )}
     </div>
   );
 }
+
+/* ====================================================================
+   ACCOUNTING REPORT PICKER MODAL
+   Presets: This month, Last month, Last 3 months, Last 6 months, YTD, Custom
+   ==================================================================== */
+function AccountingReportPickerModal({ onClose, onPick }) {
+  const now = new Date();
+  const [mode, setMode] = useState("preset");  // "preset" | "month" | "custom"
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState(todayISO());
+
+  // Month picker state — defaults to current month
+  const [monthYear, setMonthYear] = useState(now.getFullYear());
+  const [monthMonth, setMonthMonth] = useState(now.getMonth() + 1);
+
+  function fmt(d) {
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+
+  function pickPreset(preset) {
+    if (preset === "this_month") {
+      const y = now.getFullYear(), m = now.getMonth() + 1;
+      onPick({ year: y, month: m });
+    } else if (preset === "last_month") {
+      const ref = new Date(now); ref.setMonth(ref.getMonth() - 1);
+      onPick({ year: ref.getFullYear(), month: ref.getMonth() + 1 });
+    } else if (preset === "last_3_months") {
+      // Last 3 full calendar months (excluding current)
+      const fromRef = new Date(now); fromRef.setMonth(fromRef.getMonth() - 3, 1);
+      const toRef = new Date(now); toRef.setMonth(toRef.getMonth(), 0);  // last day of prev month
+      onPick({
+        fromStr: fmt(fromRef),
+        toStr: fmt(toRef),
+        label: "Last 3 months (" + fmt(fromRef) + " to " + fmt(toRef) + ")"
+      });
+    } else if (preset === "last_6_months") {
+      const fromRef = new Date(now); fromRef.setMonth(fromRef.getMonth() - 6, 1);
+      const toRef = new Date(now); toRef.setMonth(toRef.getMonth(), 0);
+      onPick({
+        fromStr: fmt(fromRef),
+        toStr: fmt(toRef),
+        label: "Last 6 months (" + fmt(fromRef) + " to " + fmt(toRef) + ")"
+      });
+    } else if (preset === "ytd") {
+      const fromRef = new Date(now.getFullYear(), 0, 1);
+      onPick({
+        fromStr: fmt(fromRef),
+        toStr: fmt(now),
+        label: "Year to date (" + now.getFullYear() + ")"
+      });
+    } else if (preset === "mtd") {
+      const fromRef = new Date(now.getFullYear(), now.getMonth(), 1);
+      onPick({
+        fromStr: fmt(fromRef),
+        toStr: fmt(now),
+        label: "Month to date — " + now.toLocaleString("en-US", { month: "long", year: "numeric" })
+      });
+    }
+  }
+
+  function submitMonth() {
+    onPick({ year: monthYear, month: monthMonth });
+  }
+
+  function submitCustom() {
+    if (!customFrom || !customTo) {
+      showToast("Both dates required", "error");
+      return;
+    }
+    if (customFrom > customTo) {
+      showToast("From date must be before To date", "error");
+      return;
+    }
+    onPick({
+      fromStr: customFrom,
+      toStr: customTo,
+      label: "Custom: " + customFrom + " to " + customTo
+    });
+  }
+
+  const MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
+                       "July", "August", "September", "October", "November", "December"];
+
+  // Build the last 24 months for the month picker
+  const monthOptions = [];
+  for (let i = 0; i < 24; i++) {
+    const d = new Date(now); d.setMonth(d.getMonth() - i);
+    monthOptions.push({ y: d.getFullYear(), m: d.getMonth() + 1 });
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">Generate an accounting report PDF</div>
+            <h2>Download Accounting Report</h2>
+          </div>
+          <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        {/* Mode tabs */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 16, borderBottom: "1px solid rgba(26,26,26,0.1)" }}>
+          {[
+            { id: "preset", label: "Quick presets" },
+            { id: "month", label: "Pick a month" },
+            { id: "custom", label: "Custom range" }
+          ].map(t => (
+            <button
+              key={t.id}
+              onClick={() => setMode(t.id)}
+              style={{
+                padding: "10px 14px",
+                background: "transparent",
+                border: "none",
+                borderBottom: mode === t.id ? "2px solid var(--green)" : "2px solid transparent",
+                fontFamily: "var(--mono)",
+                fontSize: 10,
+                letterSpacing: "0.16em",
+                textTransform: "uppercase",
+                fontWeight: mode === t.id ? 700 : 500,
+                color: mode === t.id ? "var(--green)" : "var(--ink)",
+                cursor: "pointer"
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {mode === "preset" && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            {[
+              { id: "mtd", label: "Month to Date", sub: now.toLocaleString("en-US", { month: "long", year: "numeric" }) + " · 1st → today" },
+              { id: "this_month", label: "This Full Month", sub: now.toLocaleString("en-US", { month: "long", year: "numeric" }) },
+              { id: "last_month", label: "Last Month", sub: (() => { const r = new Date(now); r.setMonth(r.getMonth() - 1); return r.toLocaleString("en-US", { month: "long", year: "numeric" }); })() },
+              { id: "last_3_months", label: "Last 3 Months", sub: "Previous 3 full months" },
+              { id: "last_6_months", label: "Last 6 Months", sub: "Previous 6 full months" },
+              { id: "ytd", label: "Year to Date", sub: now.getFullYear() + " · Jan 1 → today" }
+            ].map(p => (
+              <button
+                key={p.id}
+                onClick={() => pickPreset(p.id)}
+                style={{
+                  padding: "14px",
+                  border: "1.5px solid var(--ink)",
+                  borderRadius: 4,
+                  background: "var(--paper)",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  transition: "background 0.15s"
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = "rgba(61,122,79,0.06)"}
+                onMouseLeave={(e) => e.currentTarget.style.background = "var(--paper)"}
+              >
+                <div style={{
+                  fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 16,
+                  fontWeight: 600, marginBottom: 4
+                }}>
+                  {p.label}
+                </div>
+                <div style={{
+                  fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55,
+                  letterSpacing: "0.06em"
+                }}>
+                  {p.sub}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {mode === "month" && (
+          <div>
+            <div className="desc" style={{ marginBottom: 14 }}>
+              Pick any single calendar month from the last 2 years.
+            </div>
+            <div className="field-row" style={{ gap: 10 }}>
+              <div className="field" style={{ flex: 2 }}>
+                <div className="field-label">Month</div>
+                <select value={monthMonth} onChange={(e) => setMonthMonth(parseInt(e.target.value))}>
+                  {MONTH_NAMES.map((name, i) => (
+                    <option key={i + 1} value={i + 1}>{name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="field" style={{ flex: 1 }}>
+                <div className="field-label">Year</div>
+                <select value={monthYear} onChange={(e) => setMonthYear(parseInt(e.target.value))}>
+                  {[now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2].map(y => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="actions" style={{ marginTop: 18 }}>
+              <button className="btn ghost" onClick={onClose}>Cancel</button>
+              <button className="btn primary" onClick={submitMonth}>
+                Download {MONTH_NAMES[monthMonth - 1]} {monthYear}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {mode === "custom" && (
+          <div>
+            <div className="desc" style={{ marginBottom: 14 }}>
+              Choose any start and end date. The report aggregates everything in that range.
+            </div>
+            <div className="field-row" style={{ gap: 10 }}>
+              <div className="field">
+                <div className="field-label">From date</div>
+                <input
+                  type="date"
+                  value={customFrom}
+                  max={customTo}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <div className="field-label">To date</div>
+                <input
+                  type="date"
+                  value={customTo}
+                  max={todayISO()}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="actions" style={{ marginTop: 18 }}>
+              <button className="btn ghost" onClick={onClose}>Cancel</button>
+              <button className="btn primary" onClick={submitCustom} disabled={!customFrom || !customTo}>
+                Download report
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 /* Lean view for daily/weekly granularity — just headline + chart + summary */
 function FinancesRangeView({ data, granularity }) {
@@ -11145,18 +11425,39 @@ function FinancesRangeView({ data, granularity }) {
         </div>
       </div>
 
-      {/* Mini chart — bars per bucket */}
+      {/* Mini chart — bars per bucket, or numerical breakdown for Daily */}
       {series.length > 0 && (
         <div className="settings-card" style={{ padding: 20 }}>
           <h3 style={{ marginBottom: 14 }}>
-            {granularity === "daily" ? "Hourly will surface in a future release" : granularity === "weekly" ? "Daily breakdown" : "Daily breakdown"}
+            {granularity === "daily" ? "Day breakdown" : "Daily breakdown"}
           </h3>
           {granularity === "daily" ? (
-            // Daily granularity = one day, so just show the breakdown numerically
-            <div style={{ fontFamily: "var(--mono)", fontSize: 12, opacity: 0.75 }}>
-              {series[0]?.total > 0
-                ? <div>For {data.label}: court ${series[0].court.toFixed(2)} · walk-in ${series[0].walkin.toFixed(2)} · coaching ${series[0].coaching.toFixed(2)} · POS ${series[0].pos.toFixed(2)}</div>
-                : <div>No revenue recorded for {data.label}.</div>}
+            // Daily granularity = one day, show breakdown as a clean stat grid
+            <div>
+              {series[0]?.total > 0 ? (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+                  <div className="stat-card">
+                    <div className="label">Court rental</div>
+                    <div className="value">${series[0].court.toFixed(2)}</div>
+                  </div>
+                  <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}>
+                    <div className="label">◉ Walk-in</div>
+                    <div className="value" style={{ color: "var(--peach,#D9785C)" }}>${series[0].walkin.toFixed(2)}</div>
+                  </div>
+                  <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
+                    <div className="label">★ Coaching</div>
+                    <div className="value" style={{ color: "var(--wood)" }}>${series[0].coaching.toFixed(2)}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="label">POS</div>
+                    <div className="value">${series[0].pos.toFixed(2)}</div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontFamily: "var(--mono)", fontSize: 12, opacity: 0.55 }}>
+                  No revenue recorded for {data.label}.
+                </div>
+              )}
             </div>
           ) : (
             <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 200, padding: "0 6px" }}>
