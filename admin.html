@@ -45,6 +45,34 @@
 
   /* Sidebar width */
   --sidebar-w: 220px;
+
+  /* Spacing scale (4-based) — use these instead of arbitrary pixel values.
+   * If a designer or developer ever wants a global density change, edit here.
+   *  --space-1  4px    tight, inline gap
+   *  --space-2  8px    small gap, button padding y
+   *  --space-3  12px   default gap between siblings
+   *  --space-4  16px   panel padding
+   *  --space-5  20px   medium section gap
+   *  --space-6  24px   large section gap
+   *  --space-8  32px   major section divider
+   *  --space-10 40px   page breathing room
+   *  --space-12 48px   hero / generous spacing
+   */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* Radius scale */
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-pill: 999px;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -3536,6 +3564,31 @@ button { font-family: inherit; cursor: pointer; }
   100% { transform: translateX(350%); }
 }
 
+/* Quick-create FAB menu slide-in animation */
+@keyframes fabSlideIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.92); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* "NOW" pill at top of the now-line — makes the current moment scannable */
+.timeline-now-pill {
+  position: absolute;
+  top: -6px;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+  background: var(--clay);
+  color: var(--cream);
+  padding: 2px 8px;
+  border-radius: 999px;
+  z-index: 10;
+  pointer-events: none;
+  box-shadow: 0 2px 4px rgba(198,79,58,0.4);
+}
+
   </style>
 
   <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
@@ -4052,6 +4105,154 @@ function showToast(text, kind = "default") {
   toastTimeout = setTimeout(() => { el.style.display = "none"; }, 3000);
 }
 
+/* ====== CONFIRM SYSTEM ======
+ * Replaces window.confirm() with a styled modal that clearly states the
+ * consequence of destructive actions. Used for irreversible operations like
+ * cancelling a booking, voiding a sale, deleting a member, etc.
+ *
+ * Usage:
+ *   const ok = await confirmAction({
+ *     title: "Cancel this booking?",
+ *     message: "Sokha Pen · Court 1 · 17:00",
+ *     consequence: "The court will be freed and the customer notified via SMS.",
+ *     confirmLabel: "Cancel booking",
+ *     destructive: true,
+ *     typeToConfirm: "TYP-2026-0010"  // optional — require typing this exact string
+ *   });
+ *   if (ok) { ... }
+ */
+let _confirmSubscriber = null;
+function _setConfirmSubscriber(fn) { _confirmSubscriber = fn; }
+function confirmAction(opts) {
+  return new Promise(resolve => {
+    if (!_confirmSubscriber) {
+      // Fallback to native if React host isn't mounted yet
+      resolve(window.confirm((opts.title || "Confirm") + "\n\n" + (opts.message || "") + "\n\n" + (opts.consequence || "")));
+      return;
+    }
+    _confirmSubscriber({ ...opts, resolve });
+  });
+}
+
+/* The host component that lives at the App root and listens for confirm requests */
+function ConfirmHost() {
+  const [request, setRequest] = useState(null);
+  const [typedValue, setTypedValue] = useState("");
+
+  useEffect(() => {
+    _setConfirmSubscriber((req) => {
+      setRequest(req);
+      setTypedValue("");
+    });
+    return () => _setConfirmSubscriber(null);
+  }, []);
+
+  function close(result) {
+    if (request) {
+      request.resolve(result);
+      setRequest(null);
+      setTypedValue("");
+    }
+  }
+
+  useEffect(() => {
+    if (!request) return;
+    function onKey(e) {
+      if (e.key === "Escape") close(false);
+      if (e.key === "Enter" && !request.typeToConfirm) close(true);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [request]);
+
+  if (!request) return null;
+
+  const needsType = !!request.typeToConfirm;
+  const typeMatches = !needsType || typedValue === request.typeToConfirm;
+
+  return (
+    <div className="modal-overlay" onClick={() => close(false)} style={{ zIndex: 250 }}>
+      <div className="modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ padding: 24 }}>
+          <div style={{
+            fontFamily: "var(--serif)", fontStyle: "italic",
+            fontSize: 24, color: "var(--ink)", marginBottom: 12,
+            lineHeight: 1.2
+          }}>
+            {request.title}
+          </div>
+          {request.message && (
+            <div style={{
+              fontFamily: "var(--mono)", fontSize: 12, fontWeight: 700,
+              padding: "10px 14px", background: "rgba(26,26,26,0.04)",
+              borderLeft: "3px solid var(--ink)", borderRadius: 3,
+              marginBottom: 14, letterSpacing: "0.02em"
+            }}>
+              {request.message}
+            </div>
+          )}
+          {request.consequence && (
+            <div style={{
+              padding: "12px 14px",
+              background: request.destructive ? "rgba(198,79,58,0.08)" : "rgba(74,109,75,0.06)",
+              borderRadius: 3,
+              borderLeft: "3px solid " + (request.destructive ? "var(--clay)" : "var(--green)"),
+              marginBottom: 16,
+              fontSize: 13,
+              lineHeight: 1.5
+            }}>
+              <strong style={{ display: "block", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 4, color: request.destructive ? "var(--clay)" : "var(--green)" }}>
+                {request.destructive ? "What will happen" : "Confirm"}
+              </strong>
+              {request.consequence}
+            </div>
+          )}
+          {needsType && (
+            <div style={{ marginBottom: 14 }}>
+              <label style={{
+                display: "block", fontFamily: "var(--mono)", fontSize: 10,
+                letterSpacing: "0.14em", textTransform: "uppercase",
+                fontWeight: 700, marginBottom: 6, opacity: 0.75
+              }}>
+                Type <code style={{ background: "rgba(26,26,26,0.08)", padding: "1px 5px", borderRadius: 2 }}>{request.typeToConfirm}</code> to confirm
+              </label>
+              <input
+                type="text"
+                value={typedValue}
+                onChange={(e) => setTypedValue(e.target.value)}
+                autoFocus
+                style={{
+                  width: "100%", padding: "10px 12px",
+                  fontFamily: "var(--mono)", fontSize: 13,
+                  border: "1.5px solid var(--ink)", borderRadius: 4,
+                  background: "var(--paper)"
+                }}
+              />
+            </div>
+          )}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <button className="btn" onClick={() => close(false)} autoFocus={!needsType}>
+              {request.cancelLabel || "Cancel"}
+            </button>
+            <button
+              className={"btn " + (request.destructive ? "danger" : "primary")}
+              onClick={() => close(true)}
+              disabled={!typeMatches}
+              style={{
+                opacity: typeMatches ? 1 : 0.5,
+                cursor: typeMatches ? "pointer" : "not-allowed",
+                ...(request.destructive ? { background: "var(--clay)", color: "var(--cream)", borderColor: "var(--clay)" } : {})
+              }}
+            >
+              {request.confirmLabel || "Confirm"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ====== BOUNCING BALL ====== */
 function BouncingBall({ size = "md", label = "Loading…" }) {
   return (
@@ -4465,11 +4666,29 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
               />
             )}
 
-            {Array.from({ length: COURTS_COUNT }, (_, i) => i + 1).map(c => (
+            {Array.from({ length: COURTS_COUNT }, (_, i) => i + 1).map(c => {
+              // Court status tint: find what's happening on this court RIGHT NOW
+              // (only meaningful if viewing today, during open hours).
+              let rowTint = "transparent";
+              if (dateStr === todayISO() && currentMinsFromOpen >= 0 && currentMinsFromOpen < (CLOSE_HOUR - OPEN_HOUR) * 60) {
+                const now = blocks.find(b => {
+                  if (b.court !== c) return false;
+                  const startMins = b.startIdx * 30;
+                  const endMins = (b.startIdx + b.slots) * 30;
+                  return currentMinsFromOpen >= startMins && currentMinsFromOpen < endMins;
+                });
+                if (now) {
+                  // Tint by paid status
+                  if (now.state === "paid") rowTint = "rgba(61,122,79,0.05)";
+                  else if (now.state === "completed") rowTint = "rgba(120,120,120,0.05)";
+                  else rowTint = "rgba(198,79,58,0.05)"; // unpaid mid-play
+                }
+              }
+              return (
               <div
                 key={c}
                 className="timeline-row"
-                style={{ height: COURT_H + "px" }}
+                style={{ height: COURT_H + "px", background: rowTint }}
               >
                 {blocks.filter(b => b.court === c).map((b, idx) => {
                   const left = b.startIdx * slotW;
@@ -4505,11 +4724,15 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
                   );
                 })}
               </div>
-            ))}
+              );
+            })}
 
             {/* Now indicator */}
             {nowOffset >= 0 && (
-              <div className="timeline-now" style={{ left: nowOffset + "px" }} />
+              <>
+                <div className="timeline-now" style={{ left: nowOffset + "px" }} />
+                <div className="timeline-now-pill" style={{ left: nowOffset + "px" }}>now</div>
+              </>
             )}
           </div>
         </div>
@@ -4691,38 +4914,72 @@ function ScreenDashboard() {
         </div>
       )}
 
-      {/* Stat grid */}
-      <div className="stat-grid">
-        <div className="stat-card accent-ink">
-          <div className="label">Today's bookings</div>
-          <div className="value">{data.bookings.total}<span className="unit">total</span></div>
+      {/* Hero metric: today's total revenue is THE primary number. Other stats
+       * supporting. Hierarchy: 1 hero (4-wide), 4 supporting (1-wide each). */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr",
+        gap: 14,
+        marginBottom: 18
+      }}>
+        {/* HERO — total revenue today */}
+        <div className="stat-card accent-green" style={{
+          background: "var(--green)",
+          color: "var(--cream)",
+          padding: "22px 24px"
+        }}>
+          <div className="label" style={{ color: "var(--cream)", opacity: 0.7 }}>Today's revenue</div>
+          <div className="value" style={{
+            color: "var(--cream)",
+            fontSize: 56,
+            fontStyle: "italic",
+            fontFamily: "var(--serif)",
+            lineHeight: 1.1,
+            marginTop: 6
+          }}>
+            {fmtMoney((data.bookings.revenuePaid || 0) + (data.pos.revenue || 0))}
+          </div>
+          <div className="sub" style={{ color: "var(--cream)", opacity: 0.75, marginTop: 8 }}>
+            {fmtMoney(data.bookings.revenuePaid)} court · {fmtMoney(data.pos.revenue)} POS
+            {data.bookings.revenuePending > 0 && (
+              <span> · {fmtMoney(data.bookings.revenuePending)} pending</span>
+            )}
+          </div>
+        </div>
+
+        {/* Bookings count */}
+        <div className="stat-card">
+          <div className="label">Bookings</div>
+          <div className="value">{fmtInt(data.bookings.total)}</div>
           <div className="sub">{data.bookings.upcomingNext2hrs} in next 2hrs</div>
         </div>
-        <div className="stat-card accent-green">
-          <div className="label">Court rev. paid</div>
-          <div className="value">{fmtMoney(data.bookings.revenuePaid)}</div>
-          <div className="sub">Today · courts only</div>
+
+        {/* POS transactions */}
+        <div className="stat-card">
+          <div className="label">POS sales</div>
+          <div className="value">{fmtInt(data.pos.transactions)}</div>
+          <div className="sub">transactions today</div>
         </div>
-        <div className="stat-card accent-clay">
-          <div className="label">Court rev. pending</div>
-          <div className="value">{fmtMoney(data.bookings.revenuePending)}</div>
-          <div className="sub">Awaiting payment · courts only</div>
-        </div>
-        <div className="stat-card accent-wood">
-          <div className="label">POS revenue</div>
-          <div className="value">{fmtMoney(data.pos.revenue)}</div>
-          <div className="sub">{fmtInt(data.pos.transactions)} transactions</div>
-        </div>
-        {data.bookings.atRisk > 0 && (
+
+        {/* At-risk or pending */}
+        {data.bookings.atRisk > 0 ? (
           <div className="stat-card warn">
             <div className="label">At risk</div>
-            <div className="value">{data.bookings.atRisk}</div>
-            <div className="sub">Past grace period</div>
+            <div className="value" style={{ color: "var(--clay)" }}>{fmtInt(data.bookings.atRisk)}</div>
+            <div className="sub">past grace period</div>
+          </div>
+        ) : (
+          <div className="stat-card">
+            <div className="label">Pending</div>
+            <div className="value">{fmtMoneyWhole(data.bookings.revenuePending)}</div>
+            <div className="sub">awaiting payment</div>
           </div>
         )}
+
+        {/* Founding members */}
         <div className="stat-card">
-          <div className="label">Founding members</div>
-          <div className="value">{data.members.founding}<span className="unit">of {data.members.foundingCap}</span></div>
+          <div className="label">Founding</div>
+          <div className="value">{fmtInt(data.members.founding)}<span className="unit">/{data.members.foundingCap}</span></div>
           <div className="sub">{data.members.foundingRemaining} slots left</div>
         </div>
       </div>
@@ -5372,6 +5629,18 @@ function ScreenBookings() {
   const [walkInBlock, setWalkInBlock] = useState(null); // walk-in block modal
   const [coachingInfo, setCoachingInfo] = useState(null); // simple coaching info modal
   const [addBookingFlow, setAddBookingFlow] = useState(null); // null | "chooser" | "court" | "walkin"
+
+  // FAB integration
+  useEffect(() => {
+    function onCreate(e) {
+      if (!e.detail) return;
+      const t = e.detail.target;
+      if (t === "bookings") setAddBookingFlow("court");
+      else if (t === "walkin") setAddBookingFlow("walkin");
+    }
+    window.addEventListener("yard:open-create", onCreate);
+    return () => window.removeEventListener("yard:open-create", onCreate);
+  }, []);
 
   // Unified block-click handler routing to the right detail modal by entry type
   async function handleBlockClick(entry) {
@@ -6167,7 +6436,27 @@ function BookingDetailModal({ booking, onClose, onAction }) {
   const [acting, setActing] = useState(false);
 
   async function doAction(action, confirmMsg) {
-    if (confirmMsg && !confirm(confirmMsg)) return;
+    if (confirmMsg) {
+      // Heuristic: if action is destructive (cancel/release/no-show), use the
+      // styled confirm modal with consequence text. Mark-paid stays instant.
+      const isDestructive = /Cancel|NoShow|Release|Void|Delete|Reset/.test(action);
+      if (isDestructive) {
+        const ok = await confirmAction({
+          title: action.includes("Cancel") ? "Cancel this booking?" :
+                 action.includes("Release") || action.includes("NoShow") ? "Release this court?" :
+                 "Confirm action?",
+          message: booking.name + " · C·" + booking.courts + " · " + booking.date + " " + booking.time,
+          consequence: confirmMsg.replace(/^[^?]+\?\s*/, "").trim() || confirmMsg,
+          confirmLabel: action.includes("Cancel") ? "Yes, cancel booking" :
+                        action.includes("Release") || action.includes("NoShow") ? "Yes, release court" :
+                        "Confirm",
+          destructive: true
+        });
+        if (!ok) return;
+      } else {
+        if (!confirm(confirmMsg)) return;
+      }
+    }
     setActing(true);
     const r = await api(action, { bookingId: booking.bookingId });
     setActing(false);
@@ -6182,6 +6471,17 @@ function BookingDetailModal({ booking, onClose, onAction }) {
   const d = booking.derivedStatus;
   const isMember = !!(booking.memberTier && booking.memberTier.length > 0);
 
+  // Avatar — initials from name. Color follows member tier.
+  function initials(name) {
+    if (!name) return "?";
+    const parts = String(name).trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  const avatarColor = booking.memberTier === "Founding" ? "var(--clay)"
+                    : booking.memberTier === "Standard" ? "var(--wood)"
+                    : "var(--ink)";
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -6191,6 +6491,47 @@ function BookingDetailModal({ booking, onClose, onAction }) {
             <h2>{booking.name}</h2>
           </div>
           <button className="x" onClick={onClose}>×</button>
+        </div>
+
+        {/* Customer recognition card — avatar + name + tier + phone, prominent
+         * so the user knows immediately who's at the counter. */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 14,
+          padding: "14px 16px",
+          background: isMember ? "rgba(168,116,74,0.06)" : "rgba(26,26,26,0.03)",
+          borderRadius: 4,
+          marginBottom: 16,
+          border: isMember ? "1.5px solid var(--wood)" : "1.5px solid transparent"
+        }}>
+          <div style={{
+            width: 48, height: 48, borderRadius: "50%",
+            background: avatarColor, color: "var(--cream)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontFamily: "var(--mono)", fontWeight: 800, fontSize: 16,
+            letterSpacing: "0.02em",
+            flexShrink: 0
+          }}>
+            {initials(booking.name)}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: "var(--serif)", fontSize: 18, fontStyle: "italic", color: "var(--ink)", lineHeight: 1.2 }}>
+              {booking.name || "Guest"}
+              {isMember && (
+                <span className={"tier-pill " + booking.memberTier} style={{ marginLeft: 8, verticalAlign: "middle" }}>
+                  {booking.memberTier}
+                </span>
+              )}
+            </div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.7, marginTop: 3 }}>
+              {booking.phone || "no phone"}
+              {isMember && booking.memberTier === "Founding" && (
+                <span style={{ marginLeft: 8, opacity: 0.85, color: "var(--clay)" }}>· lifetime 50% off</span>
+              )}
+              {isMember && booking.memberTier === "Standard" && (
+                <span style={{ marginLeft: 8, opacity: 0.85, color: "var(--wood)" }}>· 30% off</span>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="modal-detail-row">
@@ -6829,7 +7170,14 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
   }
 
   async function cancelBlock() {
-    if (!confirm("Cancel this walk-in block? Court will be freed and players removed from the roster.")) return;
+    const ok = await confirmAction({
+      title: "Cancel this walk-in block?",
+      message: "Court " + (block.courtNumber || "?") + " · " + block.date + " " + block.time + " · " + (block.playerCount || 0) + " player" + ((block.playerCount || 0) === 1 ? "" : "s"),
+      consequence: "The court will be freed up for booking and all attached players removed from the roster. Players who already paid are NOT automatically refunded.",
+      confirmLabel: "Yes, cancel block",
+      destructive: true
+    });
+    if (!ok) return;
     setWorking(true);
     const r = await api("adminCancelWalkInBlock", { blockId: block.blockId });
     setWorking(false);
@@ -7142,6 +7490,15 @@ function ScreenMembers() {
   const [showAdd, setShowAdd] = useState(false);
   const [editMember, setEditMember] = useState(null);
 
+  // FAB integration — open the add-modal when the global event fires
+  useEffect(() => {
+    function onCreate(e) {
+      if (e.detail && e.detail.target === "members") setShowAdd(true);
+    }
+    window.addEventListener("yard:open-create", onCreate);
+    return () => window.removeEventListener("yard:open-create", onCreate);
+  }, []);
+
   async function load() {
     const cached = getCachedApi("adminListMembers");
     if (cached && cached.ok) {
@@ -7177,7 +7534,11 @@ function ScreenMembers() {
     <div className="main">
       <div className="main-head">
         <div>
-          <div className="title">Membership</div>
+          <div className="title">
+            {(members || []).length > 0
+              ? founding.length + " founding · " + standard.length + " standard"
+              : "Membership"}
+          </div>
           <h1>Members</h1>
         </div>
         <div>
@@ -7562,6 +7923,19 @@ function ScreenCoaching() {
   const [tab, setTab] = useState("sessions"); // sessions | coaches | payments
   const [coaches, setCoaches] = useState([]);
   const [loading, setLoading] = useState(true);
+  // FAB flag — triggers Sessions sub-screen to open add-modal
+  const [fabPendingCreate, setFabPendingCreate] = useState(false);
+
+  useEffect(() => {
+    function onCreate(e) {
+      if (e.detail && e.detail.target === "coaching") {
+        setTab("sessions");
+        setFabPendingCreate(true);
+      }
+    }
+    window.addEventListener("yard:open-create", onCreate);
+    return () => window.removeEventListener("yard:open-create", onCreate);
+  }, []);
 
   // Lift sessions + payments state up to parent so switching subtabs keeps cached data
   // — prevents the re-mount-and-re-fetch lag user experienced when toggling Sessions ↔ Payments Due.
@@ -7644,7 +8018,10 @@ function ScreenCoaching() {
     <div className="main">
       <div className="main-head">
         <div>
-          <div className="title">Coach roster & sessions</div>
+          <div className="title">
+            {coaches.length > 0 ? coaches.filter(c => c.status === "Active").length + " active coaches" : "Coach roster & sessions"}
+            {sessions && sessions.length > 0 && " · " + sessions.length + " sessions in range"}
+          </div>
           <h1>Coaching</h1>
         </div>
       </div>
@@ -7665,6 +8042,8 @@ function ScreenCoaching() {
           coachFilter={sessCoachFilter} setCoachFilter={setSessCoachFilter}
           paymentFilter={sessPaymentFilter} setPaymentFilter={setSessPaymentFilter}
           reload={loadSessions}
+          autoOpenAdd={fabPendingCreate}
+          onAutoOpenHandled={() => setFabPendingCreate(false)}
         />
       )}
       {tab === "coaches" && <CoachesView coaches={coaches} loading={loading} reload={loadCoaches} />}
@@ -7891,9 +8270,21 @@ function CoachModal({ coach, onClose, onSaved }) {
 
 /* ----- Sessions subview ----- */
 
-function SessionsView({ coaches, sessions, loading, dateFrom, setDateFrom, dateTo, setDateTo, coachFilter, setCoachFilter, paymentFilter, setPaymentFilter, reload }) {
+function SessionsView({ coaches, sessions, loading, dateFrom, setDateFrom, dateTo, setDateTo, coachFilter, setCoachFilter, paymentFilter, setPaymentFilter, reload, autoOpenAdd, onAutoOpenHandled }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editSession, setEditSession] = useState(null);
+
+  // Open add-modal when FAB requests it
+  useEffect(() => {
+    if (autoOpenAdd && coaches.filter(c => c.status === "Active").length > 0) {
+      setShowAdd(true);
+      onAutoOpenHandled && onAutoOpenHandled();
+    } else if (autoOpenAdd) {
+      // No coaches available — show a toast hint instead
+      showToast("Add a coach first (Coaches tab)", "info");
+      onAutoOpenHandled && onAutoOpenHandled();
+    }
+  }, [autoOpenAdd, coaches]);
 
   async function duplicate(s) {
     if (!confirm("Duplicate this session to one week from now?")) return;
@@ -8033,8 +8424,19 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
   const isNew = !session;
   const activeCoaches = coaches.filter(c => c.status === "Active");
 
+  // Smart default: when adding new, use the coach who was last booked (stored
+  // in localStorage as "yard-last-coach"). Falls back to first active coach.
+  const defaultCoachId = (() => {
+    if (session) return session.coachId;
+    try {
+      const last = localStorage.getItem("yard-last-coach");
+      if (last && activeCoaches.find(c => c.coachId === last)) return last;
+    } catch (e) { /* localStorage may be unavailable */ }
+    return activeCoaches[0] ? activeCoaches[0].coachId : "";
+  })();
+
   const [form, setForm] = useState({
-    coachId: session ? session.coachId : (activeCoaches[0] ? activeCoaches[0].coachId : ""),
+    coachId: defaultCoachId,
     date: session ? session.date : (dateDefault || todayISO()),
     time: session ? session.time : "18:00",
     durationHours: session ? session.durationHours : 1,
@@ -8125,6 +8527,8 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
       setSubmitting(false);
       if (r.ok) {
         showToast("Session " + r.sessionId + " booked", "success");
+        // Remember this coach for next time — speeds up repeated session entry
+        try { localStorage.setItem("yard-last-coach", form.coachId); } catch (e) {}
         onSaved && onSaved();
       } else {
         showToast(r.error || "Failed", "error");
@@ -8156,7 +8560,14 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
   }
 
   async function cancelSession() {
-    if (!confirm("Cancel this session? Court slots will be released.")) return;
+    const ok = await confirmAction({
+      title: "Cancel this coaching session?",
+      message: "Coach " + (session.coachName || "?") + " · " + session.date + " " + session.time + " · C·" + session.courtNumbers,
+      consequence: "The court slots will be released and made available for new bookings. The session record stays for history.",
+      confirmLabel: "Yes, cancel session",
+      destructive: true
+    });
+    if (!ok) return;
     setSubmitting(true);
     const r = await api("adminCancelCoachingSession", { sessionId: session.sessionId });
     setSubmitting(false);
@@ -10251,7 +10662,15 @@ function SaleHistoryModal({ onClose }) {
   }, [filtered]);
 
   async function voidSale(saleId) {
-    if (!confirm("Void sale " + saleId + "?\n\nThis reverses the sale and restocks the items. Cannot be undone.")) return;
+    const ok = await confirmAction({
+      title: "Void this sale?",
+      message: saleId,
+      consequence: "This reverses the transaction, restocks the items, and updates the daily revenue. The voided sale stays in the log for audit purposes. This action cannot be undone.",
+      confirmLabel: "Yes, void sale",
+      destructive: true,
+      typeToConfirm: saleId
+    });
+    if (!ok) return;
     setWorking(true);
     const r = await api("posVoidSale", { saleId: saleId });
     setWorking(false);
@@ -10955,7 +11374,11 @@ function ScreenCustomers() {
     <div className="main">
       <div className="main-head">
         <div>
-          <div className="title">All customers · members · guests · walk-ins · students</div>
+          <div className="title">
+            {customers && customers.length > 0
+              ? customers.length + (customers.length === 1 ? " customer" : " customers")
+              : "Members · guests · walk-ins · students"}
+          </div>
           <h1>Customers</h1>
         </div>
       </div>
@@ -12791,15 +13214,43 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
   const [optimisticPaid, setOptimisticPaid] = useState(new Set());
   const optKey = (item) => item.entryType + ":" + item.id;
 
+  // Bulk select state — Set of optKeys
+  const [selected, setSelected] = useState(new Set());
+  function toggleSelect(item) {
+    const k = optKey(item);
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  }
+
   const pending = (outstanding && outstanding.pending ? outstanding.pending : [])
     .filter(item => !optimisticPaid.has(optKey(item)));
   const overdue = (outstanding && outstanding.overdue ? outstanding.overdue : [])
     .filter(item => !optimisticPaid.has(optKey(item)));
 
+  const allItems = [...overdue, ...pending];
+  const selectedItems = allItems.filter(it => selected.has(optKey(it)));
+  const selectedTotal = selectedItems.reduce((s, it) => s + (it.amount || 0), 0);
+
+  function selectAll(items) {
+    setSelected(new Set(items.map(optKey)));
+  }
+  function clearSelection() {
+    setSelected(new Set());
+  }
+
   async function markPaid(item) {
     const key = optKey(item);
     // Hide instantly
     setOptimisticPaid(prev => new Set([...prev, key]));
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
 
     let r;
     if (item.entryType === "booking") {
@@ -12818,10 +13269,7 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
     if (r.ok) {
       showToast("Marked paid · " + fmtMoney(item.amount), "success");
       onChanged && onChanged();
-      // Item will be gone from the next data fetch; leave it in optimisticPaid
-      // to avoid a flash if the refresh is delayed.
     } else {
-      // Revert
       setOptimisticPaid(prev => {
         const next = new Set(prev);
         next.delete(key);
@@ -12831,6 +13279,63 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
     }
   }
 
+  /* Bulk mark-paid: hide everything optimistically, run all API calls in
+   * parallel, then surface any failures. */
+  async function bulkMarkPaid() {
+    const items = selectedItems;
+    if (items.length === 0) return;
+    const totalAmount = selectedTotal;
+
+    // Hide them all instantly
+    const keys = items.map(optKey);
+    setOptimisticPaid(prev => new Set([...prev, ...keys]));
+    setSelected(new Set());
+    showToast("Marking " + items.length + " items paid · " + fmtMoney(totalAmount), "info");
+
+    // Group coaching sessions into a single batch call where possible
+    const coachingIds = items.filter(it => it.entryType === "coaching").map(it => it.id);
+    const otherItems = items.filter(it => it.entryType !== "coaching");
+
+    const promises = [];
+    if (coachingIds.length > 0) {
+      promises.push(
+        api("adminMarkCoachingSessionsPaid", {
+          sessionIds: JSON.stringify(coachingIds),
+          paymentMethod: "Cash"
+        }).then(r => ({ r, ids: coachingIds, kind: "coaching" }))
+      );
+    }
+    for (const it of otherItems) {
+      const apiCall = it.entryType === "booking"
+        ? api("adminMarkPaid", { bookingId: it.id })
+        : api("adminMarkWalkInPlayerPaid", { playerId: it.id, paymentMethod: "Cash" });
+      promises.push(apiCall.then(r => ({ r, ids: [it.id], kind: it.entryType, item: it })));
+    }
+
+    const results = await Promise.all(promises);
+    const failed = results.filter(x => !x.r.ok);
+
+    if (failed.length === 0) {
+      showToast("Marked " + items.length + " items paid · " + fmtMoney(totalAmount), "success");
+    } else {
+      // Revert failed ones
+      const failedKeys = new Set();
+      for (const f of failed) {
+        for (const id of f.ids) {
+          failedKeys.add(f.kind + ":" + id);
+        }
+      }
+      setOptimisticPaid(prev => {
+        const next = new Set(prev);
+        for (const k of failedKeys) next.delete(k);
+        return next;
+      });
+      const succeededCount = items.length - failedKeys.size;
+      showToast(succeededCount + " marked paid · " + failedKeys.size + " failed — try again", "error");
+    }
+    onChanged && onChanged();
+  }
+
   function renderRow(item, isOverdue) {
     const icon = item.entryType === "coaching" ? "★" : item.entryType === "walkin" ? "◉" : "⬛";
     const ageLabel = item.ageHours < 0
@@ -12838,15 +13343,29 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
       : item.ageHours < 24
       ? Math.round(item.ageHours) + "h ago"
       : Math.round(item.ageHours / 24) + "d ago";
+    const isSelected = selected.has(optKey(item));
     return (
-      <div key={item.entryType + "-" + item.id} className="modal-detail-row" style={{ padding: "10px 0" }}>
-        <span className="k">
-          <span style={{ marginRight: 6, opacity: 0.7 }}>{icon}</span>
+      <div key={item.entryType + "-" + item.id} className="modal-detail-row" style={{
+        padding: "10px 0",
+        background: isSelected ? "rgba(74,109,75,0.06)" : "transparent",
+        borderRadius: 3,
+        paddingLeft: 8,
+        marginLeft: -8
+      }}>
+        <span className="k" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => toggleSelect(item)}
+            style={{ cursor: "pointer", margin: 0 }}
+            aria-label={"Select " + (item.name || "row") + " for bulk action"}
+          />
+          <span style={{ opacity: 0.7 }}>{icon}</span>
           <strong>{item.name || "(no name)"}</strong>
-          {item.courtNumbers && <span style={{ marginLeft: 6, fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>C·{item.courtNumbers}</span>}
-          <span style={{ marginLeft: 8, fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55 }}>{item.date} · {item.time}</span>
+          {item.courtNumbers && <span style={{ marginLeft: 4, fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>C·{item.courtNumbers}</span>}
+          <span style={{ marginLeft: 4, fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55 }}>{item.date} · {item.time}</span>
           <span style={{
-            marginLeft: 8, fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase",
+            marginLeft: 4, fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase",
             color: isOverdue ? "var(--clay)" : "var(--ink)", opacity: isOverdue ? 1 : 0.5, fontWeight: 700
           }}>{ageLabel}</span>
         </span>
@@ -12883,6 +13402,67 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
           <div className="sub">customers who left without paying</div>
         </div>
       </div>
+
+      {/* BULK ACTIONS BAR — shown when user has selected items. Sticky so it
+       * stays visible while scrolling through a long list. */}
+      {selected.size > 0 && (
+        <div style={{
+          position: "sticky",
+          top: 8,
+          zIndex: 30,
+          background: "var(--ink)",
+          color: "var(--cream)",
+          padding: "12px 18px",
+          borderRadius: 4,
+          display: "flex",
+          alignItems: "center",
+          gap: 14,
+          marginBottom: 14,
+          boxShadow: "0 4px 12px rgba(26,26,26,0.18)"
+        }}>
+          <div style={{ flex: 1, display: "flex", alignItems: "baseline", gap: 12 }}>
+            <strong style={{ fontFamily: "var(--mono)", letterSpacing: "0.04em" }}>
+              {selected.size} selected
+            </strong>
+            <span style={{ opacity: 0.7, fontSize: 13 }}>
+              · total {fmtMoney(selectedTotal)}
+            </span>
+          </div>
+          <button
+            className="btn-sm"
+            style={{ background: "transparent", color: "var(--cream)", border: "1.5px solid var(--cream)" }}
+            onClick={clearSelection}
+          >
+            Cancel
+          </button>
+          <button
+            className="btn-sm primary"
+            onClick={bulkMarkPaid}
+          >
+            ✓ Mark {selected.size} paid
+          </button>
+        </div>
+      )}
+
+      {/* Select-all helpers, shown when there are items to select */}
+      {allItems.length > 0 && selected.size === 0 && (
+        <div style={{
+          fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.14em",
+          textTransform: "uppercase", opacity: 0.55, marginBottom: 10,
+          display: "flex", gap: 14
+        }}>
+          {overdue.length > 0 && (
+            <button onClick={() => selectAll(overdue)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--clay)", fontFamily: "inherit", fontSize: "inherit", letterSpacing: "inherit", textTransform: "inherit", padding: 0, fontWeight: 700 }}>
+              ☐ Select all overdue ({overdue.length})
+            </button>
+          )}
+          {allItems.length > 1 && (
+            <button onClick={() => selectAll(allItems)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink)", fontFamily: "inherit", fontSize: "inherit", letterSpacing: "inherit", textTransform: "inherit", padding: 0, opacity: 0.7, fontWeight: 700 }}>
+              ☐ Select all ({allItems.length})
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Inline lists, collapsed by default */}
       {overdue.length > 0 && (
@@ -12978,6 +13558,15 @@ function ScreenSponsorships() {
   const [showAdd, setShowAdd] = useState(false);
   const [editBanner, setEditBanner] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all");
+
+  // FAB integration
+  useEffect(() => {
+    function onCreate(e) {
+      if (e.detail && e.detail.target === "sponsorships") setShowAdd(true);
+    }
+    window.addEventListener("yard:open-create", onCreate);
+    return () => window.removeEventListener("yard:open-create", onCreate);
+  }, []);
 
   async function load() {
     const cached = getCachedApi("adminListSponsorships");
@@ -13352,7 +13941,11 @@ function ScreenSmsLog() {
     <div className="main">
       <div className="main-head">
         <div>
-          <div className="title">All SMS sent · last 200</div>
+          <div className="title">
+            {entries && entries.length > 0
+              ? sentCount + " sent · " + failedCount + " failed · last 200"
+              : "Last 200 messages"}
+          </div>
           <h1>SMS Log</h1>
         </div>
       </div>
@@ -13882,6 +14475,202 @@ function ScreenSoon({ title, message }) {
 /* ====================================================================
    APP SHELL — sidebar + screen router
    ==================================================================== */
+/* ShortcutHelpModal — pressing ? shows this. Power-user reference. */
+function ShortcutHelpModal({ onClose }) {
+  const groups = [
+    {
+      title: "Navigation",
+      shortcuts: [
+        ["g d", "Dashboard"],
+        ["g b", "Bookings"],
+        ["g m", "Members"],
+        ["g c", "Coaching"],
+        ["g p", "POS"],
+        ["g u", "Customers"],
+        ["g f", "Finances"],
+        ["g s", "Sponsorships"],
+        ["g l", "SMS Log"],
+        ["g x", "Settings"]
+      ]
+    },
+    {
+      title: "Actions",
+      shortcuts: [
+        ["n", "Open quick-create menu"],
+        ["/", "Focus search on current page"],
+        ["?", "Show this help"],
+        ["Esc", "Close modal / menu"]
+      ]
+    }
+  ];
+
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 200 }}>
+      <div className="modal" style={{ maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">Power-user shortcuts</div>
+            <h2>Keyboard shortcuts</h2>
+          </div>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div style={{ padding: "0 4px" }}>
+          {groups.map(group => (
+            <div key={group.title} style={{ marginBottom: 22 }}>
+              <div style={{
+                fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.18em",
+                textTransform: "uppercase", opacity: 0.55, fontWeight: 700, marginBottom: 12
+              }}>
+                {group.title}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "10px 22px" }}>
+                {group.shortcuts.map(([key, label]) => (
+                  <React.Fragment key={key}>
+                    <kbd style={{
+                      fontFamily: "var(--mono)",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      padding: "4px 10px",
+                      background: "var(--paper)",
+                      border: "1.5px solid var(--ink)",
+                      borderBottomWidth: 3,
+                      borderRadius: 4,
+                      minWidth: 50,
+                      textAlign: "center",
+                      lineHeight: 1.2
+                    }}>{key}</kbd>
+                    <span style={{ alignSelf: "center", fontSize: 13 }}>{label}</span>
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          ))}
+          <div style={{
+            fontFamily: "var(--mono)", fontSize: 10, opacity: 0.5,
+            paddingTop: 6, borderTop: "1px solid rgba(26,26,26,0.08)"
+          }}>
+            Tip: shortcuts are disabled while typing in input fields.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* QuickCreateFab — floating + button in bottom-right that opens a menu of
+ * quick-create actions. Navigates to the right screen and fires a global
+ * "yard:open-create" event that screens listen for to auto-open their modal. */
+function QuickCreateFab({ go, screen }) {
+  const [open, setOpen] = useState(false);
+
+  function dispatch(target) {
+    setOpen(false);
+    // First go to the target screen (if not already there)
+    go(target);
+    // Then notify after render so the screen has time to mount its listener
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("yard:open-create", { detail: { target } }));
+    }, target === screen ? 0 : 250);
+  }
+
+  // Menu items — each maps to a screen + an action it will perform on arrival
+  const items = [
+    { id: "bookings",     icon: "⬛", label: "New booking",        hint: "Court reservation" },
+    { id: "walkin",       icon: "◉", label: "New walk-in block",   hint: "Drop-in open play" },
+    { id: "coaching",     icon: "★", label: "New coaching session", hint: "Private or group lesson" },
+    { id: "pos",          icon: "$", label: "New POS sale",        hint: "Ring up drinks/products" },
+    { id: "members",      icon: "★", label: "New member",          hint: "Sign up Founding or Standard" },
+    { id: "sponsorships", icon: "⬛", label: "New sponsor banner",  hint: "Sell ad space" },
+  ];
+
+  // Keyboard: Esc to close
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  return (
+    <>
+      {open && (
+        <div
+          onClick={() => setOpen(false)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 95,
+            background: "rgba(26,26,26,0.25)",
+            animation: "fadeIn 0.15s ease"
+          }}
+        />
+      )}
+      <div style={{
+        position: "fixed",
+        bottom: 28,
+        right: 28,
+        zIndex: 100,
+        display: "flex",
+        flexDirection: "column-reverse",
+        alignItems: "flex-end",
+        gap: 10
+      }}>
+        {/* Main FAB */}
+        <button
+          onClick={() => setOpen(o => !o)}
+          aria-label="Quick create"
+          title="Quick create (or press N)"
+          style={{
+            width: 56, height: 56,
+            borderRadius: "50%",
+            background: open ? "var(--ink)" : "var(--clay)",
+            color: "var(--cream)",
+            border: "none",
+            fontSize: 28,
+            fontWeight: 300,
+            lineHeight: 1,
+            cursor: "pointer",
+            boxShadow: "0 6px 18px rgba(26,26,26,0.28)",
+            transition: "transform 0.2s ease, background 0.2s ease",
+            transform: open ? "rotate(45deg)" : "rotate(0)"
+          }}
+        >
+          +
+        </button>
+
+        {/* Menu */}
+        {open && items.map((it, idx) => (
+          <button
+            key={it.id + idx}
+            onClick={() => dispatch(it.id)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "10px 16px",
+              background: "var(--paper)",
+              color: "var(--ink)",
+              border: "1.5px solid var(--ink)",
+              borderRadius: 999,
+              fontFamily: "var(--mono)",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer",
+              boxShadow: "0 4px 12px rgba(26,26,26,0.18)",
+              whiteSpace: "nowrap",
+              animation: "fabSlideIn 0.18s ease " + (idx * 0.025) + "s both"
+            }}
+          >
+            <span style={{ fontSize: 16, opacity: 0.8 }}>{it.icon}</span>
+            <span style={{ flex: 1, textAlign: "left" }}>{it.label}</span>
+            <span style={{ fontSize: 10, opacity: 0.55, fontWeight: 400 }}>{it.hint}</span>
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
 function App() {
   const [authed, setAuthed] = useState(!!getStoredPin());
   const [screen, setScreen] = useState("dashboard");
@@ -14005,6 +14794,82 @@ function App() {
     setScreen(id);
   }
 
+  // ============================================================
+  // KEYBOARD SHORTCUTS — power-user navigation
+  //   /         focus the first search input on the current screen
+  //   n         open quick-create menu (FAB)
+  //   ?         show shortcut help
+  //   g <key>   navigate (g d = dashboard, g b = bookings, etc.)
+  //   Esc       close shortcut help / FAB
+  // Shortcuts are disabled while user is typing in inputs.
+  // ============================================================
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const gPrefixRef = useRef(0);  // timestamp of last "g" press
+
+  useEffect(() => {
+    const SHORTCUT_KEYS = {
+      d: "dashboard", b: "bookings", m: "members", c: "coaching",
+      p: "pos", u: "customers", f: "finances", s: "sponsorships",
+      l: "sms", x: "settings"
+    };
+
+    function isTypingTarget(el) {
+      if (!el) return false;
+      const tag = el.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+      if (el.isContentEditable) return true;
+      return false;
+    }
+
+    function onKey(e) {
+      // Ignore if user is typing
+      if (isTypingTarget(e.target)) return;
+      // Ignore if modifier keys (let Cmd-K etc work as native)
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const key = e.key.toLowerCase();
+      const now = Date.now();
+
+      // "g X" — go-to navigation (2-key combo within 1 second)
+      if (key === "g") {
+        gPrefixRef.current = now;
+        return;
+      }
+      if (gPrefixRef.current && (now - gPrefixRef.current) < 1000 && SHORTCUT_KEYS[key]) {
+        gPrefixRef.current = 0;
+        e.preventDefault();
+        go(SHORTCUT_KEYS[key]);
+        return;
+      }
+      gPrefixRef.current = 0;
+
+      // Single-key shortcuts
+      if (key === "/") {
+        // Focus first search input on the page
+        const input = document.querySelector('input[type="search"], input.search-input, input[placeholder*="Search" i]');
+        if (input) {
+          e.preventDefault();
+          input.focus();
+          input.select && input.select();
+        }
+      } else if (key === "?") {
+        e.preventDefault();
+        setShowShortcutHelp(true);
+      } else if (key === "n") {
+        // Trigger the FAB by simulating a click — keeps logic in one place
+        const fab = document.querySelector('[aria-label="Quick create"]');
+        if (fab) {
+          e.preventDefault();
+          fab.click();
+        }
+      } else if (key === "escape") {
+        setShowShortcutHelp(false);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   let body;
   switch (screen) {
     case "dashboard": body = <ScreenDashboard />; break;
@@ -14022,6 +14887,9 @@ function App() {
 
   return (
     <div className="app-shell">
+      <ConfirmHost />
+      <QuickCreateFab go={go} screen={screen} />
+      {showShortcutHelp && <ShortcutHelpModal onClose={() => setShowShortcutHelp(false)} />}
       <aside className="sidebar">
         <div className="logo">
           <svg viewBox="0 0 640 220" xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "auto", display: "block" }}>
