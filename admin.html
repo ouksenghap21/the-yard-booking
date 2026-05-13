@@ -3486,6 +3486,56 @@ button { font-family: inherit; cursor: pointer; }
   display: inline-block;
 }
 
+/* ============================================================
+   SKELETON LOADERS — replace ambiguous "faded" loading with
+   structural placeholders so users can see what's coming.
+============================================================ */
+@keyframes shimmer {
+  0%   { background-position: -468px 0; }
+  100% { background-position: 468px 0; }
+}
+.skeleton-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    rgba(26,26,26,0.06) 0%,
+    rgba(26,26,26,0.12) 50%,
+    rgba(26,26,26,0.06) 100%
+  );
+  background-size: 800px 100%;
+  background-repeat: no-repeat;
+  animation: shimmer 1.4s linear infinite;
+}
+
+/* Refresh stripe — a slim animated progress bar at the top of a panel during
+ * background refresh. Better than dimming the whole panel (which felt like
+ * "stuck loading"). The content stays vivid and readable. */
+.refresh-stripe {
+  height: 2px;
+  width: 100%;
+  background: rgba(26,26,26,0.06);
+  border-radius: 2px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  position: relative;
+}
+.refresh-stripe::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--green) 50%,
+    transparent 100%
+  );
+  width: 40%;
+  animation: refresh-stripe-slide 1.4s linear infinite;
+}
+@keyframes refresh-stripe-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
   </style>
 
   <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
@@ -3801,6 +3851,65 @@ function todayISO() {
   const d = new Date();
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
+
+/* ====== NUMBER FORMATTING ======
+ * Standard rules for consistent display across the app:
+ *  - Money: always 2 decimals, thousands separator, currency symbol
+ *  - Compact money: rounded, $1.2k / $45M for dashboards where space is tight
+ *  - Percentages: 1 decimal max, "0%" for null
+ *  - Integers: thousands separator
+ *  - Relative time: "14s ago", "3m ago", "just now"
+ */
+function fmtMoney(n) {
+  if (n === null || n === undefined || isNaN(+n)) return "$0.00";
+  const v = Math.round((+n) * 100) / 100;
+  const sign = v < 0 ? "-" : "";
+  const abs = Math.abs(v);
+  return sign + "$" + abs.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+function fmtMoneyShort(n) {
+  // Compact format for tight UIs: $1.2k, $45M. Keeps 2 decimals for <$1000.
+  if (n === null || n === undefined || isNaN(+n)) return "$0";
+  const v = +n;
+  const sign = v < 0 ? "-" : "";
+  const abs = Math.abs(v);
+  if (abs >= 1_000_000) return sign + "$" + (abs / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
+  if (abs >= 10_000)    return sign + "$" + Math.round(abs / 1000) + "k";
+  if (abs >= 1000)      return sign + "$" + (abs / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+  return fmtMoney(v);
+}
+function fmtMoneyWhole(n) {
+  // For headline cards where decimals add noise: "$210" not "$210.60"
+  if (n === null || n === undefined || isNaN(+n)) return "$0";
+  const sign = +n < 0 ? "-" : "";
+  return sign + "$" + Math.round(Math.abs(+n)).toLocaleString("en-US");
+}
+function fmtPct(n, decimals) {
+  if (n === null || n === undefined || isNaN(+n)) return "0%";
+  const d = decimals === undefined ? 1 : decimals;
+  return (+n).toFixed(d).replace(/\.0$/, "") + "%";
+}
+function fmtInt(n) {
+  if (n === null || n === undefined || isNaN(+n)) return "0";
+  return Math.round(+n).toLocaleString("en-US");
+}
+function fmtRelativeTime(ts) {
+  // ts is a millisecond timestamp or Date
+  if (!ts) return "";
+  const ms = ts instanceof Date ? ts.getTime() : +ts;
+  const diff = Date.now() - ms;
+  if (diff < 0) return "just now";
+  const sec = Math.floor(diff / 1000);
+  if (sec < 10) return "just now";
+  if (sec < 60) return sec + "s ago";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return min + "m ago";
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return hr + "h ago";
+  const day = Math.floor(hr / 24);
+  return day + "d ago";
+}
+
 function fmtDateLong(dateStr) {
   if (!dateStr) return "";
   const d = new Date(dateStr + "T12:00:00");
@@ -3957,6 +4066,133 @@ function BouncingBall({ size = "md", label = "Loading…" }) {
           textTransform: "uppercase", opacity: 0.55, fontWeight: 600
         }}>
           {label}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Last-updated indicator — re-renders every 15s so "14s ago → 30s ago → 1m ago".
+ * Builds trust: user knows whether they're looking at fresh or stale data. */
+function LastUpdated({ ts, prefix = "Updated", style }) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    if (!ts) return;
+    const id = setInterval(() => force(n => n + 1), 15000);
+    return () => clearInterval(id);
+  }, [ts]);
+  if (!ts) return null;
+  return (
+    <span style={{
+      fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.14em",
+      textTransform: "uppercase", opacity: 0.5, fontWeight: 600,
+      ...style
+    }}>
+      {prefix} {fmtRelativeTime(ts)}
+    </span>
+  );
+}
+
+/* Skeleton loader — gray placeholder shape while real content loads.
+ * Better than spinners because the user sees structure of what's coming. */
+function Skeleton({ w = "100%", h = 16, radius = 4, style }) {
+  return (
+    <div
+      className="skeleton-shimmer"
+      style={{
+        width: w,
+        height: h,
+        borderRadius: radius,
+        background: "rgba(26,26,26,0.08)",
+        ...style
+      }}
+    />
+  );
+}
+
+/* Skeleton for stat cards — matches the layout so users see the shape. */
+function StatCardSkeleton({ accent }) {
+  return (
+    <div className="stat-card" style={{ borderColor: accent || "var(--ink)" }}>
+      <Skeleton w="60%" h={10} style={{ marginBottom: 14 }} />
+      <Skeleton w="80%" h={32} style={{ marginBottom: 12 }} />
+      <Skeleton w="40%" h={10} />
+    </div>
+  );
+}
+
+/* Skeleton for a list row (booking, member, etc.) */
+function RowSkeleton() {
+  return (
+    <div className="booking-row" style={{ borderLeft: "5px solid rgba(26,26,26,0.1)" }}>
+      <div className="when">
+        <Skeleton w={50} h={14} />
+        <Skeleton w={40} h={9} style={{ marginTop: 4 }} />
+      </div>
+      <div className="who" style={{ flex: 1 }}>
+        <Skeleton w="40%" h={14} style={{ marginBottom: 6 }} />
+        <Skeleton w="60%" h={10} />
+      </div>
+      <div className="actions">
+        <Skeleton w={60} h={20} />
+      </div>
+    </div>
+  );
+}
+
+/* EmptyState — pair every empty result with a clear next action.
+ * Replaces the bare "No X" text that left users wondering what to do.
+ *   icon:     decorative emoji/symbol shown big
+ *   title:    short statement of the situation
+ *   hint:     optional one-line explanation
+ *   action:   { label, onClick, primary? } — the call to action
+ *   secondary: { label, onClick } — optional second action
+ */
+function EmptyState({ icon, title, hint, action, secondary }) {
+  return (
+    <div style={{
+      padding: "40px 24px",
+      textAlign: "center",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: 12,
+      border: "1.5px dashed rgba(26,26,26,0.18)",
+      borderRadius: 6,
+      background: "rgba(26,26,26,0.02)"
+    }}>
+      {icon && (
+        <div style={{ fontSize: 36, opacity: 0.5, lineHeight: 1 }}>{icon}</div>
+      )}
+      <div style={{
+        fontFamily: "var(--serif)", fontStyle: "italic",
+        fontSize: 22, color: "var(--ink)"
+      }}>
+        {title}
+      </div>
+      {hint && (
+        <div style={{
+          fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.04em",
+          opacity: 0.65, maxWidth: 480
+        }}>
+          {hint}
+        </div>
+      )}
+      {(action || secondary) && (
+        <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+          {action && (
+            <button
+              className={"btn " + (action.primary !== false ? "primary" : "")}
+              onClick={action.onClick}
+            >
+              {action.label}
+            </button>
+          )}
+          {secondary && (
+            <button className="btn" onClick={secondary.onClick}>
+              {secondary.label}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -4433,6 +4669,11 @@ function ScreenDashboard() {
           <div style={{ marginTop: 4, fontSize: 10 }}>
             {clock} · Toul Kork
           </div>
+          {lastUpdated && (
+            <div style={{ marginTop: 4 }}>
+              <LastUpdated ts={lastUpdated} />
+            </div>
+          )}
         </div>
       </div>
 
@@ -4459,18 +4700,18 @@ function ScreenDashboard() {
         </div>
         <div className="stat-card accent-green">
           <div className="label">Court rev. paid</div>
-          <div className="value">${data.bookings.revenuePaid.toFixed(2)}</div>
+          <div className="value">{fmtMoney(data.bookings.revenuePaid)}</div>
           <div className="sub">Today · courts only</div>
         </div>
         <div className="stat-card accent-clay">
           <div className="label">Court rev. pending</div>
-          <div className="value">${data.bookings.revenuePending.toFixed(2)}</div>
+          <div className="value">{fmtMoney(data.bookings.revenuePending)}</div>
           <div className="sub">Awaiting payment · courts only</div>
         </div>
         <div className="stat-card accent-wood">
           <div className="label">POS revenue</div>
-          <div className="value">${data.pos.revenue.toFixed(2)}</div>
-          <div className="sub">{data.pos.transactions} transactions</div>
+          <div className="value">{fmtMoney(data.pos.revenue)}</div>
+          <div className="sub">{fmtInt(data.pos.transactions)} transactions</div>
         </div>
         {data.bookings.atRisk > 0 && (
           <div className="stat-card warn">
@@ -4846,19 +5087,34 @@ function ActionQueuePanel({ data, onMarkPaid }) {
   const lowStock = aq.lowStock || [];
   const birthdayWeek = aq.birthdayThisWeek || [];
 
+  // Optimistic UI: IDs the user just clicked "Mark paid" on. We hide them
+  // immediately so the action feels instant; the API call runs in the background
+  // and reconciles when onMarkPaid() refreshes the data.
+  const [optimisticPaid, setOptimisticPaid] = useState(new Set());
+
   const total =
-    payments.length +
+    payments.filter(p => !optimisticPaid.has(p.bookingId)).length +
     atRisk.length +
     lowStock.length +
     birthdayWeek.filter(m => !m.alreadyUsed).length;
 
   async function markPaid(bookingId) {
+    // Instantly hide the row
+    setOptimisticPaid(prev => new Set([...prev, bookingId]));
     const r = await api("adminMarkPaid", { bookingId: bookingId });
     if (r.ok) {
-      showToast("Marked paid", "success");
+      showToast("Marked paid · " + (r.amount ? "$" + (+r.amount).toFixed(2) : "") + " collected", "success");
       onMarkPaid && onMarkPaid();
+      // Keep it in optimisticPaid until parent refresh removes it from `payments`.
+      // No need to clear — when the data refreshes, this id will no longer be in payments.
     } else {
-      showToast(r.error || "Failed", "error");
+      // Revert: bring the row back
+      setOptimisticPaid(prev => {
+        const next = new Set(prev);
+        next.delete(bookingId);
+        return next;
+      });
+      showToast(r.error || "Failed — try again", "error");
     }
   }
 
@@ -4886,14 +5142,14 @@ function ActionQueuePanel({ data, onMarkPaid }) {
       <div className="section-group">
         <div className="head">
           <span>Payments to Collect</span>
-          <span className={"count" + (payments.length === 0 ? " zero" : " urgent")}>
-            {payments.length}
+          <span className={"count" + (payments.filter(p => !optimisticPaid.has(p.bookingId)).length === 0 ? " zero" : " urgent")}>
+            {payments.filter(p => !optimisticPaid.has(p.bookingId)).length}
           </span>
         </div>
-        {payments.length === 0 ? (
+        {payments.filter(p => !optimisticPaid.has(p.bookingId)).length === 0 ? (
           <div className="empty-mini">No outstanding payments</div>
         ) : (
-          payments.map(p => (
+          payments.filter(p => !optimisticPaid.has(p.bookingId)).map(p => (
             <div className="action-item" key={p.bookingId}>
               <span className="badge urgent">{p.timeEnd}</span>
               <div className="body">
@@ -4901,7 +5157,7 @@ function ActionQueuePanel({ data, onMarkPaid }) {
                   {p.name}
                   {p.memberTier && <span className={"tier-pill " + p.memberTier} style={{ marginLeft: 8 }}>{p.memberTier}</span>}
                 </div>
-                <div className="meta">C·{p.courts} · ${(p.total || 0).toFixed(2)} · {p.phone}</div>
+                <div className="meta">C·{p.courts} · {fmtMoney(p.total)} · {p.phone}</div>
               </div>
               <button className="btn-sm primary" onClick={() => markPaid(p.bookingId)}>Mark paid</button>
             </div>
@@ -6527,15 +6783,20 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
   }
 
   async function markPaid(playerId) {
-    setWorking(true);
+    // Optimistic: flip the local row to paid immediately
+    const before = players;
+    setPlayers(prev => prev.map(p =>
+      p.playerId === playerId ? { ...p, paymentStatus: "Paid", paymentMethod: "Cash" } : p
+    ));
     const r = await api("adminMarkWalkInPlayerPaid", { playerId: playerId, paymentMethod: "Cash" });
-    setWorking(false);
     if (r.ok) {
       showToast("Marked paid", "success");
       refresh();
       onChanged && onChanged();
     } else {
-      showToast(r.error || "Failed", "error");
+      // Revert
+      setPlayers(before);
+      showToast(r.error || "Failed — try again", "error");
     }
   }
 
@@ -6954,11 +7215,35 @@ function ScreenMembers() {
       </div>
 
       {loading ? (
-        <div style={{ padding: 40, display: "flex", justifyContent: "center" }}>
-          <BouncingBall size="md" />
+        <div>
+          {/* Skeleton matching the member-list layout — feels faster than a spinner */}
+          {[1,2,3,4,5].map(i => (
+            <div key={i} className="member-row" style={{ display: "flex", gap: 16, padding: "14px 16px", alignItems: "center" }}>
+              <Skeleton w={140} h={16} />
+              <div style={{ flex: 1 }}>
+                <Skeleton w="40%" h={14} style={{ marginBottom: 6 }} />
+                <Skeleton w="60%" h={10} />
+              </div>
+              <Skeleton w={70} h={28} />
+            </div>
+          ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="empty">No members match</div>
+        (members || []).length === 0 ? (
+          <EmptyState
+            icon="★"
+            title="No members yet"
+            hint="Members get 30-50% off court rentals depending on tier. Founding (first 20) gets the deepest discount and is a one-time-only offer."
+            action={{ label: "+ Add first member", onClick: () => setShowAdd(true) }}
+          />
+        ) : (
+          <EmptyState
+            icon="?"
+            title="No members match"
+            hint={'Searching for "' + search + '" — try a different name or phone number.'}
+            action={{ label: "Clear search", onClick: () => setSearch(""), primary: false }}
+          />
+        )
       ) : (
         <div className="member-list">
           {filtered.map(m => (
@@ -7414,7 +7699,12 @@ function CoachesView({ coaches, loading, reload }) {
       </div>
 
       {coaches.length === 0 ? (
-        <div className="empty">No coaches yet — add one to start booking sessions</div>
+        <EmptyState
+          icon="★"
+          title="No coaches yet"
+          hint="Add your first coach to start booking lessons. You can set hourly rates and commission splits per coach."
+          action={{ label: "+ Add your first coach", onClick: () => setShowAdd(true) }}
+        />
       ) : (
         coaches.map(c => (
           <div className="coach-card" key={c.coachId} onClick={() => setEditCoach(c)}>
@@ -7650,9 +7940,33 @@ function SessionsView({ coaches, sessions, loading, dateFrom, setDateFrom, dateT
       )}
 
       {sessions === null ? (
-        <div style={{ padding: 40, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
+        <div>
+          {[1,2,3].map(i => (
+            <div key={i} style={{ padding: 14, marginBottom: 8, border: "1.5px solid rgba(26,26,26,0.1)", borderRadius: 4 }}>
+              <Skeleton w={120} h={14} style={{ marginBottom: 8 }} />
+              <Skeleton w="50%" h={12} style={{ marginBottom: 6 }} />
+              <Skeleton w="35%" h={10} />
+            </div>
+          ))}
+        </div>
       ) : sessions.length === 0 ? (
-        <div className="empty">No sessions in this range</div>
+        <EmptyState
+          icon="★"
+          title="No sessions in this range"
+          hint={"From " + dateFrom + " to " + dateTo + ". Try widening the date range or removing filters."}
+          action={
+            coaches.filter(c => c.status === "Active").length > 0
+              ? { label: "+ Book a session", onClick: () => setShowAdd(true) }
+              : null
+          }
+          secondary={{
+            label: "Show next 30 days",
+            onClick: () => {
+              const d = new Date(); d.setDate(d.getDate() + 30);
+              setDateTo(d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"));
+            }
+          }}
+        />
       ) : (
         sessions.map(s => (
           <div
@@ -8175,7 +8489,11 @@ function PaymentsDueView({ data, loading, reload }) {
         <span className="right">{data.length} coach{data.length === 1 ? "" : "es"}</span>
       </div>
       {data.length === 0 ? (
-        <div className="empty">No coaches in system</div>
+        <EmptyState
+          icon="★"
+          title="No coaches in system"
+          hint="Once you add coaches and book sessions, their pending payments will show here."
+        />
       ) : (
         data.map(c => {
           const isExpanded = expandedCoachId === c.coachId;
@@ -8959,7 +9277,12 @@ function OpenTabsModal({ onClose, onSelect, onChanged }) {
         {tabs === null ? (
           <div style={{ padding: 40, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
         ) : tabs.length === 0 ? (
-          <div className="empty">No open tabs · click + New Tab to start one</div>
+          <EmptyState
+            icon="—"
+            title="No open tabs"
+            hint="Tabs let customers add items throughout their session, then settle once at the end."
+            action={{ label: "+ Start a new tab", onClick: () => setShowNewTab(true) }}
+          />
         ) : (
           <div>
             {tabs.map(t => (
@@ -10007,7 +10330,13 @@ function SaleHistoryModal({ onClose }) {
         {sales === null ? (
           <div style={{ padding: 40, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
         ) : filtered.length === 0 ? (
-          <div className="empty">No sales in this range</div>
+          <EmptyState
+            icon="—"
+            title="No sales in this range"
+            hint={(sales || []).length > 0 ? "Filters narrowed the list. Try clearing search or changing the range." : "Once you ring up sales they'll show here."}
+            action={search ? { label: "Clear search", onClick: () => setSearch(""), primary: false } : null}
+            secondary={range !== "all" ? { label: "Show all time", onClick: () => setRange("all") } : null}
+          />
         ) : (
           <div style={{ maxHeight: 430, overflowY: "auto", border: "1px solid rgba(26,26,26,0.08)", borderRadius: 3 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -10193,7 +10522,11 @@ function AttachPickerModal({ alreadyAttached, onClose, onPick }) {
         {entries === null ? (
           <div style={{ padding: 30, display: "flex", justifyContent: "center" }}><BouncingBall size="sm" /></div>
         ) : entries.length === 0 ? (
-          <div className="empty">No bookings or walk-ins waiting to be settled today</div>
+          <EmptyState
+            icon="✓"
+            title="Nothing to settle"
+            hint="No bookings or walk-ins waiting for payment today. You're all caught up!"
+          />
         ) : (
           <div style={{ maxHeight: 420, overflowY: "auto" }}>
             {entries.filter(e => e.entryType === "booking").map(b => {
@@ -10649,9 +10982,26 @@ function ScreenCustomers() {
       </div>
 
       {customers === null ? (
-        <div style={{ padding: 40, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
+        <div className="customer-list">
+          {[1,2,3,4,5,6].map(i => (
+            <div key={i} className="booking-row" style={{ borderLeft: "5px solid rgba(26,26,26,0.1)" }}>
+              <div className="when"><Skeleton w={60} h={14} /></div>
+              <div className="who" style={{ flex: 1 }}>
+                <Skeleton w="35%" h={14} style={{ marginBottom: 6 }} />
+                <Skeleton w="55%" h={10} />
+              </div>
+              <Skeleton w={80} h={26} />
+            </div>
+          ))}
+        </div>
       ) : customers.length === 0 ? (
-        <div className="empty">No customers match</div>
+        <EmptyState
+          icon="?"
+          title="No customers match"
+          hint={search ? 'No matches for "' + search + '". Try clearing the search or a different filter.' : "No customers in this category yet."}
+          action={search ? { label: "Clear search", onClick: () => setSearch(""), primary: false } : null}
+          secondary={typeFilter !== "all" ? { label: "Show all", onClick: () => setTypeFilter("all") } : null}
+        />
       ) : (
         <div className="customer-list">
           {customers.map(c => {
@@ -11559,6 +11909,7 @@ function ScreenFinances() {
   // the bug where switching Monthly→Weekly briefly showed Monthly numbers
   // under the Weekly label.
   const [dataByKey, setDataByKey] = useState({});  // { "monthly:0": {...}, "weekly:0": {...} }
+  const [updatedByKey, setUpdatedByKey] = useState({});  // when each key was last loaded
   const [loadingKey, setLoadingKey] = useState(null);  // the key currently being fetched
   const [error, setError] = useState(null);  // {key, message} when a fetch fails
 
@@ -11569,6 +11920,7 @@ function ScreenFinances() {
 
   const currentKey = granularity + ":" + periodOffset;
   const currentData = dataByKey[currentKey] || null;
+  const currentUpdated = updatedByKey[currentKey] || null;
   const isLoading = loadingKey === currentKey && !currentData;
   const isRefreshing = loadingKey === currentKey && !!currentData;
 
@@ -11588,6 +11940,8 @@ function ScreenFinances() {
     const cached = getCachedApi(cacheParams.action, cacheParams.params);
     if (cached && cached.ok) {
       setDataByKey(prev => ({ ...prev, [key]: cached }));
+      // Only set updated time if we don't have a fresher one
+      setUpdatedByKey(prev => prev[key] ? prev : { ...prev, [key]: Date.now() });
     }
 
     // Mark this key as loading
@@ -11626,6 +11980,7 @@ function ScreenFinances() {
     // still STORE the result for its key (useful later) but don't change UI state
     if (r && r.ok) {
       setDataByKey(prev => ({ ...prev, [key]: r }));
+      setUpdatedByKey(prev => ({ ...prev, [key]: Date.now() }));
     }
 
     // Only clear loading/error if we're still the latest request AND user hasn't switched
@@ -11738,6 +12093,11 @@ function ScreenFinances() {
               </span>
             )}
           </h1>
+          {currentUpdated && (
+            <div style={{ marginTop: 2 }}>
+              <LastUpdated ts={currentUpdated} />
+            </div>
+          )}
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {/* Granularity toggle */}
@@ -11808,9 +12168,12 @@ function ScreenFinances() {
       )}
 
       {isLoading ? (
-        <div style={{ padding: 60, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
+        <FinancesSkeleton granularity={granularity} />
       ) : (
-        <div style={{ opacity: isRefreshing ? 0.55 : 1, transition: "opacity 0.15s" }}>
+        <div>
+          {isRefreshing && (
+            <div className="refresh-stripe" aria-hidden="true" />
+          )}
           {safeData ? (
             granularity === "monthly" ? (
               <FinancesView data={safeData} onChanged={load} />
@@ -12077,6 +12440,40 @@ function AccountingReportPickerModal({ onClose, onPick }) {
 }
 
 
+/* Skeleton that mirrors the Finances layout: 6 stat cards + math row + chart.
+ * Shown during first load. Less ambiguous than a centered spinner — user sees
+ * the SHAPE of what's coming. */
+function FinancesSkeleton({ granularity }) {
+  return (
+    <div>
+      <div className="stat-grid" style={{ gridTemplateColumns: "1.4fr 1fr 1fr 1fr 1fr 1fr", marginBottom: 8 }}>
+        <StatCardSkeleton accent="var(--green)" />
+        <StatCardSkeleton />
+        <StatCardSkeleton accent="var(--peach,#D9785C)" />
+        <StatCardSkeleton accent="var(--wood)" />
+        <StatCardSkeleton />
+        <StatCardSkeleton accent="var(--clay)" />
+      </div>
+      <Skeleton w="100%" h={36} radius={4} style={{ marginBottom: 18 }} />
+      {granularity === "monthly" && (
+        <>
+          <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr", marginBottom: 14 }}>
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+            <StatCardSkeleton />
+          </div>
+          <Skeleton w="100%" h={300} />
+        </>
+      )}
+      {granularity === "weekly" && (
+        <Skeleton w="100%" h={260} />
+      )}
+    </div>
+  );
+}
+
+
 /* Lean view for daily/weekly granularity — just headline + chart + summary */
 function FinancesRangeView({ data, granularity }) {
   const h = data.headline;
@@ -12091,37 +12488,37 @@ function FinancesRangeView({ data, granularity }) {
       <div className="stat-grid" style={{ gridTemplateColumns: "1.4fr 1fr 1fr 1fr 1fr 1fr", marginBottom: 8 }}>
         <div className="stat-card accent-green" style={{ background: "var(--green)", color: "var(--cream)" }}>
           <div className="label" style={{ color: "var(--cream)", opacity: 0.7 }}>Total revenue</div>
-          <div className="value" style={{ color: "var(--cream)", fontSize: 44 }}>${h.totalRevenue.toFixed(2)}</div>
+          <div className="value" style={{ color: "var(--cream)", fontSize: 44 }}>{fmtMoney(h.totalRevenue)}</div>
           <div className="sub" style={{ color: "var(--cream)", opacity: 0.7 }}>
-            {data.summary.paidBookings + data.summary.paidWalkInPlayers + data.summary.paidCoachingSessions + data.summary.posTransactions} paid transactions
+            {fmtInt(data.summary.paidBookings + data.summary.paidWalkInPlayers + data.summary.paidCoachingSessions + data.summary.posTransactions)} paid transactions
           </div>
         </div>
         <div className="stat-card">
           <div className="label">Court rental</div>
-          <div className="value">${h.courtRev.toFixed(0)}</div>
-          <div className="sub">{pct(h.courtRev)}% · {data.summary.paidBookings} paid bookings</div>
+          <div className="value">{fmtMoneyWhole(h.courtRev)}</div>
+          <div className="sub">{fmtPct(pct(h.courtRev), 0)} · {fmtInt(data.summary.paidBookings)} paid bookings</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}>
           <div className="label">◉ Walk-in</div>
-          <div className="value" style={{ color: "var(--peach,#D9785C)" }}>${h.walkinRev.toFixed(0)}</div>
-          <div className="sub">{pct(h.walkinRev)}% · {data.summary.paidWalkInPlayers} players</div>
+          <div className="value" style={{ color: "var(--peach,#D9785C)" }}>{fmtMoneyWhole(h.walkinRev)}</div>
+          <div className="sub">{fmtPct(pct(h.walkinRev), 0)} · {fmtInt(data.summary.paidWalkInPlayers)} players</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
           <div className="label">★ Coaching</div>
-          <div className="value" style={{ color: "var(--wood)" }}>${h.coachingRev.toFixed(0)}</div>
-          <div className="sub">{pct(h.coachingRev)}% · {data.summary.paidCoachingSessions} sessions</div>
+          <div className="value" style={{ color: "var(--wood)" }}>{fmtMoneyWhole(h.coachingRev)}</div>
+          <div className="sub">{fmtPct(pct(h.coachingRev), 0)} · {fmtInt(data.summary.paidCoachingSessions)} sessions</div>
         </div>
         <div className="stat-card">
           <div className="label">POS</div>
-          <div className="value">${h.posRev.toFixed(0)}</div>
-          <div className="sub">{pct(h.posRev)}% · {data.summary.posTransactions} txns</div>
+          <div className="value">{fmtMoneyWhole(h.posRev)}</div>
+          <div className="sub">{fmtPct(pct(h.posRev), 0)} · {fmtInt(data.summary.posTransactions)} txns</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--clay)" }}>
           <div className="label">⬛ Sponsorships</div>
-          <div className="value" style={{ color: "var(--clay)" }}>${(h.sponsorshipRev || 0).toFixed(0)}</div>
+          <div className="value" style={{ color: "var(--clay)" }}>{fmtMoneyWhole(h.sponsorshipRev || 0)}</div>
           <div className="sub">
-            {pct(h.sponsorshipRev || 0)}%
-            {(h.sponsorshipMonthly || h.sponsorshipOneOff) ? " · " + (h.sponsorshipMonthly ? "MRR $" + h.sponsorshipMonthly.toFixed(0) : "") + (h.sponsorshipMonthly && h.sponsorshipOneOff ? " + " : "") + (h.sponsorshipOneOff ? "one-off $" + h.sponsorshipOneOff.toFixed(0) : "") : ""}
+            {fmtPct(pct(h.sponsorshipRev || 0), 0)}
+            {(h.sponsorshipMonthly || h.sponsorshipOneOff) ? " · " + (h.sponsorshipMonthly ? "MRR " + fmtMoneyWhole(h.sponsorshipMonthly) : "") + (h.sponsorshipMonthly && h.sponsorshipOneOff ? " + " : "") + (h.sponsorshipOneOff ? "one-off " + fmtMoneyWhole(h.sponsorshipOneOff) : "") : ""}
           </div>
         </div>
       </div>
@@ -12133,13 +12530,13 @@ function FinancesRangeView({ data, granularity }) {
         background: "rgba(26,26,26,0.03)", borderRadius: 4,
         borderLeft: "3px solid var(--green)"
       }}>
-        <b>${h.totalRevenue.toFixed(2)}</b>
+        <b>{fmtMoney(h.totalRevenue)}</b>
         {" = "}
-        ${h.courtRev.toFixed(2)} <span style={{ opacity: 0.5 }}>court</span>
-        {" + "}${h.walkinRev.toFixed(2)} <span style={{ opacity: 0.5 }}>walk-in</span>
-        {" + "}${h.coachingRev.toFixed(2)} <span style={{ opacity: 0.5 }}>coaching</span>
-        {" + "}${h.posRev.toFixed(2)} <span style={{ opacity: 0.5 }}>POS</span>
-        {" + "}${(h.sponsorshipRev || 0).toFixed(2)} <span style={{ opacity: 0.5 }}>sponsorship</span>
+        {fmtMoney(h.courtRev)} <span style={{ opacity: 0.5 }}>court</span>
+        {" + "}{fmtMoney(h.walkinRev)} <span style={{ opacity: 0.5 }}>walk-in</span>
+        {" + "}{fmtMoney(h.coachingRev)} <span style={{ opacity: 0.5 }}>coaching</span>
+        {" + "}{fmtMoney(h.posRev)} <span style={{ opacity: 0.5 }}>POS</span>
+        {" + "}{fmtMoney(h.sponsorshipRev || 0)} <span style={{ opacity: 0.5 }}>sponsorship</span>
       </div>
 
       {/* Bar chart for weekly granularity. Daily granularity has no extra
@@ -12205,37 +12602,37 @@ function FinancesView({ data, onChanged }) {
       <div className="stat-grid" style={{ gridTemplateColumns: "1.4fr 1fr 1fr 1fr 1fr 1fr", marginBottom: 18 }}>
         <div className="stat-card accent-green" style={{ background: "var(--green)", color: "var(--cream)" }}>
           <div className="label" style={{ color: "var(--cream)", opacity: 0.7 }}>Total revenue</div>
-          <div className="value" style={{ color: "var(--cream)", fontSize: 44 }}>${h.totalRevenue.toFixed(2)}</div>
+          <div className="value" style={{ color: "var(--cream)", fontSize: 44 }}>{fmtMoney(h.totalRevenue)}</div>
           <div className="sub" style={{ color: "var(--cream)", opacity: 0.7 }}>
-            {data.summary.paidBookings + data.summary.paidWalkInPlayers + data.summary.paidCoachingSessions + data.summary.posTransactions} paid transactions
+            {fmtInt(data.summary.paidBookings + data.summary.paidWalkInPlayers + data.summary.paidCoachingSessions + data.summary.posTransactions)} paid transactions
           </div>
         </div>
         <div className="stat-card">
           <div className="label">Court rental</div>
-          <div className="value">${h.courtRev.toFixed(0)}</div>
-          <div className="sub">{pct(h.courtRev)}% · {data.summary.paidBookings} paid bookings</div>
+          <div className="value">{fmtMoneyWhole(h.courtRev)}</div>
+          <div className="sub">{fmtPct(pct(h.courtRev), 0)} · {fmtInt(data.summary.paidBookings)} paid bookings</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}>
           <div className="label">◉ Walk-in</div>
-          <div className="value" style={{ color: "var(--peach,#D9785C)" }}>${h.walkinRev.toFixed(0)}</div>
-          <div className="sub">{pct(h.walkinRev)}% · {data.summary.paidWalkInPlayers} players</div>
+          <div className="value" style={{ color: "var(--peach,#D9785C)" }}>{fmtMoneyWhole(h.walkinRev)}</div>
+          <div className="sub">{fmtPct(pct(h.walkinRev), 0)} · {fmtInt(data.summary.paidWalkInPlayers)} players</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
           <div className="label">★ Coaching</div>
-          <div className="value" style={{ color: "var(--wood)" }}>${h.coachingRev.toFixed(0)}</div>
-          <div className="sub">{pct(h.coachingRev)}% · {data.summary.paidCoachingSessions} sessions</div>
+          <div className="value" style={{ color: "var(--wood)" }}>{fmtMoneyWhole(h.coachingRev)}</div>
+          <div className="sub">{fmtPct(pct(h.coachingRev), 0)} · {fmtInt(data.summary.paidCoachingSessions)} sessions</div>
         </div>
         <div className="stat-card">
           <div className="label">POS</div>
-          <div className="value">${h.posRev.toFixed(0)}</div>
-          <div className="sub">{pct(h.posRev)}% · {data.summary.posTransactions} txns</div>
+          <div className="value">{fmtMoneyWhole(h.posRev)}</div>
+          <div className="sub">{fmtPct(pct(h.posRev), 0)} · {fmtInt(data.summary.posTransactions)} txns</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--clay)" }}>
           <div className="label">⬛ Sponsorships</div>
-          <div className="value" style={{ color: "var(--clay)" }}>${(h.sponsorshipRev || 0).toFixed(0)}</div>
+          <div className="value" style={{ color: "var(--clay)" }}>{fmtMoneyWhole(h.sponsorshipRev || 0)}</div>
           <div className="sub">
-            {pct(h.sponsorshipRev || 0)}%
-            {(h.sponsorshipMonthly || h.sponsorshipOneOff) ? " · " + (h.sponsorshipMonthly ? "MRR $" + h.sponsorshipMonthly.toFixed(0) : "") + (h.sponsorshipMonthly && h.sponsorshipOneOff ? " + " : "") + (h.sponsorshipOneOff ? "one-off $" + h.sponsorshipOneOff.toFixed(0) : "") : ""}
+            {fmtPct(pct(h.sponsorshipRev || 0), 0)}
+            {(h.sponsorshipMonthly || h.sponsorshipOneOff) ? " · " + (h.sponsorshipMonthly ? "MRR " + fmtMoneyWhole(h.sponsorshipMonthly) : "") + (h.sponsorshipMonthly && h.sponsorshipOneOff ? " + " : "") + (h.sponsorshipOneOff ? "one-off " + fmtMoneyWhole(h.sponsorshipOneOff) : "") : ""}
           </div>
         </div>
       </div>
@@ -12247,13 +12644,13 @@ function FinancesView({ data, onChanged }) {
         background: "rgba(26,26,26,0.03)", borderRadius: 4,
         borderLeft: "3px solid var(--green)"
       }}>
-        <b>${h.totalRevenue.toFixed(2)}</b>
+        <b>{fmtMoney(h.totalRevenue)}</b>
         {" = "}
-        ${h.courtRev.toFixed(2)} <span style={{ opacity: 0.5 }}>court</span>
-        {" + "}${h.walkinRev.toFixed(2)} <span style={{ opacity: 0.5 }}>walk-in</span>
-        {" + "}${h.coachingRev.toFixed(2)} <span style={{ opacity: 0.5 }}>coaching</span>
-        {" + "}${h.posRev.toFixed(2)} <span style={{ opacity: 0.5 }}>POS</span>
-        {" + "}${(h.sponsorshipRev || 0).toFixed(2)} <span style={{ opacity: 0.5 }}>sponsorship</span>
+        {fmtMoney(h.courtRev)} <span style={{ opacity: 0.5 }}>court</span>
+        {" + "}{fmtMoney(h.walkinRev)} <span style={{ opacity: 0.5 }}>walk-in</span>
+        {" + "}{fmtMoney(h.coachingRev)} <span style={{ opacity: 0.5 }}>coaching</span>
+        {" + "}{fmtMoney(h.posRev)} <span style={{ opacity: 0.5 }}>POS</span>
+        {" + "}{fmtMoney(h.sponsorshipRev || 0)} <span style={{ opacity: 0.5 }}>sponsorship</span>
       </div>
 
       {/* Outstanding — split by AGE: pending (informational) vs overdue (real receivables) */}
@@ -12387,57 +12784,51 @@ function DailyRevenueChart({ daily }) {
 function OutstandingPanel({ outstanding, headline, onChanged }) {
   const [showAllPending, setShowAllPending] = useState(false);
   const [showAllOverdue, setShowAllOverdue] = useState(false);
-  const [working, setWorking] = useState(false);
 
-  const pending = outstanding && outstanding.pending ? outstanding.pending : [];
-  const overdue = outstanding && outstanding.overdue ? outstanding.overdue : [];
+  // Optimistic UI — track which items the user has just marked paid so they
+  // disappear from the list instantly. The API runs in the background. On
+  // failure, the item reappears with an error toast.
+  const [optimisticPaid, setOptimisticPaid] = useState(new Set());
+  const optKey = (item) => item.entryType + ":" + item.id;
 
-  async function markBookingPaid(item) {
-    if (!confirm("Mark this booking as paid?\n\n" + item.name + " · $" + item.amount.toFixed(2))) return;
-    setWorking(true);
-    const r = await api("adminMarkPaid", { bookingId: item.id });
-    setWorking(false);
-    if (r.ok) {
-      showToast("Marked paid", "success");
-      onChanged && onChanged();
+  const pending = (outstanding && outstanding.pending ? outstanding.pending : [])
+    .filter(item => !optimisticPaid.has(optKey(item)));
+  const overdue = (outstanding && outstanding.overdue ? outstanding.overdue : [])
+    .filter(item => !optimisticPaid.has(optKey(item)));
+
+  async function markPaid(item) {
+    const key = optKey(item);
+    // Hide instantly
+    setOptimisticPaid(prev => new Set([...prev, key]));
+
+    let r;
+    if (item.entryType === "booking") {
+      r = await api("adminMarkPaid", { bookingId: item.id });
+    } else if (item.entryType === "walkin") {
+      r = await api("adminMarkWalkInPlayerPaid", { playerId: item.id, paymentMethod: "Cash" });
+    } else if (item.entryType === "coaching") {
+      r = await api("adminMarkCoachingSessionsPaid", {
+        sessionIds: JSON.stringify([item.id]),
+        paymentMethod: "Cash"
+      });
     } else {
-      showToast(r.error || "Failed", "error");
+      r = { ok: false, error: "Unknown type" };
     }
-  }
 
-  async function markWalkInPaid(item) {
-    if (!confirm("Mark this walk-in player as paid?\n\n" + item.name + " · $" + item.amount.toFixed(2))) return;
-    setWorking(true);
-    const r = await api("adminMarkWalkInPlayerPaid", { playerId: item.id, paymentMethod: "Cash" });
-    setWorking(false);
     if (r.ok) {
-      showToast("Marked paid", "success");
+      showToast("Marked paid · " + fmtMoney(item.amount), "success");
       onChanged && onChanged();
+      // Item will be gone from the next data fetch; leave it in optimisticPaid
+      // to avoid a flash if the refresh is delayed.
     } else {
-      showToast(r.error || "Failed", "error");
+      // Revert
+      setOptimisticPaid(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      showToast(r.error || "Failed — try again", "error");
     }
-  }
-
-  async function markCoachingPaid(item) {
-    if (!confirm("Mark this coaching session as paid?\n\nCoach " + item.coachName + " · $" + item.amount.toFixed(2))) return;
-    setWorking(true);
-    const r = await api("adminMarkCoachingSessionsPaid", {
-      sessionIds: JSON.stringify([item.id]),
-      paymentMethod: "Cash"
-    });
-    setWorking(false);
-    if (r.ok) {
-      showToast("Marked paid", "success");
-      onChanged && onChanged();
-    } else {
-      showToast(r.error || "Failed", "error");
-    }
-  }
-
-  function markPaid(item) {
-    if (item.entryType === "booking") return markBookingPaid(item);
-    if (item.entryType === "walkin") return markWalkInPaid(item);
-    if (item.entryType === "coaching") return markCoachingPaid(item);
   }
 
   function renderRow(item, isOverdue) {
@@ -12460,8 +12851,8 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
           }}>{ageLabel}</span>
         </span>
         <span className="v" style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <span style={{ color: isOverdue ? "var(--clay)" : "var(--ink)" }}>${item.amount.toFixed(2)}</span>
-          <button className="btn-sm primary" onClick={() => markPaid(item)} disabled={working}>Mark paid</button>
+          <span style={{ color: isOverdue ? "var(--clay)" : "var(--ink)" }}>{fmtMoney(item.amount)}</span>
+          <button className="btn-sm primary" onClick={() => markPaid(item)}>Mark paid</button>
         </span>
       </div>
     );
@@ -13006,7 +13397,12 @@ function ScreenSmsLog() {
       {entries === null ? (
         <div style={{ padding: 40, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
       ) : entries.length === 0 ? (
-        <div className="empty">No messages match</div>
+        <EmptyState
+          icon="—"
+          title="No SMS messages"
+          hint={(typeFilter || statusFilter) ? "Try clearing filters to see all messages." : "Once SMS is sent (booking confirmations, OTPs, member welcomes), they'll appear here."}
+          action={(typeFilter || statusFilter) ? { label: "Clear filters", onClick: () => { setTypeFilter(""); setStatusFilter(""); }, primary: false } : null}
+        />
       ) : (
         <div className="sms-list">
           {entries.map((e, i) => (
