@@ -3519,6 +3519,7 @@ const API_CACHE_TTL = {
   posListSales: 10000,
   adminListCoaches: 60000,
   adminListCoachingSessions: 15000,
+  adminListCoachPayments: 30000,
   adminListSettleableEntries: 10000,
   adminListCustomers: 30000,
   adminListSmsLog: 30000,
@@ -3542,6 +3543,7 @@ const _PERSIST_ENDPOINTS = new Set([
   "posListProducts",
   "adminListSponsorships",
   "adminListCoaches",
+  "adminListCoachPayments",
   "adminFinancesMonth",
   "adminFinancesRange",
   "adminListCustomers",
@@ -7216,6 +7218,22 @@ function ScreenCoaching() {
   const [coaches, setCoaches] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Lift sessions + payments state up to parent so switching subtabs keeps cached data
+  // — prevents the re-mount-and-re-fetch lag user experienced when toggling Sessions ↔ Payments Due.
+  const today = todayISO();
+  const weekFromNow = (() => {
+    const d = new Date(); d.setDate(d.getDate() + 7);
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  })();
+  const [sessDateFrom, setSessDateFrom] = useState(today);
+  const [sessDateTo, setSessDateTo] = useState(weekFromNow);
+  const [sessCoachFilter, setSessCoachFilter] = useState("");
+  const [sessPaymentFilter, setSessPaymentFilter] = useState("");
+  const [sessions, setSessions] = useState(null);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [payments, setPayments] = useState(null);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+
   async function loadCoaches() {
     const cached = getCachedApi("adminListCoaches");
     if (cached && cached.ok) {
@@ -7224,6 +7242,35 @@ function ScreenCoaching() {
     }
     const r = await api("adminListCoaches");
     if (r.ok) setCoaches(r.coaches || []);
+  }
+
+  async function loadSessions() {
+    const params = {
+      dateFrom: sessDateFrom, dateTo: sessDateTo,
+      coachId: sessCoachFilter, paymentStatus: sessPaymentFilter
+    };
+    // Sync cache hit — show instantly while we re-fetch
+    const cached = getCachedApi("adminListCoachingSessions", params);
+    if (cached && cached.ok) {
+      setSessions(cached.sessions || []);
+    } else if (sessions === null) {
+      setSessionsLoading(true);
+    }
+    const r = await api("adminListCoachingSessions", params);
+    if (r.ok) setSessions(r.sessions || []);
+    setSessionsLoading(false);
+  }
+
+  async function loadPayments() {
+    const cached = getCachedApi("adminListCoachPayments");
+    if (cached && cached.ok) {
+      setPayments(cached.summary || []);
+    } else if (payments === null) {
+      setPaymentsLoading(true);
+    }
+    const r = await api("adminListCoachPayments");
+    if (r.ok) setPayments(r.summary || []);
+    setPaymentsLoading(false);
   }
 
   useEffect(() => {
@@ -7237,6 +7284,16 @@ function ScreenCoaching() {
       loadCoaches().finally(() => setLoading(false));
     }
   }, []);
+
+  // Re-fetch sessions when filters change OR when sessions tab is opened for first time
+  useEffect(() => {
+    if (tab === "sessions") loadSessions();
+  }, [tab, sessDateFrom, sessDateTo, sessCoachFilter, sessPaymentFilter]);
+
+  // Fetch payments when tab is opened for first time
+  useEffect(() => {
+    if (tab === "payments" && payments === null) loadPayments();
+  }, [tab]);
 
   return (
     <div className="main">
@@ -7253,9 +7310,26 @@ function ScreenCoaching() {
         <button className={tab === "payments" ? "on" : ""} onClick={() => setTab("payments")}>Payments Due</button>
       </div>
 
-      {tab === "sessions" && <SessionsView coaches={coaches} loading={loading} />}
+      {tab === "sessions" && (
+        <SessionsView
+          coaches={coaches}
+          sessions={sessions}
+          loading={sessionsLoading && sessions === null}
+          dateFrom={sessDateFrom} setDateFrom={setSessDateFrom}
+          dateTo={sessDateTo} setDateTo={setSessDateTo}
+          coachFilter={sessCoachFilter} setCoachFilter={setSessCoachFilter}
+          paymentFilter={sessPaymentFilter} setPaymentFilter={setSessPaymentFilter}
+          reload={loadSessions}
+        />
+      )}
       {tab === "coaches" && <CoachesView coaches={coaches} loading={loading} reload={loadCoaches} />}
-      {tab === "payments" && <PaymentsDueView />}
+      {tab === "payments" && (
+        <PaymentsDueView
+          data={payments}
+          loading={paymentsLoading && payments === null}
+          reload={loadPayments}
+        />
+      )}
     </div>
   );
 }
@@ -7467,35 +7541,16 @@ function CoachModal({ coach, onClose, onSaved }) {
 
 /* ----- Sessions subview ----- */
 
-function SessionsView({ coaches }) {
-  const today = todayISO();
-  const weekFromNow = (() => {
-    const d = new Date(); d.setDate(d.getDate() + 7);
-    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-  })();
-  const [dateFrom, setDateFrom] = useState(today);
-  const [dateTo, setDateTo] = useState(weekFromNow);
-  const [coachFilter, setCoachFilter] = useState("");
-  const [paymentFilter, setPaymentFilter] = useState("");
-  const [sessions, setSessions] = useState(null);
+function SessionsView({ coaches, sessions, loading, dateFrom, setDateFrom, dateTo, setDateTo, coachFilter, setCoachFilter, paymentFilter, setPaymentFilter, reload }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editSession, setEditSession] = useState(null);
-
-  async function load() {
-    const r = await api("adminListCoachingSessions", {
-      dateFrom: dateFrom, dateTo: dateTo,
-      coachId: coachFilter, paymentStatus: paymentFilter
-    });
-    if (r.ok) setSessions(r.sessions || []);
-  }
-  useEffect(() => { load(); }, [dateFrom, dateTo, coachFilter, paymentFilter]);
 
   async function duplicate(s) {
     if (!confirm("Duplicate this session to one week from now?")) return;
     const r = await api("adminDuplicateCoachingSession", { sessionId: s.sessionId, offsetDays: 7 });
     if (r.ok) {
       showToast("Duplicated to next week (" + r.sessionId + ")", "success");
-      load();
+      reload();
     } else {
       showToast(r.error || "Failed", "error");
     }
@@ -7583,9 +7638,9 @@ function SessionsView({ coaches }) {
         <CoachingSessionModal
           session={null}
           coaches={coaches}
-          dateDefault={today}
+          dateDefault={dateFrom || todayISO()}
           onClose={() => setShowAdd(false)}
-          onSaved={() => { load(); setShowAdd(false); }}
+          onSaved={() => { reload(); setShowAdd(false); }}
         />
       )}
       {editSession && (
@@ -7593,7 +7648,7 @@ function SessionsView({ coaches }) {
           session={editSession}
           coaches={coaches}
           onClose={() => setEditSession(null)}
-          onSaved={() => { load(); setEditSession(null); }}
+          onSaved={() => { reload(); setEditSession(null); }}
         />
       )}
     </div>
@@ -7974,18 +8029,11 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
 
 /* ----- Payments Due subview ----- */
 
-function PaymentsDueView() {
-  const [data, setData] = useState(null);
+function PaymentsDueView({ data, loading, reload }) {
   const [expandedCoachId, setExpandedCoachId] = useState(null);
   const [coachSessions, setCoachSessions] = useState({});  // coachId -> sessions[]
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [paymentModal, setPaymentModal] = useState(null);  // { coach, sessionIds }
-
-  async function load() {
-    const r = await api("adminListCoachPayments");
-    if (r.ok) setData(r.summary || []);
-  }
-  useEffect(() => { load(); }, []);
 
   async function expand(coachId) {
     if (expandedCoachId === coachId) {
@@ -8028,7 +8076,7 @@ function PaymentsDueView() {
       });
       setExpandedCoachId(null);
       setPaymentModal(null);
-      load();
+      reload();
     } else {
       showToast(r.error || "Failed", "error");
     }
@@ -11446,13 +11494,23 @@ function ScreenFinances() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
 
-  const [data, setData] = useState(null);  // full monthly report when granularity === monthly
-  const [rangeData, setRangeData] = useState(null);  // daily/weekly report
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  // CRITICAL: data is keyed by `${granularity}:${periodOffset}` so we never
+  // show data from a different combo than what's selected. This eliminates
+  // the bug where switching Monthly→Weekly briefly showed Monthly numbers
+  // under the Weekly label.
+  const [dataByKey, setDataByKey] = useState({});  // { "monthly:0": {...}, "weekly:0": {...} }
+  const [loadingKey, setLoadingKey] = useState(null);  // the key currently being fetched
+  const [error, setError] = useState(null);  // {key, message} when a fetch fails
 
   // Race protection: only the most recent fetch can update state
   const fetchTokenRef = useRef(0);
+  // Track inflight load promises by key — coalesces duplicate concurrent calls
+  const inflightRef = useRef({});
+
+  const currentKey = granularity + ":" + periodOffset;
+  const currentData = dataByKey[currentKey] || null;
+  const isLoading = loadingKey === currentKey && !currentData;
+  const isRefreshing = loadingKey === currentKey && !!currentData;
 
   async function load() {
     const myToken = ++fetchTokenRef.current;
@@ -11461,59 +11519,60 @@ function ScreenFinances() {
     ref.setMonth(ref.getMonth() + periodOffset);
     const y = ref.getFullYear();
     const m = ref.getMonth() + 1;
+    const key = currentKey;
 
-    // Sync cache hit — show instantly without spinner
-    if (isMonthly) {
-      const cached = getCachedApi("adminFinancesMonth", { year: y, month: m });
-      if (cached && cached.ok) {
-        setData(cached);
-        setRangeData(null);
-        setLoading(false);
-        setRefreshing(true);
-      } else if (data || rangeData) {
-        // Have old data — keep visible, dim it
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-    } else {
-      const cached = getCachedApi("adminFinancesRange", { granularity: granularity, periodOffset: periodOffset });
-      if (cached && cached.ok) {
-        setRangeData(cached);
-        setData(null);
-        setLoading(false);
-        setRefreshing(true);
-      } else if (data || rangeData) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
+    // Sync cache hit — fold into dataByKey immediately
+    const cacheParams = isMonthly
+      ? { action: "adminFinancesMonth", params: { year: y, month: m } }
+      : { action: "adminFinancesRange", params: { granularity: granularity, periodOffset: periodOffset } };
+    const cached = getCachedApi(cacheParams.action, cacheParams.params);
+    if (cached && cached.ok) {
+      setDataByKey(prev => ({ ...prev, [key]: cached }));
     }
 
-    // Always update displayed year/month so the label is right for current attempt
+    // Mark this key as loading
+    setLoadingKey(key);
+    setError(null);
+
+    // Update displayed year/month label for monthly
     if (isMonthly) { setYear(y); setMonth(m); }
 
-    // Fire the real fetch
-    try {
-      let r;
-      if (isMonthly) {
-        r = await api("adminFinancesMonth", { year: y, month: m });
-      } else {
-        r = await api("adminFinancesRange", { granularity: granularity, periodOffset: periodOffset });
-      }
-      // Discard stale response: only honor it if we're still the latest request
-      if (myToken !== fetchTokenRef.current) return;
-      if (r.ok) {
-        if (isMonthly) { setData(r); setRangeData(null); }
-        else { setRangeData(r); setData(null); }
-      }
-    } catch (e) {
-      // api() catches its own errors and returns {ok:false}, but defensive
-      console.error("Finances load error:", e);
-    } finally {
-      if (myToken === fetchTokenRef.current) {
-        setLoading(false);
-        setRefreshing(false);
+    // Coalesce: if another call for this same key is already inflight, reuse its promise
+    let fetchPromise = inflightRef.current[key];
+    if (!fetchPromise) {
+      fetchPromise = (async () => {
+        try {
+          // Hard timeout: if Apps Script hangs >25s, give up so UI doesn't lock
+          const timeoutPromise = new Promise((_, rej) =>
+            setTimeout(() => rej(new Error("timeout")), 25000)
+          );
+          const apiPromise = isMonthly
+            ? api("adminFinancesMonth", { year: y, month: m })
+            : api("adminFinancesRange", { granularity: granularity, periodOffset: periodOffset });
+          const r = await Promise.race([apiPromise, timeoutPromise]);
+          return r;
+        } catch (e) {
+          return { ok: false, error: e.message || "Failed to load" };
+        } finally {
+          delete inflightRef.current[key];
+        }
+      })();
+      inflightRef.current[key] = fetchPromise;
+    }
+
+    const r = await fetchPromise;
+
+    // STALE GUARD: if user switched to another key while we were waiting,
+    // still STORE the result for its key (useful later) but don't change UI state
+    if (r && r.ok) {
+      setDataByKey(prev => ({ ...prev, [key]: r }));
+    }
+
+    // Only clear loading/error if we're still the latest request AND user hasn't switched
+    if (myToken === fetchTokenRef.current) {
+      setLoadingKey(prev => (prev === key ? null : prev));
+      if (r && !r.ok && !cached) {
+        setError({ key: key, message: r.error || "Failed to load" });
       }
     }
   }
@@ -11570,15 +11629,36 @@ function ScreenFinances() {
   const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
   const isCurrent = periodOffset === 0;
 
-  // Compute display label for the period
+  // Compute display label for the period — always matches the SELECTED granularity,
+  // never reflects stale data
   let periodLabel;
   if (granularity === "monthly") {
     periodLabel = MONTH_NAMES[month - 1] + " " + year;
-  } else if (rangeData) {
-    periodLabel = rangeData.label;
+  } else if (currentData && currentData.granularity === granularity) {
+    periodLabel = currentData.label;
+  } else if (granularity === "daily") {
+    // Compute the label from offset since data may not be loaded yet
+    const d = new Date(); d.setDate(d.getDate() + periodOffset);
+    periodLabel = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   } else {
-    periodLabel = "—";
+    // weekly — compute Mon-Sun of week with explicit range so user sees the boundary
+    const d = new Date(); d.setDate(d.getDate() + (periodOffset * 7));
+    const dow = d.getDay();
+    const daysSinceMon = (dow + 6) % 7;
+    const mon = new Date(d); mon.setDate(mon.getDate() - daysSinceMon);
+    const sun = new Date(mon); sun.setDate(sun.getDate() + 6);
+    const fmtShort = (dt) => dt.toLocaleString("en-US", { month: "short", day: "numeric" });
+    periodLabel = fmtShort(mon) + " — " + fmtShort(sun);
   }
+
+  // Sanity: data from cache might be wrong granularity (shouldn't happen with new keyed state)
+  // but defend anyway
+  const dataIsForCurrentView = currentData && (
+    granularity === "monthly"
+      ? (currentData.period && currentData.period.year === year && currentData.period.month === month)
+      : (currentData.granularity === granularity)
+  );
+  const safeData = dataIsForCurrentView ? currentData : null;
 
   return (
     <div className="main">
@@ -11587,7 +11667,7 @@ function ScreenFinances() {
           <div className="title">Revenue · receivables · trends</div>
           <h1>
             Finances
-            {refreshing && (
+            {isRefreshing && (
               <span style={{
                 marginLeft: 12, fontFamily: "var(--mono)", fontSize: 10,
                 letterSpacing: "0.18em", color: "var(--green)", textTransform: "uppercase",
@@ -11625,7 +11705,7 @@ function ScreenFinances() {
           <button className="date-pill" onClick={prevPeriod}>← Prev</button>
           <div style={{
             fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 20, fontWeight: 400,
-            padding: "0 14px", minWidth: 160, textAlign: "center"
+            padding: "0 14px", minWidth: 200, textAlign: "center"
           }}>
             {periodLabel}
             {isCurrent && (
@@ -11652,16 +11732,34 @@ function ScreenFinances() {
         </div>
       </div>
 
-      {loading && !data && !rangeData ? (
+      {error && (
+        <div style={{
+          padding: "12px 16px", marginBottom: 14,
+          background: "rgba(217,120,92,0.12)",
+          border: "1.5px solid var(--clay)", borderRadius: 4,
+          display: "flex", alignItems: "center", gap: 12
+        }}>
+          <div style={{ flex: 1, fontFamily: "var(--mono)", fontSize: 11 }}>
+            <b>Couldn't load data:</b> {error.message}
+          </div>
+          <button className="btn" onClick={load}>Retry</button>
+        </div>
+      )}
+
+      {isLoading ? (
         <div style={{ padding: 60, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
       ) : (
-        <div style={{ opacity: refreshing ? 0.55 : 1, transition: "opacity 0.15s" }}>
-          {data ? (
-            <FinancesView data={data} onChanged={load} />
-          ) : rangeData ? (
-            <FinancesRangeView data={rangeData} granularity={granularity} />
+        <div style={{ opacity: isRefreshing ? 0.55 : 1, transition: "opacity 0.15s" }}>
+          {safeData ? (
+            granularity === "monthly" ? (
+              <FinancesView data={safeData} onChanged={load} />
+            ) : (
+              <FinancesRangeView data={safeData} granularity={granularity} />
+            )
           ) : (
-            <div className="empty">Failed to load</div>
+            <div className="empty" style={{ padding: 40, textAlign: "center", fontFamily: "var(--mono)", fontSize: 12, opacity: 0.55 }}>
+              {error ? "Unable to load. Tap Retry above." : "No data for this period."}
+            </div>
           )}
         </div>
       )}
@@ -13416,6 +13514,7 @@ function App() {
       case "coaching":
         api("adminListCoaches").catch(() => {});
         api("adminListCoachingSessions", { dateFrom: today, dateTo: today }).catch(() => {});
+        api("adminListCoachPayments").catch(() => {});
         break;
       case "customers":
         api("adminListCustomers", { search: "", type: "" }).catch(() => {});
