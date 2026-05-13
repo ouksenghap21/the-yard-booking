@@ -1533,15 +1533,51 @@ button { font-family: inherit; cursor: pointer; }
 .booking-row.is-member { border-left: 5px solid var(--wood); }
 .booking-row.is-at-risk { background: rgba(199,162,74,0.12); }
 .booking-row.is-past {
-  opacity: 0.5;
-  filter: grayscale(0.3);
+  /* Past = completed/archived, NOT loading. Replace ambiguous fade with a
+   * distinctive "done" look: small left strip in muted gray, light gray
+   * background tint, name strikethrough. Reads as "settled" not "loading". */
+  background: rgba(120,120,120,0.06);
+  border-left-color: rgba(120,120,120,0.5) !important;
 }
-.booking-row.is-past:hover {
-  opacity: 0.95;
-  filter: grayscale(0);
+.booking-row.is-past::before {
+  content: "✓";
+  position: absolute;
+  top: 50%;
+  left: -2px;
+  transform: translateY(-50%);
+  background: rgba(60,60,60,0.55);
+  color: var(--cream);
+  font-size: 9px;
+  font-weight: 800;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  pointer-events: none;
+}
+.booking-row.is-past {
+  position: relative;  /* anchor the ::before badge */
 }
 .booking-row.is-past .name {
-  color: rgba(26,26,26,0.7);
+  color: rgba(26,26,26,0.55);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  text-decoration-color: rgba(26,26,26,0.35);
+}
+.booking-row.is-past .when,
+.booking-row.is-past .meta,
+.booking-row.is-past .id,
+.booking-row.is-past .total {
+  color: rgba(26,26,26,0.5);
+}
+.booking-row.is-past:hover {
+  background: rgba(120,120,120,0.12);
+}
+.booking-row.is-past:hover .name {
+  color: rgba(26,26,26,0.85);
 }
 
 .status-pill {
@@ -5332,27 +5368,40 @@ function ScreenBookings() {
                   <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", fontWeight: 700, color: "var(--wood)", marginBottom: 8 }}>
                     ★ Coaching sessions · {dayCoaching.length}
                   </div>
-                  {dayCoaching.map(s => (
-                    <div
-                      key={s.bookingId}
-                      className="booking-row"
-                      style={{ borderLeft: "5px solid var(--wood)", background: "rgba(168,116,74,0.04)", cursor: "pointer" }}
-                      onClick={() => handleBlockClick(s)}
-                    >
-                      <div className="when">{s.time}<span className="endtime">→ {s.timeEnd}</span></div>
-                      <div className="who">
-                        <div className="name">
-                          ★ {s.coachName}
-                          {s.studentName && <span style={{ fontWeight: 400, opacity: 0.7, fontSize: 13 }}>· with {s.studentName}</span>}
+                  {dayCoaching.map(s => {
+                    const sIsPast = (() => {
+                      if (s.date < todayISO()) return true;
+                      if (s.date === todayISO() && s.timeEnd) {
+                        const now = new Date();
+                        const [h, m] = String(s.timeEnd).split(":").map(Number);
+                        const endMins = (h || 0) * 60 + (m || 0);
+                        const nowMins = now.getHours() * 60 + now.getMinutes();
+                        return nowMins > endMins;
+                      }
+                      return false;
+                    })();
+                    return (
+                      <div
+                        key={s.bookingId}
+                        className={"booking-row" + (sIsPast ? " is-past" : "")}
+                        style={{ borderLeft: "5px solid var(--wood)", background: sIsPast ? undefined : "rgba(168,116,74,0.04)", cursor: "pointer" }}
+                        onClick={() => handleBlockClick(s)}
+                      >
+                        <div className="when">{s.time}<span className="endtime">→ {s.timeEnd}</span></div>
+                        <div className="who">
+                          <div className="name">
+                            ★ {s.coachName}
+                            {s.studentName && <span style={{ fontWeight: 400, opacity: 0.7, fontSize: 13 }}>· with {s.studentName}</span>}
+                          </div>
+                          <div className="meta">C·{s.courtNumbers} · {s.durationHours}h · {s.sessionType}</div>
+                          <div className="id">{s.bookingId}</div>
                         </div>
-                        <div className="meta">C·{s.courtNumbers} · {s.durationHours}h · {s.sessionType}</div>
-                        <div className="id">{s.bookingId}</div>
+                        <div className="actions">
+                          <div className="total" style={{ color: "var(--wood)" }}>${(s.facilityEarns || 0).toFixed(2)}</div>
+                        </div>
                       </div>
-                      <div className="actions">
-                        <div className="total" style={{ color: "var(--wood)" }}>${(s.facilityEarns || 0).toFixed(2)}</div>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
@@ -5364,11 +5413,22 @@ function ScreenBookings() {
                   </div>
                   {dayWalkIns.map(w => {
                     const full = w.playerCount >= w.playerCap;
+                    const wIsPast = (() => {
+                      if (w.date < todayISO()) return true;
+                      if (w.date === todayISO() && w.timeEnd) {
+                        const now = new Date();
+                        const [h, m] = String(w.timeEnd).split(":").map(Number);
+                        const endMins = (h || 0) * 60 + (m || 0);
+                        const nowMins = now.getHours() * 60 + now.getMinutes();
+                        return nowMins > endMins;
+                      }
+                      return false;
+                    })();
                     return (
                       <div
                         key={w.bookingId}
-                        className="booking-row"
-                        style={{ borderLeft: "5px solid var(--peach,#D9785C)", background: "rgba(217,120,92,0.05)", cursor: "pointer" }}
+                        className={"booking-row" + (wIsPast ? " is-past" : "")}
+                        style={{ borderLeft: "5px solid var(--peach,#D9785C)", background: wIsPast ? undefined : "rgba(217,120,92,0.05)", cursor: "pointer" }}
                         onClick={async () => {
                           // Open instantly with stub then refresh
                           setWalkInBlock({
@@ -11652,12 +11712,13 @@ function ScreenFinances() {
   }
 
   // Sanity: data from cache might be wrong granularity (shouldn't happen with new keyed state)
-  // but defend anyway
-  const dataIsForCurrentView = currentData && (
+  // but defend anyway. Note: monthly endpoint returns {year, month} at top level;
+  // range endpoint returns {granularity} at top level.
+  const dataIsForCurrentView = !!(currentData && (
     granularity === "monthly"
-      ? (currentData.period && currentData.period.year === year && currentData.period.month === month)
+      ? (currentData.year === year && currentData.month === month)
       : (currentData.granularity === granularity)
-  );
+  ));
   const safeData = dataIsForCurrentView ? currentData : null;
 
   return (
