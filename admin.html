@@ -663,14 +663,10 @@ button { font-family: inherit; cursor: pointer; }
   z-index: 1;
 }
 
-/* AWAITING: subtle dim + light diagonal stripes on the background overlay */
+/* AWAITING: no overlay tint — the dashed border from the override below
+ * indicates "not yet paid" without dimming the block's vivid type color. */
 .booking-block.state-awaiting::before {
-  background-color: rgba(241,234,214,0.35);  /* cream tint overlay */
-  background-image: repeating-linear-gradient(
-    -45deg,
-    transparent, transparent 6px,
-    rgba(26,26,26,0.10) 6px, rgba(26,26,26,0.10) 9px
-  );
+  background: transparent;
 }
 
 /* AT-RISK: bright yellow ring, no overlay (block stays vivid for urgency) */
@@ -779,12 +775,27 @@ button { font-family: inherit; cursor: pointer; }
   box-shadow: 0 0 0 2px var(--warn);
 }
 .timeline-legend .sw-state-paid {
-  background: var(--green);
-  border-color: var(--green);
+  background: var(--ink);
+  border-color: var(--ink);
+  position: relative;
+}
+.timeline-legend .sw-state-paid::after {
+  content: "✓";
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--cream);
+  font-size: 11px;
+  font-weight: 700;
 }
 .timeline-legend .sw-state-unpaid {
   background: var(--cream);
-  border: 2px dashed var(--ink);
+  border: 1.5px solid var(--ink);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent, transparent 2px,
+    var(--ink) 2px, var(--ink) 3px
+  );
 }
 .timeline-legend .sw-state-no_show {
   background: var(--ink);
@@ -801,9 +812,19 @@ button { font-family: inherit; cursor: pointer; }
   filter: saturate(0.5);
 }
 .timeline-legend .sw-state-completed-distinct {
-  background: var(--ink);
-  opacity: 0.4;
+  background: rgba(26,26,26,0.45);
+  border-color: rgba(26,26,26,0.45);
   filter: grayscale(0.6);
+  position: relative;
+}
+.timeline-legend .sw-state-completed-distinct::after {
+  content: "—";
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--cream);
+  font-size: 12px;
+  font-weight: 700;
 }
 .timeline-legend .sw-tier-founding {
   background: var(--clay);
@@ -868,20 +889,53 @@ button { font-family: inherit; cursor: pointer; }
   filter: grayscale(0);
 }
 
-/* Unpaid bookings (state-awaiting / state-at_risk) — clearer visual that money hasn't been collected */
+/* Unpaid bookings (state-awaiting / state-at_risk) — dashed border indicates
+ * "not yet collected" without the stripe pattern that visually felt like fade.
+ * Keeps the type color solid so upcoming/active bookings look strong. */
 .booking-block.state-awaiting:not(.past),
 .booking-block.state-at_risk:not(.past) {
-  background-image: repeating-linear-gradient(
-    -45deg,
-    transparent, transparent 4px,
-    rgba(255,255,255,0.18) 4px, rgba(255,255,255,0.18) 8px
-  );
+  /* Use the existing state ::before overlay for the visual treatment.
+   * No fading or stripes on the block itself. */
+}
+.booking-block.state-awaiting:not(.past)::before,
+.booking-block.state-at_risk:not(.past)::before {
+  background: transparent;
+  border: 1.5px dashed rgba(255,255,255,0.6);
+  border-radius: 4px;
+  pointer-events: none;
 }
 
-/* Paid bookings — solid color, no stripes, full saturation */
+/* Paid bookings — solid color + white check badge in top-left corner */
 .booking-block.state-paid:not(.past) {
-  /* keep solid type color — this is the "best" visual */
-  box-shadow: inset 0 0 0 1.5px rgba(255,255,255,0.25);
+  box-shadow: inset 0 0 0 1.5px rgba(255,255,255,0.35);
+}
+.booking-block.state-paid:not(.past)::after {
+  content: "✓";
+  position: absolute;
+  top: 2px; left: 4px;
+  font-size: 10px;
+  font-weight: 800;
+  color: rgba(255,255,255,0.85);
+  line-height: 1;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Past + paid combined — show check still visible but dimmer */
+.booking-block.past.state-paid::after {
+  content: "✓";
+  position: absolute;
+  top: 2px; left: 4px;
+  font-size: 9px;
+  color: rgba(255,255,255,0.55);
+  font-weight: 700;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Push name slightly right when checkmark is showing so they don't overlap */
+.booking-block.state-paid .name {
+  padding-left: 10px;
 }
 
 /* Member tier badges on blocks */
@@ -10972,29 +11026,78 @@ function ScreenFinances() {
   const [data, setData] = useState(null);  // full monthly report when granularity === monthly
   const [rangeData, setRangeData] = useState(null);  // daily/weekly report
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Race protection: only the most recent fetch can update state
+  const fetchTokenRef = useRef(0);
 
   async function load() {
-    setLoading(true);
-    if (granularity === "monthly") {
-      // Use the full monthly endpoint (top customers, products, splits, outstanding)
-      // Map offset back to year/month for the call
-      const ref = new Date();
-      ref.setMonth(ref.getMonth() + periodOffset);
-      const y = ref.getFullYear();
-      const m = ref.getMonth() + 1;
-      setYear(y); setMonth(m);
-      const r = await api("adminFinancesMonth", { year: y, month: m });
-      if (r.ok) { setData(r); setRangeData(null); }
+    const myToken = ++fetchTokenRef.current;
+    const isMonthly = granularity === "monthly";
+    const ref = new Date();
+    ref.setMonth(ref.getMonth() + periodOffset);
+    const y = ref.getFullYear();
+    const m = ref.getMonth() + 1;
+
+    // Sync cache hit — show instantly without spinner
+    if (isMonthly) {
+      const cached = getCachedApi("adminFinancesMonth", { year: y, month: m });
+      if (cached && cached.ok) {
+        setData(cached);
+        setRangeData(null);
+        setLoading(false);
+        setRefreshing(true);
+      } else if (data || rangeData) {
+        // Have old data — keep visible, dim it
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
     } else {
-      // Use the leaner range endpoint
-      const r = await api("adminFinancesRange", { granularity: granularity, periodOffset: periodOffset });
-      if (r.ok) { setRangeData(r); setData(null); }
+      const cached = getCachedApi("adminFinancesRange", { granularity: granularity, periodOffset: periodOffset });
+      if (cached && cached.ok) {
+        setRangeData(cached);
+        setData(null);
+        setLoading(false);
+        setRefreshing(true);
+      } else if (data || rangeData) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
     }
-    setLoading(false);
+
+    // Always update displayed year/month so the label is right for current attempt
+    if (isMonthly) { setYear(y); setMonth(m); }
+
+    // Fire the real fetch
+    try {
+      let r;
+      if (isMonthly) {
+        r = await api("adminFinancesMonth", { year: y, month: m });
+      } else {
+        r = await api("adminFinancesRange", { granularity: granularity, periodOffset: periodOffset });
+      }
+      // Discard stale response: only honor it if we're still the latest request
+      if (myToken !== fetchTokenRef.current) return;
+      if (r.ok) {
+        if (isMonthly) { setData(r); setRangeData(null); }
+        else { setRangeData(r); setData(null); }
+      }
+    } catch (e) {
+      // api() catches its own errors and returns {ok:false}, but defensive
+      console.error("Finances load error:", e);
+    } finally {
+      if (myToken === fetchTokenRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
   }
   useEffect(() => { load(); }, [granularity, periodOffset]);
 
   function changeGranularity(g) {
+    if (g === granularity) return;  // no-op if same — prevents duplicate fetches
     setPeriodOffset(0);  // reset to current period when switching granularity
     setGranularity(g);
   }
@@ -11059,7 +11162,18 @@ function ScreenFinances() {
       <div className="main-head">
         <div>
           <div className="title">Revenue · receivables · trends</div>
-          <h1>Finances</h1>
+          <h1>
+            Finances
+            {refreshing && (
+              <span style={{
+                marginLeft: 12, fontFamily: "var(--mono)", fontSize: 10,
+                letterSpacing: "0.18em", color: "var(--green)", textTransform: "uppercase",
+                fontWeight: 700, verticalAlign: "middle"
+              }}>
+                · refreshing…
+              </span>
+            )}
+          </h1>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {/* Granularity toggle */}
@@ -11117,12 +11231,16 @@ function ScreenFinances() {
 
       {loading && !data && !rangeData ? (
         <div style={{ padding: 60, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
-      ) : data ? (
-        <FinancesView data={data} onChanged={load} />
-      ) : rangeData ? (
-        <FinancesRangeView data={rangeData} granularity={granularity} />
       ) : (
-        <div className="empty">Failed to load</div>
+        <div style={{ opacity: refreshing ? 0.55 : 1, transition: "opacity 0.15s" }}>
+          {data ? (
+            <FinancesView data={data} onChanged={load} />
+          ) : rangeData ? (
+            <FinancesRangeView data={rangeData} granularity={granularity} />
+          ) : (
+            <div className="empty">Failed to load</div>
+          )}
+        </div>
       )}
 
       {showReportPicker && (
@@ -11387,7 +11505,8 @@ function FinancesRangeView({ data, granularity }) {
 
   return (
     <>
-      <div className="stat-grid" style={{ gridTemplateColumns: "1.4fr 1fr 1fr 1fr 1fr 1fr", marginBottom: 18 }}>
+      {/* Headline stat cards — daily/weekly range view */}
+      <div className="stat-grid" style={{ gridTemplateColumns: "1.4fr 1fr 1fr 1fr 1fr 1fr", marginBottom: 8 }}>
         <div className="stat-card accent-green" style={{ background: "var(--green)", color: "var(--cream)" }}>
           <div className="label" style={{ color: "var(--cream)", opacity: 0.7 }}>Total revenue</div>
           <div className="value" style={{ color: "var(--cream)", fontSize: 44 }}>${h.totalRevenue.toFixed(2)}</div>
@@ -11423,6 +11542,22 @@ function FinancesRangeView({ data, granularity }) {
             {(h.sponsorshipMonthly || h.sponsorshipOneOff) ? " · " + (h.sponsorshipMonthly ? "MRR $" + h.sponsorshipMonthly.toFixed(0) : "") + (h.sponsorshipMonthly && h.sponsorshipOneOff ? " + " : "") + (h.sponsorshipOneOff ? "one-off $" + h.sponsorshipOneOff.toFixed(0) : "") : ""}
           </div>
         </div>
+      </div>
+
+      {/* Explicit math row — shows the equation so the total is verifiable */}
+      <div style={{
+        fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.04em",
+        opacity: 0.7, marginBottom: 18, padding: "8px 14px",
+        background: "rgba(26,26,26,0.03)", borderRadius: 4,
+        borderLeft: "3px solid var(--green)"
+      }}>
+        <b>${h.totalRevenue.toFixed(2)}</b>
+        {" = "}
+        ${h.courtRev.toFixed(2)} <span style={{ opacity: 0.5 }}>court</span>
+        {" + "}${h.walkinRev.toFixed(2)} <span style={{ opacity: 0.5 }}>walk-in</span>
+        {" + "}${h.coachingRev.toFixed(2)} <span style={{ opacity: 0.5 }}>coaching</span>
+        {" + "}${h.posRev.toFixed(2)} <span style={{ opacity: 0.5 }}>POS</span>
+        {" + "}${(h.sponsorshipRev || 0).toFixed(2)} <span style={{ opacity: 0.5 }}>sponsorship</span>
       </div>
 
       {/* Mini chart — bars per bucket, or numerical breakdown for Daily */}
@@ -11544,6 +11679,22 @@ function FinancesView({ data, onChanged }) {
             {(h.sponsorshipMonthly || h.sponsorshipOneOff) ? " · " + (h.sponsorshipMonthly ? "MRR $" + h.sponsorshipMonthly.toFixed(0) : "") + (h.sponsorshipMonthly && h.sponsorshipOneOff ? " + " : "") + (h.sponsorshipOneOff ? "one-off $" + h.sponsorshipOneOff.toFixed(0) : "") : ""}
           </div>
         </div>
+      </div>
+
+      {/* Explicit math row — shows the equation so the total is verifiable */}
+      <div style={{
+        fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.04em",
+        opacity: 0.7, marginBottom: 18, padding: "8px 14px",
+        background: "rgba(26,26,26,0.03)", borderRadius: 4,
+        borderLeft: "3px solid var(--green)"
+      }}>
+        <b>${h.totalRevenue.toFixed(2)}</b>
+        {" = "}
+        ${h.courtRev.toFixed(2)} <span style={{ opacity: 0.5 }}>court</span>
+        {" + "}${h.walkinRev.toFixed(2)} <span style={{ opacity: 0.5 }}>walk-in</span>
+        {" + "}${h.coachingRev.toFixed(2)} <span style={{ opacity: 0.5 }}>coaching</span>
+        {" + "}${h.posRev.toFixed(2)} <span style={{ opacity: 0.5 }}>POS</span>
+        {" + "}${(h.sponsorshipRev || 0).toFixed(2)} <span style={{ opacity: 0.5 }}>sponsorship</span>
       </div>
 
       {/* Outstanding — split by AGE: pending (informational) vs overdue (real receivables) */}
