@@ -779,7 +779,12 @@ button { font-family: inherit; cursor: pointer; }
   box-shadow: 0 0 0 2px var(--warn);
 }
 .timeline-legend .sw-state-paid {
-  background: var(--ink);
+  background: var(--green);
+  border-color: var(--green);
+}
+.timeline-legend .sw-state-unpaid {
+  background: var(--cream);
+  border: 2px dashed var(--ink);
 }
 .timeline-legend .sw-state-no_show {
   background: var(--ink);
@@ -795,6 +800,42 @@ button { font-family: inherit; cursor: pointer; }
   opacity: 0.55;
   filter: saturate(0.5);
 }
+.timeline-legend .sw-state-completed-distinct {
+  background: var(--ink);
+  opacity: 0.4;
+  filter: grayscale(0.6);
+}
+.timeline-legend .sw-tier-founding {
+  background: var(--clay);
+  border: 1.5px solid var(--clay);
+  position: relative;
+}
+.timeline-legend .sw-tier-founding::after {
+  content: "★★";
+  position: absolute;
+  top: -3px; right: -8px;
+  font-size: 7px;
+  color: var(--cream);
+  background: var(--clay);
+  padding: 1px 2px;
+  border-radius: 2px;
+  letter-spacing: -1px;
+}
+.timeline-legend .sw-tier-standard {
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  position: relative;
+}
+.timeline-legend .sw-tier-standard::after {
+  content: "★";
+  position: absolute;
+  top: -3px; right: -3px;
+  font-size: 8px;
+  color: var(--cream);
+  background: var(--ink);
+  padding: 0 2px;
+  border-radius: 2px;
+}
 .timeline-legend .sw-member {
   background: var(--paper);
   border-color: var(--ink);
@@ -809,6 +850,48 @@ button { font-family: inherit; cursor: pointer; }
   background: rgba(0,0,0,0.7);
   padding: 0 2px;
   border-radius: 2px;
+}
+
+/* ============== PAST + TIER MODIFIERS ON BLOCKS ============== */
+/* Past slots (today's view, slot has ended) — visibly subdued but readable */
+.booking-block.past {
+  opacity: 0.45;
+  filter: grayscale(0.4);
+}
+.booking-block.past .name {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  text-decoration-color: rgba(255,255,255,0.5);
+}
+.booking-block.clickable.past:hover {
+  opacity: 0.85;
+  filter: grayscale(0);
+}
+
+/* Unpaid bookings (state-awaiting / state-at_risk) — clearer visual that money hasn't been collected */
+.booking-block.state-awaiting:not(.past),
+.booking-block.state-at_risk:not(.past) {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent, transparent 4px,
+    rgba(255,255,255,0.18) 4px, rgba(255,255,255,0.18) 8px
+  );
+}
+
+/* Paid bookings — solid color, no stripes, full saturation */
+.booking-block.state-paid:not(.past) {
+  /* keep solid type color — this is the "best" visual */
+  box-shadow: inset 0 0 0 1.5px rgba(255,255,255,0.25);
+}
+
+/* Member tier badges on blocks */
+.booking-block.tier-founding {
+  outline: 2px solid var(--clay);
+  outline-offset: -2px;
+}
+.booking-block.tier-standard {
+  outline: 1.5px dashed rgba(255,255,255,0.55);
+  outline-offset: -2px;
 }
 
 /* ============== UPCOMING LIST ============== */
@@ -1323,6 +1406,17 @@ button { font-family: inherit; cursor: pointer; }
 }
 .booking-row.is-member { border-left: 5px solid var(--wood); }
 .booking-row.is-at-risk { background: rgba(199,162,74,0.12); }
+.booking-row.is-past {
+  opacity: 0.5;
+  filter: grayscale(0.3);
+}
+.booking-row.is-past:hover {
+  opacity: 0.95;
+  filter: grayscale(0);
+}
+.booking-row.is-past .name {
+  color: rgba(26,26,26,0.7);
+}
 
 .status-pill {
   font-family: var(--mono);
@@ -3235,6 +3329,8 @@ button { font-family: inherit; cursor: pointer; }
   <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js" crossorigin="anonymous"></script>
 </head>
 <body>
   <div id="root"></div>
@@ -3595,11 +3691,21 @@ function showToast(text, kind = "default") {
 }
 
 /* ====== BOUNCING BALL ====== */
-function BouncingBall({ size = "md" }) {
+function BouncingBall({ size = "md", label = "Loading…" }) {
   return (
-    <div className={"bouncer bouncer-" + size}>
-      <div className="ground" />
-      <div className="ball-track"><div className="ball" /></div>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+      <div className={"bouncer bouncer-" + size}>
+        <div className="ground" />
+        <div className="ball-track"><div className="ball" /></div>
+      </div>
+      {label && (
+        <div style={{
+          fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.2em",
+          textTransform: "uppercase", opacity: 0.55, fontWeight: 600
+        }}>
+          {label}
+        </div>
+      )}
     </div>
   );
 }
@@ -3786,6 +3892,7 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
           // legacy `status` kept for any old CSS that still references it
           status: isCoaching ? "coaching" : isWalkIn ? "walkin" : derived,
           isMember: !!(b.memberTier && b.memberTier.length > 0),
+          memberTier: String(b.memberTier || "").toLowerCase(),  // "founding" | "standard" | ""
           isCoaching: isCoaching,
           isWalkIn: isWalkIn,
           bookingId: b.bookingId,
@@ -3868,21 +3975,30 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
                 {blocks.filter(b => b.court === c).map((b, idx) => {
                   const left = b.startIdx * slotW;
                   const width = b.slots * slotW - 2;
+                  // "Past" = block ended before now (only matters on today's view)
+                  const endSlotIdx = b.startIdx + b.slots;
+                  const isPast = (dateStr === todayISO()) && (nowOffset >= 0) && (endSlotIdx * slotW < nowOffset);
+                  // Member tier class for differentiation
+                  const tierClass = b.memberTier === "founding" ? " tier-founding"
+                                  : b.memberTier === "standard" ? " tier-standard"
+                                  : "";
                   return (
                     <div
                       key={c + "-" + b.bookingId + "-" + idx}
                       className={
                         "booking-block type-" + b.type + " state-" + b.state +
                         (b.isMember ? " member" : "") +
+                        tierClass +
+                        (isPast ? " past" : "") +
                         (onBlockClick ? " clickable" : "")
                       }
                       style={{ left: left + "px", width: width + "px" }}
-                      title={b.name + " · " + b.time + " · $" + b.total + (b.isMember ? " · Member" : "") + (onBlockClick ? " · click to open" : "")}
+                      title={b.name + " · " + b.time + " · $" + b.total + (b.isMember ? " · " + (b.memberTier || "Member") : "") + (isPast ? " · COMPLETED" : "") + (onBlockClick ? " · click to open" : "")}
                       onClick={onBlockClick ? (e) => { e.stopPropagation(); onBlockClick(b.sourceEntry); } : undefined}
                     >
                       <span className="name">{b.name}</span>
                       <span className="time">{b.time}</span>
-                      {b.isMember && <span className="member-flag" title="Member">★</span>}
+                      {b.isMember && <span className="member-flag" title={b.memberTier || "Member"}>{b.memberTier === "founding" ? "★★" : "★"}</span>}
                     </div>
                   );
                 })}
@@ -3907,12 +4023,14 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
         </div>
         <div className="legend-group">
           <span className="legend-label">State</span>
-          <span className="swatch"><i className="sw-state-awaiting" /> Awaiting</span>
-          <span className="swatch"><i className="sw-state-at_risk" /> At-risk</span>
           <span className="swatch"><i className="sw-state-paid" /> Paid</span>
-          <span className="swatch"><i className="sw-state-no_show" /> No-show</span>
-          <span className="swatch"><i className="sw-state-completed" /> Completed</span>
-          <span className="swatch"><i className="sw-member" /> ★ Member</span>
+          <span className="swatch"><i className="sw-state-completed-distinct" /> Completed</span>
+          <span className="swatch"><i className="sw-state-unpaid" /> Unpaid</span>
+        </div>
+        <div className="legend-group">
+          <span className="legend-label">Member</span>
+          <span className="swatch"><i className="sw-tier-founding" /> ★★ Founding</span>
+          <span className="swatch"><i className="sw-tier-standard" /> ★ Standard</span>
         </div>
       </div>
     </div>
@@ -3938,13 +4056,28 @@ function ScreenDashboard() {
   async function handleBlockClick(entry) {
     if (!entry) return;
     if (entry.entryType === "walkin") {
-      const r = await api("adminListWalkInBlocks", { dateFrom: entry.date, dateTo: entry.date });
-      if (r.ok) {
-        const fresh = (r.blocks || []).find(b => b.blockId === entry.bookingId || b.blockId === entry.blockId);
-        if (fresh) setWalkInBlock(fresh);
-        else showToast("Block not found", "error");
+      const blockId = entry.bookingId || entry.blockId;
+      // Open the modal IMMEDIATELY with a stub so it pops instantly.
+      // Real player list streams in when the single-block fetch returns.
+      setWalkInBlock({
+        blockId: blockId,
+        date: entry.date,
+        time: entry.time,
+        durationHours: entry.durationHours || 2,
+        courtNumber: parseInt(String(entry.courtNumbers || "0")) || 0,
+        rate: entry.rate || 0,
+        status: entry.status || "Open",
+        playerCount: entry.playerCount || 0,
+        playerCap: entry.playerCap || 15,
+        revenuePaid: 0,
+        players: [],   // empty until fetch returns
+        _loading: true
+      });
+      const r = await api("adminGetWalkInBlock", { blockId: blockId });
+      if (r.ok && r.block) {
+        setWalkInBlock({ ...r.block, _loading: false });
       } else {
-        showToast(r.error || "Failed", "error");
+        showToast(r.error || "Failed to load block", "error");
       }
     } else if (entry.entryType === "coaching") {
       setCoachingInfo(entry);
@@ -4090,7 +4223,29 @@ function ScreenDashboard() {
       {/* Timeline */}
       <div className="section-label">
         <span><span className="num">01</span><span className="name">Today's Court Timeline</span></span>
-        <span className="right">{bookings ? bookings.filter(b => b.derivedStatus !== "cancelled").length : 0} active</span>
+        <span className="right">{
+          (() => {
+            if (!bookings) return "";
+            const now = new Date();
+            const nowMins = now.getHours() * 60 + now.getMinutes();
+            let upcoming = 0, inProgress = 0, completed = 0;
+            for (const b of bookings) {
+              if (b.derivedStatus === "cancelled") continue;
+              const ts = String(b.time || "0:00").split(":").map(Number);
+              const te = String(b.timeEnd || "0:00").split(":").map(Number);
+              const startM = (ts[0] || 0) * 60 + (ts[1] || 0);
+              const endM = (te[0] || 0) * 60 + (te[1] || 0);
+              if (nowMins > endM) completed++;
+              else if (nowMins >= startM && nowMins <= endM) inProgress++;
+              else upcoming++;
+            }
+            const parts = [];
+            if (inProgress > 0) parts.push(inProgress + " now");
+            if (upcoming > 0) parts.push(upcoming + " upcoming");
+            if (completed > 0) parts.push(completed + " done");
+            return parts.length > 0 ? parts.join(" · ") : "0 today";
+          })()
+        }</span>
       </div>
       {bookings === null ? (
         <div className="empty"><BouncingBall size="sm" /></div>
@@ -4699,14 +4854,27 @@ function ScreenBookings() {
   async function handleBlockClick(entry) {
     if (!entry) return;
     if (entry.entryType === "walkin") {
-      // Fetch fresh block details (players may have changed)
-      const r = await api("adminListWalkInBlocks", { dateFrom: entry.date, dateTo: entry.date });
-      if (r.ok) {
-        const fresh = (r.blocks || []).find(b => b.blockId === entry.bookingId || b.blockId === entry.blockId);
-        if (fresh) setWalkInBlock(fresh);
-        else showToast("Block not found", "error");
+      const blockId = entry.bookingId || entry.blockId;
+      // Open instantly with stub
+      setWalkInBlock({
+        blockId: blockId,
+        date: entry.date,
+        time: entry.time,
+        durationHours: entry.durationHours || 2,
+        courtNumber: parseInt(String(entry.courtNumbers || "0")) || 0,
+        rate: entry.rate || 0,
+        status: entry.status || "Open",
+        playerCount: entry.playerCount || 0,
+        playerCap: entry.playerCap || 15,
+        revenuePaid: 0,
+        players: [],
+        _loading: true
+      });
+      const r = await api("adminGetWalkInBlock", { blockId: blockId });
+      if (r.ok && r.block) {
+        setWalkInBlock({ ...r.block, _loading: false });
       } else {
-        showToast(r.error || "Failed", "error");
+        showToast(r.error || "Failed to load block", "error");
       }
     } else if (entry.entryType === "coaching") {
       setCoachingInfo(entry);
@@ -4952,12 +5120,23 @@ function ScreenBookings() {
                         className="booking-row"
                         style={{ borderLeft: "5px solid var(--peach,#D9785C)", background: "rgba(217,120,92,0.05)", cursor: "pointer" }}
                         onClick={async () => {
-                          // Fetch latest block detail before opening
-                          const r = await api("adminListWalkInBlocks", { dateFrom: w.date, dateTo: w.date });
-                          if (r.ok) {
-                            const fresh = (r.blocks || []).find(b => b.blockId === w.bookingId);
-                            if (fresh) setWalkInBlock(fresh);
-                          }
+                          // Open instantly with stub then refresh
+                          setWalkInBlock({
+                            blockId: w.bookingId,
+                            date: w.date,
+                            time: w.time,
+                            durationHours: w.durationHours || 2,
+                            courtNumber: parseInt(String(w.courtNumbers || "0")) || 0,
+                            rate: w.rate || 0,
+                            status: w.status || "Open",
+                            playerCount: w.playerCount || 0,
+                            playerCap: w.playerCap || 15,
+                            revenuePaid: 0,
+                            players: [],
+                            _loading: true
+                          });
+                          const r = await api("adminGetWalkInBlock", { blockId: w.bookingId });
+                          if (r.ok && r.block) setWalkInBlock({ ...r.block, _loading: false });
                         }}
                       >
                         <div className="when">{w.time}<span className="endtime">→ {w.timeEnd}</span></div>
@@ -5073,13 +5252,10 @@ function ScreenBookings() {
           onCreated={(blockId) => {
             load();
             setAddBookingFlow(null);
-            // Auto-open the new block to start adding players
+            // Auto-open the new block (lean single-block fetch)
             setTimeout(() => {
-              api("adminListWalkInBlocks", { dateFrom: date, dateTo: date }).then(r => {
-                if (r.ok) {
-                  const fresh = (r.blocks || []).find(b => b.blockId === blockId);
-                  if (fresh) setWalkInBlock(fresh);
-                }
+              api("adminGetWalkInBlock", { blockId: blockId }).then(r => {
+                if (r.ok && r.block) setWalkInBlock(r.block);
               });
             }, 100);
           }}
@@ -5374,9 +5550,23 @@ function BookingRow({ booking, onAction, onOpen }) {
   const isAtRisk = booking.derivedStatus === "at_risk";
   const canQuickPay = (booking.derivedStatus === "awaiting" || booking.derivedStatus === "at_risk" || booking.derivedStatus === "completed");
 
+  // Past: the booking's end time is before "now" today, OR derivedStatus === "completed"
+  const isPast = (() => {
+    if (booking.derivedStatus === "completed" || booking.derivedStatus === "paid" && booking.date < todayISO()) return true;
+    if (booking.date < todayISO()) return true;
+    if (booking.date === todayISO() && booking.timeEnd) {
+      const now = new Date();
+      const [h, m] = String(booking.timeEnd).split(":").map(Number);
+      const endMins = (h || 0) * 60 + (m || 0);
+      const nowMins = now.getHours() * 60 + now.getMinutes();
+      return nowMins > endMins;
+    }
+    return false;
+  })();
+
   return (
     <div
-      className={"booking-row" + (isMember ? " is-member" : "") + (isAtRisk ? " is-at-risk" : "")}
+      className={"booking-row" + (isMember ? " is-member" : "") + (isAtRisk ? " is-at-risk" : "") + (isPast ? " is-past" : "")}
       onClick={onOpen}
       style={{ cursor: "pointer" }}
     >
@@ -6016,12 +6206,14 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [working, setWorking] = useState(false);
 
+  // If the parent passed a stub (instant-open pattern), sync players when real data arrives
+  useEffect(() => {
+    if (block && block.players) setPlayers(block.players);
+  }, [block]);
+
   async function refresh() {
-    const r = await api("adminListWalkInBlocks", { dateFrom: block.date, dateTo: block.date });
-    if (r.ok) {
-      const fresh = (r.blocks || []).find(b => b.blockId === block.blockId);
-      if (fresh) setPlayers(fresh.players || []);
-    }
+    const r = await api("adminGetWalkInBlock", { blockId: block.blockId });
+    if (r.ok && r.block) setPlayers(r.block.players || []);
   }
 
   async function markPaid(playerId) {
@@ -10306,6 +10498,448 @@ function CustomerHistoryModal({ customer, onClose }) {
    FINANCES — Month overview with revenue breakdown, charts, top customers
    ==================================================================== */
 
+/* ====================================================================
+   ACCOUNTING REPORT PDF GENERATOR
+
+   Uses jsPDF + jspdf-autotable (loaded via CDN script tags in index.html).
+   Produces a standard accountant-friendly report with cover page, income
+   statement, payment reconciliation, transaction ledger, outstanding A/R
+   aging, member subscription summary, and methodology notes.
+
+   All amounts in USD. Cash-basis accounting.
+   ==================================================================== */
+function generateAccountingPdf(report) {
+  if (typeof window.jspdf === "undefined" || !window.jspdf.jsPDF) {
+    throw new Error("PDF library not loaded");
+  }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const M = 40;  // page margin
+
+  // Brand colors (RGB)
+  const INK = [26, 26, 26];
+  const CREAM = [241, 234, 214];
+  const GREEN = [61, 122, 79];
+  const CLAY = [217, 120, 92];
+  const WOOD = [168, 116, 74];
+  const MUTED = [120, 120, 120];
+
+  function fmtUsd(n) {
+    if (n === undefined || n === null) return "$0.00";
+    const v = Math.round((+n || 0) * 100) / 100;
+    return "$" + v.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+  function fmtPct(n) {
+    if (!n || isNaN(n)) return "0%";
+    return Math.round(n * 10) / 10 + "%";
+  }
+  function fmtAge(hours) {
+    if (hours < 24) return Math.round(hours) + "h";
+    if (hours < 168) return Math.round(hours / 24) + "d";
+    if (hours < 720) return Math.round(hours / 168) + "w";
+    return Math.round(hours / 720) + "mo";
+  }
+
+  // --- Cover page ---
+  doc.setFillColor(...INK);
+  doc.rect(0, 0, W, 140, "F");
+
+  doc.setTextColor(...CREAM);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text("THE YARD · PICKLEBALL", M, 50);
+  doc.setFontSize(8);
+  doc.text("Toul Kork, Phnom Penh · Cambodia", M, 64);
+
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(28);
+  doc.text("Accounting Report", M, 100);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.text(report.period.label, M, 120);
+
+  doc.setTextColor(...INK);
+
+  let y = 170;
+  doc.setFontSize(8);
+  doc.setTextColor(...MUTED);
+  doc.text("Report period: " + report.period.fromStr + " to " + report.period.toStr, M, y);
+  doc.text("Generated: " + report.generatedAt + " (Asia/Phnom_Penh)", M, y + 12);
+  doc.text("Basis: Cash · Currency: USD", M, y + 24);
+  y += 50;
+
+  // --- INCOME STATEMENT ---
+  doc.setTextColor(...INK);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text("Income Statement", M, y);
+  y += 8;
+  doc.setDrawColor(...INK);
+  doc.setLineWidth(1);
+  doc.line(M, y, W - M, y);
+  y += 16;
+
+  const inc = report.incomeStatement;
+  const incomeLines = [
+    ["Court rental revenue", fmtUsd(inc.courtRev)],
+    ["Walk-in (open play) revenue", fmtUsd(inc.walkinRev)],
+    ["Coaching revenue (facility share)", fmtUsd(inc.coachingRev)],
+    ["POS sales (drinks, products)", fmtUsd(inc.posRev)],
+    ["─── Operational revenue subtotal", fmtUsd(inc.grossOperationalRevenue)],
+    ["", ""],
+    ["Sponsorship revenue (monthly + one-off)", fmtUsd(inc.sponsorshipRev)],
+    ["  └ of which monthly subscriptions (prorated)", fmtUsd(inc.sponsorshipMonthly)],
+    ["  └ of which one-off banners", fmtUsd(inc.sponsorshipOneOff)],
+    ["Membership fees recognized this period", fmtUsd(inc.membershipFeesThisMonth)],
+    ["", ""],
+    ["GROSS REVENUE", fmtUsd(inc.grossRevenue)],
+    ["Less: discounts applied (member, promo, staff)", "(" + fmtUsd(inc.totalDiscountsApplied) + ")"],
+    ["NET REVENUE", fmtUsd(inc.netRevenue)]
+  ];
+  doc.setFontSize(10);
+  for (const [label, amount] of incomeLines) {
+    if (label === "") { y += 6; continue; }
+    const isBold = label.indexOf("GROSS") >= 0 || label.indexOf("NET") >= 0 || label.indexOf("subtotal") >= 0;
+    doc.setFont("helvetica", isBold ? "bold" : "normal");
+    doc.text(label, M, y);
+    doc.text(amount, W - M, y, { align: "right" });
+    y += 14;
+    if (label === "NET REVENUE") {
+      doc.line(M, y - 8, W - M, y - 8);
+      y += 4;
+    }
+  }
+  y += 10;
+
+  // --- PAYMENT METHOD SPLIT ---
+  if (y > H - 200) { doc.addPage(); y = M; }
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text("Payment Method Reconciliation", M, y);
+  y += 8;
+  doc.line(M, y, W - M, y);
+  y += 10;
+
+  const pmRows = Object.entries(report.paymentMethodSplit || {})
+    .sort((a, b) => b[1] - a[1])
+    .map(([method, total]) => [method, fmtUsd(total)]);
+  if (pmRows.length === 0) {
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(9);
+    doc.setTextColor(...MUTED);
+    doc.text("No payment data for this period.", M, y + 14);
+    y += 30;
+    doc.setTextColor(...INK);
+  } else {
+    doc.autoTable({
+      startY: y + 4,
+      head: [["Payment Method", "Total Received"]],
+      body: pmRows,
+      theme: "grid",
+      headStyles: { fillColor: INK, textColor: CREAM, fontSize: 9, halign: "left" },
+      bodyStyles: { fontSize: 10 },
+      columnStyles: { 1: { halign: "right" } },
+      margin: { left: M, right: M }
+    });
+    y = doc.lastAutoTable.finalY + 20;
+  }
+
+  // --- DAILY CASH RECONCILIATION ---
+  if (report.dailyCashReconciliation && report.dailyCashReconciliation.length > 0) {
+    if (y > H - 200) { doc.addPage(); y = M; }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text("Daily Cash Reconciliation", M, y);
+    y += 8;
+    doc.line(M, y, W - M, y);
+    y += 4;
+    // Build table — one row per day, columns per method + total
+    const allMethods = Object.keys(report.paymentMethodSplit || {}).sort();
+    const head = [["Date", ...allMethods, "Total"]];
+    const body = report.dailyCashReconciliation.map(d => {
+      const row = [d.date];
+      for (const m of allMethods) row.push(fmtUsd(d.methods[m] || 0));
+      row.push(fmtUsd(d.total));
+      return row;
+    });
+    doc.autoTable({
+      startY: y + 4,
+      head: head,
+      body: body,
+      theme: "grid",
+      headStyles: { fillColor: INK, textColor: CREAM, fontSize: 8 },
+      bodyStyles: { fontSize: 8 },
+      columnStyles: Object.fromEntries(allMethods.map((_, i) => [i + 1, { halign: "right" }]).concat([[allMethods.length + 1, { halign: "right", fontStyle: "bold" }]])),
+      margin: { left: M, right: M }
+    });
+    y = doc.lastAutoTable.finalY + 20;
+  }
+
+  // --- OUTSTANDING RECEIVABLES ---
+  doc.addPage();
+  y = M;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text("Outstanding Receivables (Aging)", M, y);
+  y += 8;
+  doc.line(M, y, W - M, y);
+  y += 4;
+
+  const ar = report.outstandingReceivables;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(...MUTED);
+  doc.text("Aged from scheduled end time to report generation. Total: " + fmtUsd(ar.grandTotal), M, y + 14);
+  doc.setTextColor(...INK);
+  y += 26;
+
+  // Aging summary
+  const agingOrder = ["0-24h", "1-3d", "3-7d", "1-4 weeks", "1+ month"];
+  const agingRows = agingOrder
+    .filter(b => ar.agingBuckets[b])
+    .map(b => [b, ar.agingBuckets[b].count, fmtUsd(ar.agingBuckets[b].total)]);
+  if (agingRows.length > 0) {
+    doc.autoTable({
+      startY: y,
+      head: [["Age Bucket", "Count", "Amount"]],
+      body: agingRows,
+      theme: "grid",
+      headStyles: { fillColor: INK, textColor: CREAM, fontSize: 9 },
+      bodyStyles: { fontSize: 10 },
+      columnStyles: { 1: { halign: "right" }, 2: { halign: "right" } },
+      margin: { left: M, right: M }
+    });
+    y = doc.lastAutoTable.finalY + 16;
+  }
+
+  // Outstanding ledger (combined)
+  const allOutstanding = [
+    ...ar.bookings.map(x => ({ ...x, kind: "Court Booking" })),
+    ...ar.walkIns.map(x => ({ ...x, kind: "Walk-in Player" })),
+    ...ar.coaching.map(x => ({ ...x, kind: "Coaching" }))
+  ].sort((a, b) => b.ageHours - a.ageHours);
+
+  if (allOutstanding.length > 0) {
+    doc.autoTable({
+      startY: y,
+      head: [["ID", "Type", "Customer", "Date", "Time", "Age", "Amount"]],
+      body: allOutstanding.map(x => [
+        x.id, x.kind, x.customer || "—", x.date, x.time, fmtAge(x.ageHours), fmtUsd(x.amount)
+      ]),
+      theme: "grid",
+      headStyles: { fillColor: INK, textColor: CREAM, fontSize: 8 },
+      bodyStyles: { fontSize: 8 },
+      columnStyles: { 6: { halign: "right" } },
+      margin: { left: M, right: M }
+    });
+    y = doc.lastAutoTable.finalY + 16;
+  } else {
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(9);
+    doc.text("No outstanding receivables as of report generation.", M, y);
+    y += 20;
+  }
+
+  // --- MEMBER SUBSCRIPTION ACTIVITY ---
+  doc.addPage();
+  y = M;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text("Member Subscription Activity", M, y);
+  y += 8;
+  doc.line(M, y, W - M, y);
+  y += 14;
+
+  const mem = report.members;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text("Active Founding members:", M, y);
+  doc.text(String(mem.totalActiveFounding), W - M, y, { align: "right" });
+  y += 14;
+  doc.text("Active Standard members:", M, y);
+  doc.text(String(mem.totalActiveStandard), W - M, y, { align: "right" });
+  y += 14;
+  doc.setFont("helvetica", "bold");
+  doc.text("Total active members:", M, y);
+  doc.text(String(mem.totalActive), W - M, y, { align: "right" });
+  y += 18;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(...MUTED);
+  doc.text("Membership fees recognized this period: " + fmtUsd(mem.membershipRevenueRecognized), M, y);
+  doc.setTextColor(...INK);
+  y += 18;
+
+  if (mem.newThisMonth && mem.newThisMonth.length > 0) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text("New members this period:", M, y);
+    y += 6;
+    doc.autoTable({
+      startY: y,
+      head: [["Phone", "Name", "Tier", "Join Date", "Annual Fee"]],
+      body: mem.newThisMonth.map(m => [m.phone, m.name || "—", m.tier, m.joinDate, fmtUsd(m.annualFee)]),
+      theme: "grid",
+      headStyles: { fillColor: INK, textColor: CREAM, fontSize: 9 },
+      bodyStyles: { fontSize: 9 },
+      columnStyles: { 4: { halign: "right" } },
+      margin: { left: M, right: M }
+    });
+    y = doc.lastAutoTable.finalY + 16;
+  }
+
+  // --- SPONSORSHIP DETAIL ---
+  if (report.sponsorshipLedger && report.sponsorshipLedger.length > 0) {
+    if (y > H - 200) { doc.addPage(); y = M; }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text("Sponsorship Revenue Detail", M, y);
+    y += 8;
+    doc.line(M, y, W - M, y);
+    y += 6;
+
+    doc.autoTable({
+      startY: y + 4,
+      head: [["ID", "Sponsor", "Location", "Type", "Amount"]],
+      body: report.sponsorshipLedger.map(s => [
+        s.id, s.sponsor || "—", s.location || "—", s.type, fmtUsd(s.amount)
+      ]),
+      theme: "grid",
+      headStyles: { fillColor: INK, textColor: CREAM, fontSize: 9 },
+      bodyStyles: { fontSize: 9 },
+      columnStyles: { 4: { halign: "right" } },
+      margin: { left: M, right: M }
+    });
+    y = doc.lastAutoTable.finalY + 20;
+  }
+
+  // --- FULL TRANSACTION LEDGER ---
+  doc.addPage();
+  y = M;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text("Transaction Ledger", M, y);
+  y += 8;
+  doc.line(M, y, W - M, y);
+  y += 6;
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(8);
+  doc.setTextColor(...MUTED);
+  doc.text("Cash-basis: each row is one paid transaction. Sorted chronologically.", M, y + 12);
+  doc.setTextColor(...INK);
+  y += 22;
+
+  if (report.transactionLedger && report.transactionLedger.length > 0) {
+    doc.autoTable({
+      startY: y,
+      head: [["Date", "Time", "Type", "ID", "Customer", "Description", "Discount", "Amount", "Method"]],
+      body: report.transactionLedger.map(t => [
+        t.date,
+        t.time || "",
+        t.type,
+        t.id,
+        (t.customer || "—") + (t.phone ? "\n" + t.phone : ""),
+        t.description + (t.notes ? "\n" + t.notes : ""),
+        t.discount > 0 ? "(" + fmtUsd(t.discount) + ")" : "",
+        fmtUsd(t.amount),
+        t.paymentMethod || "—"
+      ]),
+      theme: "grid",
+      headStyles: { fillColor: INK, textColor: CREAM, fontSize: 7 },
+      bodyStyles: { fontSize: 7, cellPadding: 2.5 },
+      columnStyles: {
+        0: { cellWidth: 50 },
+        1: { cellWidth: 30 },
+        2: { cellWidth: 55 },
+        3: { cellWidth: 70 },
+        4: { cellWidth: 80 },
+        5: { cellWidth: 130 },
+        6: { halign: "right", cellWidth: 40 },
+        7: { halign: "right", cellWidth: 45 },
+        8: { cellWidth: 45 }
+      },
+      margin: { left: M, right: M },
+      didDrawPage: function(data) {
+        // Page footer
+        const pageNum = doc.internal.getNumberOfPages();
+        doc.setFontSize(7);
+        doc.setTextColor(...MUTED);
+        doc.text("The Yard · " + report.period.label + " · Accounting Report", M, H - 20);
+        doc.text("Page " + pageNum, W - M, H - 20, { align: "right" });
+        doc.setTextColor(...INK);
+      }
+    });
+    y = doc.lastAutoTable.finalY + 16;
+  } else {
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(9);
+    doc.text("No transactions recorded for this period.", M, y);
+  }
+
+  // --- METHODOLOGY & NOTES ---
+  doc.addPage();
+  y = M;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text("Methodology & Notes", M, y);
+  y += 8;
+  doc.line(M, y, W - M, y);
+  y += 16;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  for (const note of report.methodology || []) {
+    const lines = doc.splitTextToSize("• " + note, W - 2 * M);
+    for (const ln of lines) {
+      if (y > H - M) { doc.addPage(); y = M; }
+      doc.text(ln, M, y);
+      y += 12;
+    }
+    y += 4;
+  }
+
+  // Tax note (highlighted)
+  y += 10;
+  if (y > H - 80) { doc.addPage(); y = M; }
+  doc.setFillColor(255, 245, 220);
+  doc.rect(M, y - 2, W - 2 * M, 36, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("Tax treatment:", M + 6, y + 12);
+  doc.setFont("helvetica", "normal");
+  const taxLines = doc.splitTextToSize(report.notes.taxNote || "", W - 2 * M - 12);
+  doc.text(taxLines, M + 6, y + 24);
+  y += 50;
+
+  if (report.notes.voidsExcluded) {
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(8);
+    doc.setTextColor(...MUTED);
+    doc.text(report.notes.voidsExcluded, M, y);
+    doc.setTextColor(...INK);
+  }
+
+  // Footer on all pages — re-iterate
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(...MUTED);
+    doc.text("The Yard · " + report.period.label + " · Accounting Report", M, H - 20);
+    doc.text("Page " + i + " of " + totalPages, W - M, H - 20, { align: "right" });
+  }
+
+  // Trigger download
+  const filename = "TheYard_AccountingReport_" + report.period.year + "-" + String(report.period.month).padStart(2, "0") + ".pdf";
+  doc.save(filename);
+}
+
+
 function ScreenFinances() {
   const now = new Date();
   const [granularity, setGranularity] = useState("monthly");  // "daily" | "weekly" | "monthly"
@@ -10351,6 +10985,30 @@ function ScreenFinances() {
     setPeriodOffset(periodOffset + 1);
   }
   function currentPeriod() { setPeriodOffset(0); }
+
+  const [downloading, setDownloading] = useState(false);
+  async function downloadAccountingReport() {
+    setDownloading(true);
+    try {
+      // Always pull the monthly report for the currently-viewed period
+      const ref = new Date();
+      ref.setMonth(ref.getMonth() + periodOffset);
+      const y = ref.getFullYear();
+      const m = ref.getMonth() + 1;
+      const r = await api("adminAccountingReport", { year: y, month: m });
+      if (!r.ok) {
+        showToast(r.error || "Failed to load report data", "error");
+        return;
+      }
+      generateAccountingPdf(r);
+      showToast("Accounting report downloaded", "success");
+    } catch (e) {
+      console.error(e);
+      showToast("PDF generation failed: " + (e.message || e), "error");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
   const isCurrent = periodOffset === 0;
@@ -10414,6 +11072,15 @@ function ScreenFinances() {
             Next →
           </button>
           {!isCurrent && <button className="date-pill" onClick={currentPeriod}>This {granularity === "daily" ? "Day" : granularity === "weekly" ? "Week" : "Month"}</button>}
+          <button
+            className="btn primary"
+            onClick={downloadAccountingReport}
+            disabled={downloading}
+            style={{ marginLeft: 8 }}
+            title="Download a PDF accounting report for the selected month"
+          >
+            {downloading ? "Preparing…" : "↓ Accounting Report"}
+          </button>
         </div>
       </div>
 
