@@ -812,19 +812,23 @@ button { font-family: inherit; cursor: pointer; }
   filter: saturate(0.5);
 }
 .timeline-legend .sw-state-completed-distinct {
-  background: rgba(26,26,26,0.45);
-  border-color: rgba(26,26,26,0.45);
-  filter: grayscale(0.6);
+  background-color: rgba(120,120,120,0.18);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent, transparent 3px,
+    rgba(60,60,60,0.25) 3px, rgba(60,60,60,0.25) 5px
+  );
+  border: 1px solid rgba(60,60,60,0.40);
   position: relative;
 }
 .timeline-legend .sw-state-completed-distinct::after {
-  content: "—";
+  content: "✓";
   position: absolute;
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
-  color: var(--cream);
-  font-size: 12px;
-  font-weight: 700;
+  color: rgba(26,26,26,0.7);
+  font-size: 11px;
+  font-weight: 800;
 }
 .timeline-legend .sw-tier-founding {
   background: var(--clay);
@@ -875,18 +879,94 @@ button { font-family: inherit; cursor: pointer; }
 
 /* ============== PAST + TIER MODIFIERS ON BLOCKS ============== */
 /* Past slots (today's view, slot has ended) — visibly subdued but readable */
+/* ============== PAST / COMPLETED BLOCKS — DISTINCT VISUAL ============== */
+/* Completed (past) blocks are STRONGLY visually distinct from upcoming/active:
+ *  - Muted cream-paper background overrides type color
+ *  - Outline reset (overrides tier-founding clay outline)
+ *  - Diagonal hash overlay for "settled / archived" feel
+ *  - Text dimmed + strikethrough
+ *  - Hovering shows fuller color hint
+ */
+/* ============================================================
+ * PAST / COMPLETED BLOCKS
+ * Designed to be UNMISTAKABLY different from upcoming bookings:
+ *  - Pure gray/desaturated background (no green/wood/peach color)
+ *  - Diagonal hatch overlay says "settled / archived"
+ *  - Name strikethrough + dimmed
+ *  - Prominent "DONE" or "OVERDUE" pill on the right
+ *  - Lower opacity to recede into the background
+ * Goal: at a glance you can see "these are done, these are coming up"
+ */
 .booking-block.past {
-  opacity: 0.45;
-  filter: grayscale(0.4);
+  /* Override type color completely with neutral gray */
+  background-color: rgba(120,120,120,0.16) !important;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent, transparent 4px,
+    rgba(60,60,60,0.18) 4px, rgba(60,60,60,0.18) 6px
+  ) !important;
+  border: 1px solid rgba(60,60,60,0.30) !important;
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+  filter: grayscale(1) !important;       /* force desaturation */
+  opacity: 0.72;
 }
 .booking-block.past .name {
+  color: rgba(26,26,26,0.5);
   text-decoration: line-through;
-  text-decoration-thickness: 1px;
-  text-decoration-color: rgba(255,255,255,0.5);
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: rgba(26,26,26,0.4);
+  font-weight: 500;
+}
+.booking-block.past .time {
+  color: rgba(26,26,26,0.4);
+}
+.booking-block.past .member-flag {
+  background: rgba(26,26,26,0.35);
+  color: rgba(241,234,214,0.7);
+  opacity: 0.55;
 }
 .booking-block.clickable.past:hover {
-  opacity: 0.85;
-  filter: grayscale(0);
+  background-color: rgba(120,120,120,0.28) !important;
+  border-color: rgba(60,60,60,0.55) !important;
+  opacity: 0.92;
+}
+/* The ::before overlay should disappear on past blocks */
+.booking-block.past::before {
+  display: none;
+}
+/* "DONE" badge on completed blocks — prominent, top-right corner */
+.booking-block.past::after {
+  content: "✓ DONE";
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  font-weight: 800;
+  color: rgba(26,26,26,0.55);
+  background: rgba(241,234,214,0.7);
+  padding: 1px 3px;
+  border-radius: 2px;
+  line-height: 1.1;
+  z-index: 3;
+  pointer-events: none;
+}
+/* Past but UNPAID = OVERDUE (much more urgent) */
+.booking-block.past.state-awaiting::after,
+.booking-block.past.state-at_risk::after {
+  content: "⚠ OVERDUE";
+  color: var(--cream);
+  background: var(--clay);
+  font-weight: 800;
+}
+/* If past block also had member-flag in top-right, push DONE badge to top-left
+ * so they don't collide. Member-flag stays top-right. */
+.booking-block.past.member::after {
+  right: auto;
+  left: 3px;
 }
 
 /* Unpaid bookings (state-awaiting / state-at_risk) — dashed border indicates
@@ -921,20 +1001,12 @@ button { font-family: inherit; cursor: pointer; }
   pointer-events: none;
 }
 
-/* Past + paid combined — show check still visible but dimmer */
-.booking-block.past.state-paid::after {
-  content: "✓";
-  position: absolute;
-  top: 2px; left: 4px;
-  font-size: 9px;
-  color: rgba(255,255,255,0.55);
-  font-weight: 700;
-  z-index: 2;
-  pointer-events: none;
-}
+/* For past blocks, the .past::after pseudo-element (defined above) already
+ * shows "✓ DONE" or "OVERDUE" — we don't need a separate paid-only override
+ * because past+paid should still read as "done." */
 
 /* Push name slightly right when checkmark is showing so they don't overlap */
-.booking-block.state-paid .name {
+.booking-block.state-paid:not(.past) .name {
   padding-left: 10px;
 }
 
@@ -3446,13 +3518,85 @@ const API_CACHE_TTL = {
   posListProducts: 15000,
   posListSales: 10000,
   adminListCoaches: 60000,
+  adminListCoachingSessions: 15000,
   adminListSettleableEntries: 10000,
+  adminListCustomers: 30000,
+  adminListSmsLog: 30000,
   tabListOpen: 10000,
   adminListWalkInBlocks: 15000
 };
 
 const _apiCache = new Map();
 const _inflightFetches = new Map();
+
+// Endpoints whose responses are safe to persist across page reloads.
+// Keep this conservative: only read-only endpoints with non-sensitive data.
+// Persisted entries are used for instant initial render after refresh; the
+// real fetch always runs in parallel to update.
+const _PERSIST_ENDPOINTS = new Set([
+  "adminDashboard",
+  "adminListTimelineEntries",
+  "adminDashboardKpi",
+  "adminOperationalKpi",
+  "adminListMembers",
+  "posListProducts",
+  "adminListSponsorships",
+  "adminListCoaches",
+  "adminFinancesMonth",
+  "adminFinancesRange",
+  "adminListCustomers",
+  "adminListSmsLog",
+  "adminGetPromo",
+  "adminGetPosSettings",
+  "adminGetGoals",
+  "adminGetSponsorshipSettings",
+  "tabListOpen",
+  "adminListWalkInBlocks"
+]);
+const _LS_CACHE_PREFIX = "yard-cache-v1:";
+const _LS_MAX_AGE_MS = 24 * 60 * 60 * 1000;  // 24h — anything older is too stale to even show
+
+function _persistCacheEntry(key, data, time) {
+  const action = key.split(":")[0];
+  if (!_PERSIST_ENDPOINTS.has(action)) return;
+  try {
+    // Cap size: don't persist huge payloads (>500KB)
+    const json = JSON.stringify({ data: data, time: time });
+    if (json.length > 500000) return;
+    localStorage.setItem(_LS_CACHE_PREFIX + key, json);
+  } catch (e) {
+    // Quota exceeded or localStorage disabled — ignore silently
+  }
+}
+
+function _hydrateCacheFromLocalStorage() {
+  try {
+    const now = Date.now();
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || k.indexOf(_LS_CACHE_PREFIX) !== 0) continue;
+      const cacheKey = k.substring(_LS_CACHE_PREFIX.length);
+      try {
+        const raw = localStorage.getItem(k);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (!parsed || !parsed.data || typeof parsed.time !== "number") continue;
+        if ((now - parsed.time) > _LS_MAX_AGE_MS) {
+          localStorage.removeItem(k);
+          continue;
+        }
+        _apiCache.set(cacheKey, { data: parsed.data, time: parsed.time });
+      } catch (e) {
+        try { localStorage.removeItem(k); } catch (e2) {}
+      }
+    }
+  } catch (e) {
+    // No localStorage access — fine, in-memory cache only
+  }
+}
+
+// Hydrate on script load — before any component renders
+_hydrateCacheFromLocalStorage();
 
 function _apiCacheKey(action, params) {
   // Stable key: sort params + JSON
@@ -3466,10 +3610,22 @@ function invalidateApiCache(prefix) {
   // Pass an action name to invalidate all variants of it. Pass "" to clear all.
   if (!prefix) {
     _apiCache.clear();
+    // Also clear persisted cache so next reload doesn't show stale data
+    try {
+      const toRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.indexOf(_LS_CACHE_PREFIX) === 0) toRemove.push(k);
+      }
+      for (const k of toRemove) localStorage.removeItem(k);
+    } catch (e) {}
     return;
   }
   for (const k of [..._apiCache.keys()]) {
-    if (k === prefix || k.startsWith(prefix + ":")) _apiCache.delete(k);
+    if (k === prefix || k.startsWith(prefix + ":")) {
+      _apiCache.delete(k);
+      try { localStorage.removeItem(_LS_CACHE_PREFIX + k); } catch (e) {}
+    }
   }
 }
 
@@ -3543,6 +3699,7 @@ function _invalidateForMutation(action) {
     const ep = k.split(":")[0];
     if (KEEP.has(ep)) continue;
     _apiCache.delete(k);
+    try { localStorage.removeItem(_LS_CACHE_PREFIX + k); } catch (e) {}
   }
 }
 
@@ -3570,7 +3727,9 @@ async function api(action, params = {}, options = {}) {
         const p = _doFetchRaw(action, params).then(fresh => {
           _inflightFetches.delete(key);
           if (fresh && fresh.ok !== false) {
-            _apiCache.set(key, { data: fresh, time: Date.now() });
+            const t = Date.now();
+            _apiCache.set(key, { data: fresh, time: t });
+            _persistCacheEntry(key, fresh, t);
             if (options.onUpdate) {
               try { options.onUpdate(fresh); } catch (e) {}
             }
@@ -3589,7 +3748,9 @@ async function api(action, params = {}, options = {}) {
   const p = _doFetchRaw(action, params).then(fresh => {
     _inflightFetches.delete(key);
     if (fresh && fresh.ok !== false) {
-      _apiCache.set(key, { data: fresh, time: Date.now() });
+      const t = Date.now();
+      _apiCache.set(key, { data: fresh, time: t });
+      _persistCacheEntry(key, fresh, t);
     }
     return fresh;
   });
@@ -3957,14 +4118,24 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
     return out;
   }, [bookings]);
 
-  // "Now" indicator x position
+  // "Now" indicator x position. Returns -1 if outside the visible window
+  // (before open or after close). Note: pastness of blocks does NOT depend
+  // on this — it's computed independently below from real wall-clock time.
   const nowOffset = useMemo(() => {
     if (dateStr !== todayISO()) return -1;
     const now = new Date();
     const minsFromOpen = (now.getHours() - OPEN_HOUR) * 60 + now.getMinutes();
     if (minsFromOpen < 0 || minsFromOpen > (CLOSE_HOUR - OPEN_HOUR) * 60) return -1;
     return (minsFromOpen / 30) * slotW;
-  }, [dateStr, slotW, bookings]);  // re-evaluate when polling re-renders
+  }, [dateStr, slotW, bookings]);
+
+  // Current-time-in-minutes-from-open, allowed to exceed range. This is what
+  // we compare slot end times against to decide if a block has finished.
+  const currentMinsFromOpen = useMemo(() => {
+    if (dateStr !== todayISO()) return -1;
+    const now = new Date();
+    return (now.getHours() - OPEN_HOUR) * 60 + now.getMinutes();
+  }, [dateStr, bookings]);  // re-evaluate when polling re-renders
 
   // Build hour labels: 06, 07, 08, ..., 22
   const hourLabels = [];
@@ -4029,9 +4200,12 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
                 {blocks.filter(b => b.court === c).map((b, idx) => {
                   const left = b.startIdx * slotW;
                   const width = b.slots * slotW - 2;
-                  // "Past" = block ended before now (only matters on today's view)
+                  // "Past" = block has ended. Today only — past dates already render historical.
+                  // We compare actual minutes-since-open with slot end (each slot = 30min from OPEN_HOUR).
+                  // Using currentMinsFromOpen instead of nowOffset so this works AFTER close hour too.
                   const endSlotIdx = b.startIdx + b.slots;
-                  const isPast = (dateStr === todayISO()) && (nowOffset >= 0) && (endSlotIdx * slotW < nowOffset);
+                  const slotEndMins = endSlotIdx * 30;
+                  const isPast = (dateStr === todayISO()) && (currentMinsFromOpen >= 0) && (slotEndMins <= currentMinsFromOpen);
                   // Member tier class for differentiation
                   const tierClass = b.memberTier === "founding" ? " tier-founding"
                                   : b.memberTier === "standard" ? " tier-standard"
@@ -6646,7 +6820,13 @@ function ScreenMembers() {
   const [editMember, setEditMember] = useState(null);
 
   async function load() {
-    setLoading(true);
+    const cached = getCachedApi("adminListMembers");
+    if (cached && cached.ok) {
+      setMembers(cached.members || []);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     const r = await api("adminListMembers");
     if (r.ok) setMembers(r.members || []);
     else showToast(r.error || "Failed to load", "error");
@@ -7037,13 +7217,25 @@ function ScreenCoaching() {
   const [loading, setLoading] = useState(true);
 
   async function loadCoaches() {
+    const cached = getCachedApi("adminListCoaches");
+    if (cached && cached.ok) {
+      setCoaches(cached.coaches || []);
+      setLoading(false);
+    }
     const r = await api("adminListCoaches");
     if (r.ok) setCoaches(r.coaches || []);
   }
 
   useEffect(() => {
-    setLoading(true);
-    loadCoaches().finally(() => setLoading(false));
+    const cached = getCachedApi("adminListCoaches");
+    if (cached && cached.ok) {
+      setCoaches(cached.coaches || []);
+      setLoading(false);
+      loadCoaches();  // refresh in background
+    } else {
+      setLoading(true);
+      loadCoaches().finally(() => setLoading(false));
+    }
   }, []);
 
   return (
@@ -10285,7 +10477,13 @@ function ScreenCustomers() {
   const [historyCustomer, setHistoryCustomer] = useState(null);
 
   async function load() {
-    const r = await api("adminListCustomers", { search: search, type: typeFilter === "all" ? "" : typeFilter });
+    const params = { search: search, type: typeFilter === "all" ? "" : typeFilter };
+    // Sync cache hit — show instantly while we re-fetch
+    const cached = getCachedApi("adminListCustomers", params);
+    if (cached && cached.ok) {
+      setCustomers(cached.customers || []);
+    }
+    const r = await api("adminListCustomers", params);
     if (r.ok) setCustomers(r.customers || []);
   }
   useEffect(() => {
@@ -10645,6 +10843,86 @@ function generateAccountingPdf(report) {
   doc.text("Basis: Cash · Currency: USD", M, y + 24);
   y += 50;
 
+  // --- EXECUTIVE SUMMARY (key numbers in a clean box) ---
+  doc.setTextColor(...INK);
+  doc.setDrawColor(...INK);
+  doc.setLineWidth(0.5);
+  const summaryBoxY = y;
+  const summaryBoxH = 150;
+  doc.setFillColor(248, 245, 235);  // very light cream
+  doc.rect(M, summaryBoxY, W - 2 * M, summaryBoxH, "FD");
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("Executive Summary", M + 14, summaryBoxY + 20);
+  doc.setLineWidth(0.4);
+  doc.line(M + 14, summaryBoxY + 24, W - M - 14, summaryBoxY + 24);
+
+  const inc2 = report.incomeStatement;
+  // Two-column layout inside the summary
+  const colLeftX = M + 14;
+  const colRightX = M + (W - 2 * M) / 2 + 14;
+  let sy = summaryBoxY + 40;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(...MUTED);
+  doc.text("GROSS REVENUE", colLeftX, sy);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.setTextColor(...INK);
+  doc.text(fmtUsd(inc2.grossRevenue), colLeftX, sy + 20);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(...MUTED);
+  doc.text("NET REVENUE (after discounts)", colRightX, sy);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.setTextColor(...GREEN);
+  doc.text(fmtUsd(inc2.netRevenue), colRightX, sy + 20);
+
+  doc.setTextColor(...INK);
+  sy += 50;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+
+  // Mini revenue breakdown left col, txn counts right col
+  const txnC = report.transactionCounts || {};
+  const breakdownItems = [
+    ["Court rental", fmtUsd(inc2.courtRev)],
+    ["Walk-in (open play)", fmtUsd(inc2.walkinRev)],
+    ["Coaching (facility share)", fmtUsd(inc2.coachingRev)],
+    ["POS sales", fmtUsd(inc2.posRev)],
+    ["Sponsorships", fmtUsd(inc2.sponsorshipRev)],
+    ["Memberships sold", fmtUsd(inc2.membershipFeesThisMonth)]
+  ];
+  for (let i = 0; i < breakdownItems.length; i++) {
+    const [label, amount] = breakdownItems[i];
+    doc.setTextColor(...MUTED);
+    doc.text(label, colLeftX, sy + i * 11);
+    doc.setTextColor(...INK);
+    doc.text(amount, colLeftX + 170, sy + i * 11, { align: "right" });
+  }
+
+  const txnItems = [
+    ["Court bookings paid", String(txnC.booking || 0)],
+    ["Walk-in players paid", String(txnC.walkin || 0)],
+    ["Coaching sessions paid", String(txnC.coaching || 0)],
+    ["POS transactions", String(txnC.pos || 0)],
+    ["Outstanding receivables", String((report.outstanding && report.outstanding.totalCount) || 0) + " · " + fmtUsd((report.outstanding && report.outstanding.totalAmount) || 0)],
+    ["Voided sales", String(txnC.voided || 0)]
+  ];
+  for (let i = 0; i < txnItems.length; i++) {
+    const [label, value] = txnItems[i];
+    doc.setTextColor(...MUTED);
+    doc.text(label, colRightX, sy + i * 11);
+    doc.setTextColor(...INK);
+    doc.text(value, colRightX + 170, sy + i * 11, { align: "right" });
+  }
+
+  y = summaryBoxY + summaryBoxH + 28;
+
   // --- INCOME STATEMENT ---
   doc.setTextColor(...INK);
   doc.setFont("helvetica", "bold");
@@ -10654,38 +10932,80 @@ function generateAccountingPdf(report) {
   doc.setDrawColor(...INK);
   doc.setLineWidth(1);
   doc.line(M, y, W - M, y);
-  y += 16;
+  y += 6;
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(8);
+  doc.setTextColor(...MUTED);
+  doc.text("Cash basis · revenue recognized when payment received. All amounts in USD.", M, y + 8);
+  doc.setTextColor(...INK);
+  y += 20;
 
   const inc = report.incomeStatement;
-  const incomeLines = [
-    ["Court rental revenue", fmtUsd(inc.courtRev)],
-    ["Walk-in (open play) revenue", fmtUsd(inc.walkinRev)],
-    ["Coaching revenue (facility share)", fmtUsd(inc.coachingRev)],
-    ["POS sales (drinks, products)", fmtUsd(inc.posRev)],
-    ["─── Operational revenue subtotal", fmtUsd(inc.grossOperationalRevenue)],
-    ["", ""],
-    ["Sponsorship revenue (monthly + one-off)", fmtUsd(inc.sponsorshipRev)],
-    ["  └ of which monthly subscriptions (prorated)", fmtUsd(inc.sponsorshipMonthly)],
-    ["  └ of which one-off banners", fmtUsd(inc.sponsorshipOneOff)],
-    ["Membership fees recognized this period", fmtUsd(inc.membershipFeesThisMonth)],
-    ["", ""],
-    ["GROSS REVENUE", fmtUsd(inc.grossRevenue)],
-    ["Less: discounts applied (member, promo, staff)", "(" + fmtUsd(inc.totalDiscountsApplied) + ")"],
-    ["NET REVENUE", fmtUsd(inc.netRevenue)]
-  ];
-  doc.setFontSize(10);
-  for (const [label, amount] of incomeLines) {
-    if (label === "") { y += 6; continue; }
-    const isBold = label.indexOf("GROSS") >= 0 || label.indexOf("NET") >= 0 || label.indexOf("subtotal") >= 0;
-    doc.setFont("helvetica", isBold ? "bold" : "normal");
-    doc.text(label, M, y);
-    doc.text(amount, W - M, y, { align: "right" });
-    y += 14;
-    if (label === "NET REVENUE") {
-      doc.line(M, y - 8, W - M, y - 8);
-      y += 4;
+
+  // -- Helper to render a line with proper indent --
+  function _ilLine(label, amount, opts) {
+    opts = opts || {};
+    const indent = opts.indent || 0;
+    const isBold = !!opts.bold;
+    const isItalic = !!opts.italic;
+    doc.setFont("helvetica", isBold ? "bold" : (isItalic ? "italic" : "normal"));
+    doc.setFontSize(opts.size || 10);
+    if (opts.muted) doc.setTextColor(...MUTED); else doc.setTextColor(...INK);
+    doc.text(label, M + indent, y);
+    if (amount !== null && amount !== undefined) {
+      doc.text(amount, W - M, y, { align: "right" });
     }
+    y += (opts.size === 8 ? 11 : 14);
+    doc.setTextColor(...INK);
   }
+  function _ilDivider(opts) {
+    opts = opts || {};
+    doc.setDrawColor(...(opts.bold ? INK : MUTED));
+    doc.setLineWidth(opts.bold ? 0.8 : 0.3);
+    doc.line(M + (opts.indent || 0), y, W - M, y);
+    doc.setLineWidth(1);
+    y += 6;
+  }
+  function _ilSpacer(n) { y += (n || 8); }
+
+  // OPERATIONAL section
+  _ilLine("OPERATIONAL REVENUE", null, { bold: true, size: 9 });
+  _ilLine("Court rental", fmtUsd(inc.courtRev), { indent: 10 });
+  _ilLine("Walk-in (open play)", fmtUsd(inc.walkinRev), { indent: 10 });
+  _ilLine("Coaching (facility share only)", fmtUsd(inc.coachingRev), { indent: 10 });
+  _ilLine("POS / Retail", fmtUsd(inc.posRev), { indent: 10 });
+  _ilDivider({ indent: 10 });
+  _ilLine("Subtotal — operational", fmtUsd(inc.grossOperationalRevenue), { bold: true });
+  _ilSpacer(8);
+
+  // OTHER REVENUE section
+  _ilLine("OTHER REVENUE", null, { bold: true, size: 9 });
+  _ilLine("Sponsorships (monthly + one-off)", fmtUsd(inc.sponsorshipRev), { indent: 10 });
+  if (inc.sponsorshipMonthly > 0 || inc.sponsorshipOneOff > 0) {
+    _ilLine("of which monthly subscriptions (prorated)", fmtUsd(inc.sponsorshipMonthly), { indent: 20, muted: true, size: 8 });
+    _ilLine("of which one-off banners", fmtUsd(inc.sponsorshipOneOff), { indent: 20, muted: true, size: 8 });
+  }
+  _ilLine("Membership fees collected", fmtUsd(inc.membershipFeesThisMonth), { indent: 10 });
+  _ilDivider({ indent: 10 });
+  const otherRev = (inc.sponsorshipRev || 0) + (inc.membershipFeesThisMonth || 0);
+  _ilLine("Subtotal — other revenue", fmtUsd(otherRev), { bold: true });
+  _ilSpacer(10);
+
+  // GRAND TOTAL
+  _ilDivider({ bold: true });
+  _ilLine("TOTAL REVENUE", fmtUsd(inc.grossRevenue), { bold: true, size: 12 });
+  _ilDivider({ bold: true });
+  _ilSpacer(10);
+
+  // Memo
+  doc.setFont("helvetica", "italic");
+  doc.setFontSize(8);
+  doc.setTextColor(...MUTED);
+  doc.text("Memo: Customer discounts applied this period (already deducted above): " + fmtUsd(inc.totalDiscountsApplied), M, y);
+  y += 11;
+  doc.text("Memo: Voided POS transactions this period: " + (report.transactionCounts.voided || 0), M, y);
+  y += 11;
+  doc.setTextColor(...INK);
   y += 10;
 
   // --- PAYMENT METHOD SPLIT ---
@@ -10697,9 +11017,33 @@ function generateAccountingPdf(report) {
   doc.line(M, y, W - M, y);
   y += 10;
 
-  const pmRows = Object.entries(report.paymentMethodSplit || {})
+  // Sanitize method names defensively in case backend hasn't been upgraded.
+  // Replace "true"/"false"/"null"/"undefined" and non-printable strings with "Cash".
+  const _cleanMethod = (m) => {
+    const s = String(m || "").trim();
+    if (!s) return "Cash";
+    if (/^(true|false|null|undefined|nan)$/i.test(s)) return "Cash";
+    // Strip any non-ASCII to avoid mojibake
+    const cleaned = s.replace(/[\u0080-\uFFFF]/g, "").trim();
+    if (!cleaned) return "Cash";
+    if (cleaned.toLowerCase() === "unknown") return "Cash";
+    return cleaned;
+  };
+
+  // Group payment methods after sanitization, then total
+  const _pmGrouped = {};
+  for (const [method, total] of Object.entries(report.paymentMethodSplit || {})) {
+    const key = _cleanMethod(method);
+    _pmGrouped[key] = (_pmGrouped[key] || 0) + (parseFloat(total) || 0);
+  }
+  const _pmTotal = Object.values(_pmGrouped).reduce((s, v) => s + v, 0);
+  const pmRows = Object.entries(_pmGrouped)
     .sort((a, b) => b[1] - a[1])
-    .map(([method, total]) => [method, fmtUsd(total)]);
+    .map(([method, total]) => [
+      method,
+      fmtUsd(total),
+      _pmTotal > 0 ? ((total / _pmTotal) * 100).toFixed(1) + "%" : "0%"
+    ]);
   if (pmRows.length === 0) {
     doc.setFont("helvetica", "italic");
     doc.setFontSize(9);
@@ -10708,14 +11052,20 @@ function generateAccountingPdf(report) {
     y += 30;
     doc.setTextColor(...INK);
   } else {
+    // Add grand total row at the bottom
+    pmRows.push([
+      { content: "TOTAL", styles: { fontStyle: "bold", fillColor: [232, 226, 210] } },
+      { content: fmtUsd(_pmTotal), styles: { fontStyle: "bold", fillColor: [232, 226, 210], halign: "right" } },
+      { content: "100%", styles: { fontStyle: "bold", fillColor: [232, 226, 210], halign: "right" } }
+    ]);
     doc.autoTable({
       startY: y + 4,
-      head: [["Payment Method", "Total Received"]],
+      head: [["Payment Method", "Amount", "% of Total"]],
       body: pmRows,
       theme: "grid",
       headStyles: { fillColor: INK, textColor: CREAM, fontSize: 9, halign: "left" },
       bodyStyles: { fontSize: 10 },
-      columnStyles: { 1: { halign: "right" } },
+      columnStyles: { 1: { halign: "right" }, 2: { halign: "right" } },
       margin: { left: M, right: M }
     });
     y = doc.lastAutoTable.finalY + 20;
@@ -10730,15 +11080,38 @@ function generateAccountingPdf(report) {
     y += 8;
     doc.line(M, y, W - M, y);
     y += 4;
-    // Build table — one row per day, columns per method + total
-    const allMethods = Object.keys(report.paymentMethodSplit || {}).sort();
-    const head = [["Date", ...allMethods, "Total"]];
+    // Use the SAME cleaned method list as the Payment Method table so columns line up
+    const allMethods = Object.keys(_pmGrouped).sort();
+    const head = [["Date", ...allMethods, "Day Total"]];
+    let grandByMethod = {};
+    let grandTotal = 0;
     const body = report.dailyCashReconciliation.map(d => {
+      // Re-group this day's methods through the same sanitizer
+      const cleaned = {};
+      for (const [m, v] of Object.entries(d.methods || {})) {
+        const key = _cleanMethod(m);
+        cleaned[key] = (cleaned[key] || 0) + (parseFloat(v) || 0);
+      }
       const row = [d.date];
-      for (const m of allMethods) row.push(fmtUsd(d.methods[m] || 0));
-      row.push(fmtUsd(d.total));
+      let dayTotal = 0;
+      for (const m of allMethods) {
+        const amt = cleaned[m] || 0;
+        row.push(amt > 0 ? fmtUsd(amt) : "—");
+        dayTotal += amt;
+        grandByMethod[m] = (grandByMethod[m] || 0) + amt;
+      }
+      grandTotal += dayTotal;
+      row.push(fmtUsd(dayTotal));
       return row;
     });
+    // Grand total row
+    const totalRow = [{ content: "TOTAL", styles: { fontStyle: "bold", fillColor: [232, 226, 210] } }];
+    for (const m of allMethods) {
+      totalRow.push({ content: fmtUsd(grandByMethod[m] || 0), styles: { fontStyle: "bold", fillColor: [232, 226, 210], halign: "right" } });
+    }
+    totalRow.push({ content: fmtUsd(grandTotal), styles: { fontStyle: "bold", fillColor: [232, 226, 210], halign: "right" } });
+    body.push(totalRow);
+
     doc.autoTable({
       startY: y + 4,
       head: head,
@@ -10903,38 +11276,88 @@ function generateAccountingPdf(report) {
   doc.setFont("helvetica", "italic");
   doc.setFontSize(8);
   doc.setTextColor(...MUTED);
-  doc.text("Cash-basis: each row is one paid transaction. Sorted chronologically.", M, y + 12);
+  doc.text("Cash-basis ledger of all paid transactions, grouped by day with daily subtotals.", M, y + 12);
+  doc.text("Phone numbers and customer notes omitted from ledger for readability — see source sheets for detail.", M, y + 22);
   doc.setTextColor(...INK);
-  y += 22;
+  y += 32;
 
   if (report.transactionLedger && report.transactionLedger.length > 0) {
+    // Defensive cleaner — same logic as _safeText in backend.
+    // Strips non-printable Unicode, rejects Date.toString() patterns, caps length.
+    const _cleanText = (val, maxLen) => {
+      if (val === null || val === undefined) return "";
+      if (val === true || val === false) return "";
+      if (val instanceof Date) return "";
+      let s = String(val).replace(/[\r\n\t]+/g, " ").replace(/[\u0080-\uFFFF]/g, "").trim();
+      if (/GMT[+-]\d{4}|\b\d{2}:\d{2}:\d{2}\s+GMT/i.test(s)) return "";
+      maxLen = maxLen || 80;
+      if (s.length > maxLen) s = s.substring(0, maxLen - 1) + "…";
+      return s;
+    };
+
+    // Group ledger by date for accountant readability — each day gets a
+    // header row + transactions + subtotal row. Days are already sorted by
+    // the backend.
+    const byDay = {};
+    const dayOrder = [];
+    for (const t of report.transactionLedger) {
+      const d = t.date || "—";
+      if (!byDay[d]) { byDay[d] = []; dayOrder.push(d); }
+      byDay[d].push(t);
+    }
+
+    // Build body rows. We use special "header" and "subtotal" rows
+    // (identified by sentinel value in column 0) and style them via
+    // didParseCell.
+    const body = [];
+    let grandTotal = 0;
+    for (const d of dayOrder) {
+      const txns = byDay[d];
+      const dayTotal = txns.reduce((s, t) => s + (t.amount || 0), 0);
+      grandTotal += dayTotal;
+      // Day header row
+      body.push([
+        { content: d, colSpan: 7, styles: { fontStyle: "bold", fillColor: [232, 226, 210], textColor: INK, halign: "left" } },
+        { content: fmtUsd(dayTotal) + " day total", styles: { fontStyle: "bold", fillColor: [232, 226, 210], textColor: INK, halign: "right" } }
+      ]);
+      // Transaction rows — sanitize every text field
+      for (const t of txns) {
+        body.push([
+          _cleanText(t.time, 8),
+          _cleanText(t.type, 20),
+          _cleanText(t.id, 22),
+          _cleanText(t.customer, 28) || "—",
+          _cleanText(t.description, 48),
+          t.discount > 0 ? "(" + fmtUsd(t.discount) + ")" : "",
+          fmtUsd(t.amount),
+          _cleanMethod(t.paymentMethod)
+        ]);
+      }
+    }
+
+    // Grand total row
+    body.push([
+      { content: "PERIOD TOTAL (paid transactions)", colSpan: 6, styles: { fontStyle: "bold", fillColor: INK, textColor: CREAM, halign: "right" } },
+      { content: fmtUsd(grandTotal), styles: { fontStyle: "bold", fillColor: INK, textColor: CREAM, halign: "right" } },
+      { content: "", styles: { fillColor: INK, textColor: CREAM } }
+    ]);
+
     doc.autoTable({
       startY: y,
-      head: [["Date", "Time", "Type", "ID", "Customer", "Description", "Discount", "Amount", "Method"]],
-      body: report.transactionLedger.map(t => [
-        t.date,
-        t.time || "",
-        t.type,
-        t.id,
-        (t.customer || "—") + (t.phone ? "\n" + t.phone : ""),
-        t.description + (t.notes ? "\n" + t.notes : ""),
-        t.discount > 0 ? "(" + fmtUsd(t.discount) + ")" : "",
-        fmtUsd(t.amount),
-        t.paymentMethod || "—"
-      ]),
+      head: [["Time", "Type", "ID", "Customer", "Description", "Discount", "Amount", "Method"]],
+      body: body,
       theme: "grid",
-      headStyles: { fillColor: INK, textColor: CREAM, fontSize: 7 },
-      bodyStyles: { fontSize: 7, cellPadding: 2.5 },
+      headStyles: { fillColor: INK, textColor: CREAM, fontSize: 8, halign: "left" },
+      bodyStyles: { fontSize: 8, cellPadding: 3, valign: "middle" },
       columnStyles: {
-        0: { cellWidth: 50 },
-        1: { cellWidth: 30 },
-        2: { cellWidth: 55 },
-        3: { cellWidth: 70 },
-        4: { cellWidth: 80 },
-        5: { cellWidth: 130 },
-        6: { halign: "right", cellWidth: 40 },
-        7: { halign: "right", cellWidth: 45 },
-        8: { cellWidth: 45 }
+        0: { cellWidth: 38 },   // Time
+        1: { cellWidth: 58 },   // Type
+        2: { cellWidth: 70 },   // ID
+        3: { cellWidth: 95 },   // Customer
+        4: { cellWidth: 105 },  // Description
+        5: { halign: "right", cellWidth: 42 },  // Discount
+        6: { halign: "right", cellWidth: 50, fontStyle: "bold" },  // Amount (bold for emphasis)
+        7: { cellWidth: 50 }    // Method
       },
       margin: { left: M, right: M },
       didDrawPage: function(data) {
@@ -11560,67 +11983,44 @@ function FinancesRangeView({ data, granularity }) {
         {" + "}${(h.sponsorshipRev || 0).toFixed(2)} <span style={{ opacity: 0.5 }}>sponsorship</span>
       </div>
 
-      {/* Mini chart — bars per bucket, or numerical breakdown for Daily */}
-      {series.length > 0 && (
+      {/* Bar chart for weekly granularity. Daily granularity has no extra
+       * breakdown because the top stat cards already show the day's totals. */}
+      {granularity === "weekly" && series.length > 0 && (
         <div className="settings-card" style={{ padding: 20 }}>
-          <h3 style={{ marginBottom: 14 }}>
-            {granularity === "daily" ? "Day breakdown" : "Daily breakdown"}
-          </h3>
-          {granularity === "daily" ? (
-            // Daily granularity = one day, show breakdown as a clean stat grid
-            <div>
-              {series[0]?.total > 0 ? (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
-                  <div className="stat-card">
-                    <div className="label">Court rental</div>
-                    <div className="value">${series[0].court.toFixed(2)}</div>
+          <h3 style={{ marginBottom: 14 }}>Daily breakdown</h3>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 200, padding: "0 6px" }}>
+            {series.map(s => {
+              const h = Math.max(2, (s.total / maxVal) * 180);
+              return (
+                <div key={s.bucket} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                  <div style={{
+                    width: "100%", maxWidth: 40,
+                    height: h + "px",
+                    background: s.total > 0 ? "var(--green)" : "rgba(26,26,26,0.1)",
+                    borderRadius: 2,
+                    position: "relative"
+                  }}
+                  title={s.bucket + ": $" + s.total.toFixed(2)}
+                  >
+                    {s.total > 0 && (
+                      <div style={{ position: "absolute", top: -16, left: "50%", transform: "translateX(-50%)", fontFamily: "var(--mono)", fontSize: 9, opacity: 0.7, whiteSpace: "nowrap" }}>
+                        ${s.total.toFixed(0)}
+                      </div>
+                    )}
                   </div>
-                  <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}>
-                    <div className="label">◉ Walk-in</div>
-                    <div className="value" style={{ color: "var(--peach,#D9785C)" }}>${series[0].walkin.toFixed(2)}</div>
-                  </div>
-                  <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
-                    <div className="label">★ Coaching</div>
-                    <div className="value" style={{ color: "var(--wood)" }}>${series[0].coaching.toFixed(2)}</div>
-                  </div>
-                  <div className="stat-card">
-                    <div className="label">POS</div>
-                    <div className="value">${series[0].pos.toFixed(2)}</div>
-                  </div>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.04em", opacity: 0.6 }}>{s.label}</div>
                 </div>
-              ) : (
-                <div style={{ fontFamily: "var(--mono)", fontSize: 12, opacity: 0.55 }}>
-                  No revenue recorded for {data.label}.
-                </div>
-              )}
-            </div>
-          ) : (
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 200, padding: "0 6px" }}>
-              {series.map(s => {
-                const h = Math.max(2, (s.total / maxVal) * 180);
-                return (
-                  <div key={s.bucket} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                    <div style={{
-                      width: "100%", maxWidth: 40,
-                      height: h + "px",
-                      background: s.total > 0 ? "var(--green)" : "rgba(26,26,26,0.1)",
-                      borderRadius: 2,
-                      position: "relative"
-                    }}
-                    title={s.bucket + ": $" + s.total.toFixed(2)}
-                    >
-                      {s.total > 0 && (
-                        <div style={{ position: "absolute", top: -16, left: "50%", transform: "translateX(-50%)", fontFamily: "var(--mono)", fontSize: 9, opacity: 0.7, whiteSpace: "nowrap" }}>
-                          ${s.total.toFixed(0)}
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.04em", opacity: 0.6 }}>{s.label}</div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {granularity === "daily" && (!series[0] || series[0].total === 0) && (
+        <div className="settings-card" style={{ padding: 20 }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 12, opacity: 0.55 }}>
+            No revenue recorded for {data.label}.
+          </div>
         </div>
       )}
 
@@ -12030,6 +12430,10 @@ function ScreenSponsorships() {
   const [statusFilter, setStatusFilter] = useState("all");
 
   async function load() {
+    const cached = getCachedApi("adminListSponsorships");
+    if (cached && cached.ok) {
+      setData(cached);
+    }
     const r = await api("adminListSponsorships");
     if (r.ok) setData(r);
   }
@@ -12378,7 +12782,10 @@ function ScreenSmsLog() {
   const [statusFilter, setStatusFilter] = useState("");
 
   async function load() {
-    const r = await api("adminListSmsLog", { type: typeFilter, status: statusFilter, limit: 200 });
+    const params = { type: typeFilter, status: statusFilter, limit: 200 };
+    const cached = getCachedApi("adminListSmsLog", params);
+    if (cached && cached.ok) setEntries(cached.entries || []);
+    const r = await api("adminListSmsLog", params);
     if (r.ok) setEntries(r.entries || []);
   }
   useEffect(() => { load(); }, [typeFilter, statusFilter]);
@@ -12938,6 +13345,7 @@ function App() {
       // is hot by the time the user clicks them. Failures are silently ignored
       // (these will be retried on first real visit).
       const today = todayISO();
+      const now = new Date();
       setTimeout(() => {
         api("adminListTimelineEntries", { dateFrom: today, dateTo: today }).catch(() => {});
         api("posListProducts").catch(() => {});
@@ -12948,7 +13356,15 @@ function App() {
         api("adminDashboardKpi").catch(() => {});
         api("adminOperationalKpi").catch(() => {});
         api("adminListSponsorships").catch(() => {});
+        api("adminListCoaches").catch(() => {});
+        api("adminFinancesMonth", { year: now.getFullYear(), month: now.getMonth() + 1 }).catch(() => {});
       }, 800);
+      // Lower-priority tabs — warm cache 2s in (after main tabs ready)
+      setTimeout(() => {
+        api("adminListCustomers", { search: "", type: "" }).catch(() => {});
+        api("adminListSmsLog", { type: "", status: "", limit: 200 }).catch(() => {});
+        api("posListSales").catch(() => {});
+      }, 2000);
     });
   }, []);
 
@@ -12992,20 +13408,31 @@ function App() {
       case "pos":
         api("posListProducts").catch(() => {});
         api("tabListOpen").catch(() => {});
+        api("posListSales").catch(() => {});
         break;
       case "members":
         api("adminListMembers").catch(() => {});
         break;
       case "coaching":
         api("adminListCoaches").catch(() => {});
+        api("adminListCoachingSessions", { dateFrom: today, dateTo: today }).catch(() => {});
+        break;
+      case "customers":
+        api("adminListCustomers", { search: "", type: "" }).catch(() => {});
         break;
       case "finances": {
         const now = new Date();
+        // Prefetch all three granularities (current period) so any tab switch is instant
         api("adminFinancesMonth", { year: now.getFullYear(), month: now.getMonth() + 1 }).catch(() => {});
+        api("adminFinancesRange", { granularity: "daily", periodOffset: 0 }).catch(() => {});
+        api("adminFinancesRange", { granularity: "weekly", periodOffset: 0 }).catch(() => {});
         break;
       }
       case "sponsorships":
         api("adminListSponsorships").catch(() => {});
+        break;
+      case "sms":
+        api("adminListSmsLog", { type: "", status: "", limit: 200 }).catch(() => {});
         break;
       case "settings":
         api("adminGetPromo").catch(() => {});
