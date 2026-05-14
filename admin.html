@@ -3493,6 +3493,8 @@ button { font-family: inherit; cursor: pointer; }
 .finance-chart .seg-coach { background: var(--wood); }
 .finance-chart .seg-walk  { background: var(--peach, #D9785C); }
 .finance-chart .seg-pos   { background: var(--ink); }
+.finance-chart .seg-member { background: var(--clay); }
+.finance-chart-legend .seg-member { background: var(--clay); }
 .finance-chart .day-label {
   position: absolute;
   bottom: -22px;
@@ -5326,29 +5328,53 @@ function ScreenDashboard() {
         gap: 14,
         marginBottom: 18
       }}>
-        {/* HERO — total revenue today */}
+        {/* HERO — total revenue today (all streams + memberships) */}
         <div className="stat-card accent-green" style={{
           background: "var(--green)",
           color: "var(--cream)",
           padding: "22px 24px"
         }}>
           <div className="label" style={{ color: "var(--cream)", opacity: 0.7 }}>Today's revenue</div>
-          <div className="value" style={{
-            color: "var(--cream)",
-            fontSize: 56,
-            fontStyle: "italic",
-            fontFamily: "var(--serif)",
-            lineHeight: 1.1,
-            marginTop: 6
-          }}>
-            {fmtMoney((data.bookings.revenuePaid || 0) + (data.pos.revenue || 0))}
-          </div>
-          <div className="sub" style={{ color: "var(--cream)", opacity: 0.75, marginTop: 8 }}>
-            {fmtMoney(data.bookings.revenuePaid)} court · {fmtMoney(data.pos.revenue)} POS
-            {data.bookings.revenuePending > 0 && (
-              <span> · {fmtMoney(data.bookings.revenuePending)} pending</span>
-            )}
-          </div>
+          {(() => {
+            const court = data.bookings.revenuePaid || 0;
+            const pos = data.pos.revenue || 0;
+            const coaching = (data.coaching && data.coaching.revenuePaid) || 0;
+            const walkin = (data.walkIn && data.walkIn.revenuePaid) || 0;
+            const mem = (data.members && data.members.revenueToday) || 0;
+            const operational = court + pos + coaching + walkin;
+            const total = operational + mem;
+            return (
+              <>
+                <div className="value" style={{
+                  color: "var(--cream)",
+                  fontSize: 56,
+                  fontStyle: "italic",
+                  fontFamily: "var(--serif)",
+                  lineHeight: 1.1,
+                  marginTop: 6
+                }}
+                title={
+                  "Total revenue today: " + fmtMoney(total) +
+                  "\nCourt: " + fmtMoney(court) +
+                  "\nWalk-in: " + fmtMoney(walkin) +
+                  "\nCoaching: " + fmtMoney(coaching) +
+                  "\nPOS: " + fmtMoney(pos) +
+                  (mem > 0 ? "\nMemberships: " + fmtMoney(mem) : "")
+                }>
+                  {fmtMoney(total)}
+                </div>
+                <div className="sub" style={{ color: "var(--cream)", opacity: 0.85, marginTop: 8 }}>
+                  {fmtMoneyWhole(operational)} operational
+                  {mem > 0 && (
+                    <> · <span style={{ fontWeight: 700 }}>+{fmtMoneyWhole(mem)} memberships</span></>
+                  )}
+                  {data.bookings.revenuePending > 0 && (
+                    <> · {fmtMoneyWhole(data.bookings.revenuePending)} pending</>
+                  )}
+                </div>
+              </>
+            );
+          })()}
         </div>
 
         {/* Bookings count */}
@@ -5384,7 +5410,12 @@ function ScreenDashboard() {
         <div className="stat-card">
           <div className="label">Founding</div>
           <div className="value">{fmtInt(data.members.founding)}<span className="unit">/{data.members.foundingCap}</span></div>
-          <div className="sub">{data.members.foundingRemaining} slots left</div>
+          <div className="sub">
+            {data.members.foundingRemaining} slots left
+            {(data.members.newToday || 0) > 0 && (
+              <> · <span style={{ color: "var(--green)", fontWeight: 700 }}>+{data.members.newToday} today</span></>
+            )}
+          </div>
         </div>
       </div>
 
@@ -13012,6 +13043,16 @@ function ScreenFinances() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
 
+  // "Operational only" toggle — hide memberships + sponsorships to focus on
+  // day-to-day business pulse. Big one-time membership signups can dominate
+  // the totals and make trend lines unreadable.
+  const [opOnly, setOpOnly] = useState(() => {
+    try { return localStorage.getItem("yard-fin-op-only") === "true"; } catch (e) { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("yard-fin-op-only", opOnly ? "true" : "false"); } catch (e) {}
+  }, [opOnly]);
+
   // CRITICAL: data is keyed by `${granularity}:${periodOffset}` so we never
   // show data from a different combo than what's selected. This eliminates
   // the bug where switching Monthly→Weekly briefly showed Monthly numbers
@@ -13207,7 +13248,36 @@ function ScreenFinances() {
             </div>
           )}
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {/* Operational-only toggle — when on, hide memberships + sponsorships
+           * so trend lines aren't dominated by one-time $200/$150 signups. */}
+          <label
+            htmlFor="fin-op-only"
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "7px 12px",
+              border: "1.5px solid var(--ink)",
+              borderRadius: 999,
+              fontFamily: "var(--mono)", fontSize: 10,
+              letterSpacing: "0.14em", textTransform: "uppercase",
+              fontWeight: 700, cursor: "pointer",
+              background: opOnly ? "var(--ink)" : "transparent",
+              color: opOnly ? "var(--cream)" : "var(--ink)",
+              marginRight: 6,
+              userSelect: "none"
+            }}
+            title="Hide memberships + sponsorships to focus on day-to-day operational revenue"
+          >
+            <input
+              id="fin-op-only"
+              type="checkbox"
+              checked={opOnly}
+              onChange={(e) => setOpOnly(e.target.checked)}
+              style={{ margin: 0, accentColor: "var(--clay)" }}
+            />
+            Operational only
+          </label>
+
           {/* Granularity toggle */}
           <div style={{ display: "flex", border: "1.5px solid var(--ink)", borderRadius: 999, overflow: "hidden", marginRight: 8 }}>
             {["daily", "weekly", "monthly"].map(g => (
@@ -13284,9 +13354,9 @@ function ScreenFinances() {
           )}
           {safeData ? (
             granularity === "monthly" ? (
-              <FinancesView data={safeData} onChanged={load} />
+              <FinancesView data={safeData} onChanged={load} opOnly={opOnly} />
             ) : (
-              <FinancesRangeView data={safeData} granularity={granularity} />
+              <FinancesRangeView data={safeData} granularity={granularity} opOnly={opOnly} />
             )
           ) : (
             <div className="empty" style={{ padding: 40, textAlign: "center", fontFamily: "var(--mono)", fontSize: 12, opacity: 0.55 }}>
@@ -13583,22 +13653,40 @@ function FinancesSkeleton({ granularity }) {
 
 
 /* Lean view for daily/weekly granularity — just headline + chart + summary */
-function FinancesRangeView({ data, granularity }) {
+function FinancesRangeView({ data, granularity, opOnly }) {
   const h = data.headline;
-  const total = h.totalRevenue || 0;
-  const pct = (n) => total > 0 ? Math.round((n / total) * 100) : 0;
+  const hasMembership = (h.membershipRev || 0) > 0;
+  const hasSponsorship = (h.sponsorshipRev || 0) > 0;
+  const operationalRev = h.operationalRev !== undefined
+    ? h.operationalRev
+    : (h.courtRev + h.walkinRev + h.coachingRev + h.posRev);
+  const displayedTotal = opOnly ? operationalRev : (h.totalRevenue || 0);
+  const pct = (n) => displayedTotal > 0 ? Math.round((n / displayedTotal) * 100) : 0;
   const series = data.series || [];
   const maxVal = Math.max(1, ...series.map(s => s.total));
+
+  const showMember = !opOnly && hasMembership;
+  const colTemplate = showMember
+    ? "1.4fr 1fr 1fr 1fr 1fr 1fr 1fr"
+    : (!opOnly
+        ? "1.4fr 1fr 1fr 1fr 1fr 1fr"
+        : "1.4fr 1fr 1fr 1fr 1fr");
 
   return (
     <>
       {/* Headline stat cards — daily/weekly range view */}
-      <div className="stat-grid" style={{ gridTemplateColumns: "1.4fr 1fr 1fr 1fr 1fr 1fr", marginBottom: 8 }}>
+      <div className="stat-grid" style={{ gridTemplateColumns: colTemplate, marginBottom: 8 }}>
         <div className="stat-card accent-green" style={{ background: "var(--green)", color: "var(--cream)" }}>
-          <div className="label" style={{ color: "var(--cream)", opacity: 0.7 }}>Total revenue</div>
-          <div className="value" style={{ color: "var(--cream)", fontSize: 44 }}>{fmtMoney(h.totalRevenue)}</div>
+          <div className="label" style={{ color: "var(--cream)", opacity: 0.7 }}>
+            {opOnly ? "Operational revenue" : "Total revenue"}
+          </div>
+          <div className="value" style={{ color: "var(--cream)", fontSize: 44 }}>{fmtMoney(displayedTotal)}</div>
           <div className="sub" style={{ color: "var(--cream)", opacity: 0.7 }}>
-            {fmtInt(data.summary.paidBookings + data.summary.paidWalkInPlayers + data.summary.paidCoachingSessions + data.summary.posTransactions)} paid transactions
+            {opOnly
+              ? fmtInt(data.summary.paidBookings + data.summary.paidWalkInPlayers + data.summary.paidCoachingSessions + data.summary.posTransactions) + " paid transactions"
+              : (hasMembership || hasSponsorship)
+                ? "incl. " + fmtMoney((h.membershipRev || 0) + (h.sponsorshipRev || 0)) + " non-operational"
+                : fmtInt(data.summary.paidBookings + data.summary.paidWalkInPlayers + data.summary.paidCoachingSessions + data.summary.posTransactions) + " paid transactions"}
           </div>
         </div>
         <div className="stat-card">
@@ -13621,30 +13709,66 @@ function FinancesRangeView({ data, granularity }) {
           <div className="value">{fmtMoneyWhole(h.posRev)}</div>
           <div className="sub">{fmtPct(pct(h.posRev), 0)} · {fmtInt(data.summary.posTransactions)} txns</div>
         </div>
-        <div className="stat-card" style={{ borderColor: "var(--clay)" }}>
-          <div className="label">⬛ Sponsorships</div>
-          <div className="value" style={{ color: "var(--clay)" }}>{fmtMoneyWhole(h.sponsorshipRev || 0)}</div>
-          <div className="sub">
-            {fmtPct(pct(h.sponsorshipRev || 0), 0)}
-            {(h.sponsorshipMonthly || h.sponsorshipOneOff) ? " · " + (h.sponsorshipMonthly ? "MRR " + fmtMoneyWhole(h.sponsorshipMonthly) : "") + (h.sponsorshipMonthly && h.sponsorshipOneOff ? " + " : "") + (h.sponsorshipOneOff ? "one-off " + fmtMoneyWhole(h.sponsorshipOneOff) : "") : ""}
+        {!opOnly && (
+          <div className="stat-card" style={{ borderColor: "var(--clay)" }}>
+            <div className="label">⬛ Sponsorships</div>
+            <div className="value" style={{ color: "var(--clay)" }}>{fmtMoneyWhole(h.sponsorshipRev || 0)}</div>
+            <div className="sub">
+              {fmtPct(pct(h.sponsorshipRev || 0), 0)}
+              {(h.sponsorshipMonthly || h.sponsorshipOneOff) ? " · " + (h.sponsorshipMonthly ? "MRR " + fmtMoneyWhole(h.sponsorshipMonthly) : "") + (h.sponsorshipMonthly && h.sponsorshipOneOff ? " + " : "") + (h.sponsorshipOneOff ? "one-off " + fmtMoneyWhole(h.sponsorshipOneOff) : "") : ""}
+            </div>
           </div>
-        </div>
+        )}
+        {showMember && (
+          <div className="stat-card" style={{ borderColor: "var(--green)" }}>
+            <div className="label">★ Memberships</div>
+            <div
+              className="value"
+              style={{ color: "var(--green)" }}
+              title={
+                "Membership fees this period: " + fmtMoney(h.membershipRev) +
+                " · " + fmtInt(h.newFoundingCount || 0) + " founding @ $200" +
+                " · " + fmtInt(h.newStandardCount || 0) + " standard @ $150"
+              }
+            >
+              {fmtMoneyWhole(h.membershipRev)}
+            </div>
+            <div className="sub">
+              {fmtPct(pct(h.membershipRev), 0)}
+              {((h.newFoundingCount || 0) + (h.newStandardCount || 0)) > 0 && (
+                <> · {fmtInt(h.newFoundingCount || 0)} F + {fmtInt(h.newStandardCount || 0)} S</>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Explicit math row — shows the equation so the total is verifiable */}
       <div style={{
         fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.04em",
-        opacity: 0.7, marginBottom: 18, padding: "8px 14px",
+        opacity: 0.75, marginBottom: 18, padding: "8px 14px",
         background: "rgba(26,26,26,0.03)", borderRadius: 4,
         borderLeft: "3px solid var(--green)"
       }}>
-        <b>{fmtMoney(h.totalRevenue)}</b>
+        <b>{fmtMoney(displayedTotal)}</b>
         {" = "}
         {fmtMoney(h.courtRev)} <span style={{ opacity: 0.5 }}>court</span>
         {" + "}{fmtMoney(h.walkinRev)} <span style={{ opacity: 0.5 }}>walk-in</span>
         {" + "}{fmtMoney(h.coachingRev)} <span style={{ opacity: 0.5 }}>coaching</span>
         {" + "}{fmtMoney(h.posRev)} <span style={{ opacity: 0.5 }}>POS</span>
-        {" + "}{fmtMoney(h.sponsorshipRev || 0)} <span style={{ opacity: 0.5 }}>sponsorship</span>
+        {!opOnly && (
+          <>
+            {" + "}{fmtMoney(h.sponsorshipRev || 0)} <span style={{ opacity: 0.5 }}>sponsorship</span>
+            {showMember && (
+              <>{" + "}{fmtMoney(h.membershipRev)} <span style={{ opacity: 0.5 }}>memberships</span></>
+            )}
+          </>
+        )}
+        {opOnly && hasMembership && (
+          <span style={{ marginLeft: 14, color: "var(--clay)", fontWeight: 700 }}>
+            · {fmtMoney(h.membershipRev)} memberships excluded
+          </span>
+        )}
       </div>
 
       {/* Bar chart for weekly granularity. Daily granularity has no extra
@@ -13698,67 +13822,124 @@ function FinancesRangeView({ data, granularity }) {
   );
 }
 
-function FinancesView({ data, onChanged }) {
+function FinancesView({ data, onChanged, opOnly }) {
   const h = data.headline;
   const splits = data.splits;
-  const total = h.totalRevenue || 0;
-  const pct = (n) => total > 0 ? Math.round((n / total) * 100) : 0;
+  const hasMembership = (h.membershipRev || 0) > 0;
+  const hasSponsorship = (h.sponsorshipRev || 0) > 0;
+  // Displayed total respects the toggle. operationalRev is the safe fallback
+  // when backend hasn't been redeployed yet.
+  const operationalRev = h.operationalRev !== undefined
+    ? h.operationalRev
+    : (h.courtRev + h.walkinRev + h.coachingRev + h.posRev);
+  const displayedTotal = opOnly ? operationalRev : (h.totalRevenue || 0);
+  const pct = (n) => displayedTotal > 0 ? Math.round((n / displayedTotal) * 100) : 0;
+  // Choose grid column count: 6 (operational + sponsorship), or 7 (+ membership)
+  const showMember = !opOnly && hasMembership;
+  const colCount = 5 + (showMember ? 1 : 0) + (!opOnly ? 1 : 0); // hero + 4 op + sponsorship + maybe membership
+  const colTemplate = showMember
+    ? "1.4fr 1fr 1fr 1fr 1fr 1fr 1fr"
+    : (!opOnly
+        ? "1.4fr 1fr 1fr 1fr 1fr 1fr"
+        : "1.4fr 1fr 1fr 1fr 1fr"); // hide sponsorship card too in op-only
 
   return (
     <>
       {/* Headline stat cards */}
-      <div className="stat-grid" style={{ gridTemplateColumns: "1.4fr 1fr 1fr 1fr 1fr 1fr", marginBottom: 18 }}>
+      <div className="stat-grid" style={{ gridTemplateColumns: colTemplate, marginBottom: 18 }}>
         <div className="stat-card accent-green" style={{ background: "var(--green)", color: "var(--cream)" }}>
-          <div className="label" style={{ color: "var(--cream)", opacity: 0.7 }}>Total revenue</div>
-          <div className="value" style={{ color: "var(--cream)", fontSize: 44 }}>{fmtMoney(h.totalRevenue)}</div>
+          <div className="label" style={{ color: "var(--cream)", opacity: 0.7 }}>
+            {opOnly ? "Operational revenue" : "Total revenue"}
+          </div>
+          <div className="value" style={{ color: "var(--cream)", fontSize: 44 }}>{fmtMoney(displayedTotal)}</div>
           <div className="sub" style={{ color: "var(--cream)", opacity: 0.7 }}>
-            {fmtInt(data.summary.paidBookings + data.summary.paidWalkInPlayers + data.summary.paidCoachingSessions + data.summary.posTransactions)} paid transactions
+            {opOnly
+              ? fmtInt(data.summary.paidBookings + data.summary.paidWalkInPlayers + data.summary.paidCoachingSessions + data.summary.posTransactions) + " paid transactions"
+              : (hasMembership || hasSponsorship)
+                ? "incl. " + fmtMoney((h.membershipRev || 0) + (h.sponsorshipRev || 0)) + " non-operational"
+                : fmtInt(data.summary.paidBookings + data.summary.paidWalkInPlayers + data.summary.paidCoachingSessions + data.summary.posTransactions) + " paid transactions"}
           </div>
         </div>
         <div className="stat-card">
           <div className="label">Court rental</div>
-          <div className="value">{fmtMoneyWhole(h.courtRev)}</div>
+          <div className="value" title={"Court rental this month: " + fmtMoney(h.courtRev) + " from " + fmtInt(data.summary.paidBookings) + " paid bookings"}>{fmtMoneyWhole(h.courtRev)}</div>
           <div className="sub">{fmtPct(pct(h.courtRev), 0)} · {fmtInt(data.summary.paidBookings)} paid bookings</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}>
           <div className="label">◉ Walk-in</div>
-          <div className="value" style={{ color: "var(--peach,#D9785C)" }}>{fmtMoneyWhole(h.walkinRev)}</div>
+          <div className="value" title={"Walk-in revenue: " + fmtMoney(h.walkinRev) + " from " + fmtInt(data.summary.paidWalkInPlayers) + " players"} style={{ color: "var(--peach,#D9785C)" }}>{fmtMoneyWhole(h.walkinRev)}</div>
           <div className="sub">{fmtPct(pct(h.walkinRev), 0)} · {fmtInt(data.summary.paidWalkInPlayers)} players</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
           <div className="label">★ Coaching</div>
-          <div className="value" style={{ color: "var(--wood)" }}>{fmtMoneyWhole(h.coachingRev)}</div>
+          <div className="value" title={"Coaching facility share: " + fmtMoney(h.coachingRev) + " across " + fmtInt(data.summary.paidCoachingSessions) + " sessions"} style={{ color: "var(--wood)" }}>{fmtMoneyWhole(h.coachingRev)}</div>
           <div className="sub">{fmtPct(pct(h.coachingRev), 0)} · {fmtInt(data.summary.paidCoachingSessions)} sessions</div>
         </div>
         <div className="stat-card">
           <div className="label">POS</div>
-          <div className="value">{fmtMoneyWhole(h.posRev)}</div>
+          <div className="value" title={"POS revenue: " + fmtMoney(h.posRev) + " across " + fmtInt(data.summary.posTransactions) + " transactions"}>{fmtMoneyWhole(h.posRev)}</div>
           <div className="sub">{fmtPct(pct(h.posRev), 0)} · {fmtInt(data.summary.posTransactions)} txns</div>
         </div>
-        <div className="stat-card" style={{ borderColor: "var(--clay)" }}>
-          <div className="label">⬛ Sponsorships</div>
-          <div className="value" style={{ color: "var(--clay)" }}>{fmtMoneyWhole(h.sponsorshipRev || 0)}</div>
-          <div className="sub">
-            {fmtPct(pct(h.sponsorshipRev || 0), 0)}
-            {(h.sponsorshipMonthly || h.sponsorshipOneOff) ? " · " + (h.sponsorshipMonthly ? "MRR " + fmtMoneyWhole(h.sponsorshipMonthly) : "") + (h.sponsorshipMonthly && h.sponsorshipOneOff ? " + " : "") + (h.sponsorshipOneOff ? "one-off " + fmtMoneyWhole(h.sponsorshipOneOff) : "") : ""}
+        {!opOnly && (
+          <div className="stat-card" style={{ borderColor: "var(--clay)" }}>
+            <div className="label">⬛ Sponsorships</div>
+            <div className="value" style={{ color: "var(--clay)" }}>{fmtMoneyWhole(h.sponsorshipRev || 0)}</div>
+            <div className="sub">
+              {fmtPct(pct(h.sponsorshipRev || 0), 0)}
+              {(h.sponsorshipMonthly || h.sponsorshipOneOff) ? " · " + (h.sponsorshipMonthly ? "MRR " + fmtMoneyWhole(h.sponsorshipMonthly) : "") + (h.sponsorshipMonthly && h.sponsorshipOneOff ? " + " : "") + (h.sponsorshipOneOff ? "one-off " + fmtMoneyWhole(h.sponsorshipOneOff) : "") : ""}
+            </div>
           </div>
-        </div>
+        )}
+        {showMember && (
+          <div className="stat-card" style={{ borderColor: "var(--green)" }}>
+            <div className="label">★ Memberships</div>
+            <div
+              className="value"
+              style={{ color: "var(--green)" }}
+              title={
+                "Membership fees this period: " + fmtMoney(h.membershipRev) +
+                " · " + fmtInt(h.newFoundingCount || 0) + " founding @ $200" +
+                " · " + fmtInt(h.newStandardCount || 0) + " standard @ $150"
+              }
+            >
+              {fmtMoneyWhole(h.membershipRev)}
+            </div>
+            <div className="sub">
+              {fmtPct(pct(h.membershipRev), 0)}
+              {((h.newFoundingCount || 0) + (h.newStandardCount || 0)) > 0 && (
+                <> · {fmtInt(h.newFoundingCount || 0)} F + {fmtInt(h.newStandardCount || 0)} S</>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Explicit math row — shows the equation so the total is verifiable */}
       <div style={{
         fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.04em",
-        opacity: 0.7, marginBottom: 18, padding: "8px 14px",
+        opacity: 0.75, marginBottom: 18, padding: "8px 14px",
         background: "rgba(26,26,26,0.03)", borderRadius: 4,
         borderLeft: "3px solid var(--green)"
       }}>
-        <b>{fmtMoney(h.totalRevenue)}</b>
+        <b>{fmtMoney(displayedTotal)}</b>
         {" = "}
         {fmtMoney(h.courtRev)} <span style={{ opacity: 0.5 }}>court</span>
         {" + "}{fmtMoney(h.walkinRev)} <span style={{ opacity: 0.5 }}>walk-in</span>
         {" + "}{fmtMoney(h.coachingRev)} <span style={{ opacity: 0.5 }}>coaching</span>
         {" + "}{fmtMoney(h.posRev)} <span style={{ opacity: 0.5 }}>POS</span>
-        {" + "}{fmtMoney(h.sponsorshipRev || 0)} <span style={{ opacity: 0.5 }}>sponsorship</span>
+        {!opOnly && (
+          <>
+            {" + "}{fmtMoney(h.sponsorshipRev || 0)} <span style={{ opacity: 0.5 }}>sponsorship</span>
+            {showMember && (
+              <>{" + "}{fmtMoney(h.membershipRev)} <span style={{ opacity: 0.5 }}>memberships</span></>
+            )}
+          </>
+        )}
+        {opOnly && hasMembership && (
+          <span style={{ marginLeft: 14, color: "var(--clay)", fontWeight: 700 }}>
+            · {fmtMoney(h.membershipRev)} memberships excluded
+          </span>
+        )}
       </div>
 
       {/* Outstanding — split by AGE: pending (informational) vs overdue (real receivables) */}
@@ -13865,14 +14046,19 @@ function DailyRevenueChart({ daily }) {
             const dow = new Date(d.date + "T12:00:00").getDay();
             return dow === 0 || dow === 6;
           })();
+          const mem = d.membership || 0;
+          const tip = d.date + " · $" + d.total.toFixed(2)
+            + " ($" + d.court.toFixed(0) + " court · $" + d.walkin.toFixed(0) + " walk-in · $"
+            + d.coaching.toFixed(0) + " coaching · $" + d.pos.toFixed(0) + " POS"
+            + (mem > 0 ? " · $" + mem.toFixed(0) + " memberships" : "") + ")";
           return (
-            <div key={d.date} className={"bar-col" + (isToday ? " today" : "") + (isWknd ? " weekend" : "")}
-              title={d.date + " · $" + d.total.toFixed(2) + " ($" + d.court.toFixed(0) + " court · $" + d.walkin.toFixed(0) + " walk-in · $" + d.coaching.toFixed(0) + " coaching · $" + d.pos.toFixed(0) + " POS)"}>
+            <div key={d.date} className={"bar-col" + (isToday ? " today" : "") + (isWknd ? " weekend" : "")} title={tip}>
               <div className="stack" style={{ height: h + "%" }}>
                 {d.court > 0 && <div className="seg seg-court" style={{ flex: d.court }} />}
                 {d.coaching > 0 && <div className="seg seg-coach" style={{ flex: d.coaching }} />}
                 {d.walkin > 0 && <div className="seg seg-walk" style={{ flex: d.walkin }} />}
                 {d.pos > 0 && <div className="seg seg-pos" style={{ flex: d.pos }} />}
+                {mem > 0 && <div className="seg seg-member" style={{ flex: mem }} />}
               </div>
               <div className="day-label">{day}</div>
             </div>
@@ -13884,6 +14070,9 @@ function DailyRevenueChart({ daily }) {
         <span className="leg-item"><i className="leg-swatch seg-coach" /> Coaching</span>
         <span className="leg-item"><i className="leg-swatch seg-walk" /> Walk-in</span>
         <span className="leg-item"><i className="leg-swatch seg-pos" /> POS</span>
+        {daily.some(d => (d.membership || 0) > 0) && (
+          <span className="leg-item"><i className="leg-swatch seg-member" /> Memberships</span>
+        )}
       </div>
     </div>
   );
