@@ -434,7 +434,7 @@ button { font-family: inherit; cursor: pointer; }
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  opacity: 0.55;
+  opacity: 0.72;
   margin-top: 8px;
 }
 .stat-card.accent-green { border-left: 5px solid var(--green); }
@@ -1645,7 +1645,7 @@ button { font-family: inherit; cursor: pointer; }
   letter-spacing: 0.14em;
   text-transform: uppercase;
   font-weight: 700;
-  padding: 7px 12px;
+  padding: 9px 14px;
   border-radius: 4px;
   border: 1.5px solid var(--ink);
   background: var(--cream);
@@ -1653,6 +1653,7 @@ button { font-family: inherit; cursor: pointer; }
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
   white-space: nowrap;
+  min-height: 32px;
 }
 .btn-sm:hover { background: var(--ink); color: var(--cream); }
 .btn-sm.primary { background: var(--ink); color: var(--cream); }
@@ -2568,28 +2569,38 @@ button { font-family: inherit; cursor: pointer; }
 .cart-item .ci-qty {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   background: var(--cream);
   border-radius: 4px;
-  padding: 2px;
+  padding: 3px;
 }
 .cart-item .qb {
-  width: 22px;
-  height: 22px;
-  border: 1px solid var(--ink);
+  width: 34px;
+  height: 34px;
+  border: 1.5px solid var(--ink);
   background: var(--paper);
   font-family: var(--mono);
-  font-weight: 700;
-  font-size: 14px;
-  border-radius: 3px;
+  font-weight: 800;
+  font-size: 18px;
+  border-radius: 4px;
   cursor: pointer;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.1s ease;
 }
-.cart-item .qb:hover { background: var(--ink); color: var(--cream); }
+.cart-item .qb:hover {
+  background: var(--ink);
+  color: var(--cream);
+  transform: scale(1.05);
+}
+.cart-item .qb:active { transform: scale(0.95); }
 .cart-item .qn {
   font-family: var(--mono);
-  font-weight: 700;
-  font-size: 13px;
-  min-width: 22px;
+  font-weight: 800;
+  font-size: 16px;
+  min-width: 32px;
   text-align: center;
 }
 .cart-item .ci-total {
@@ -3589,6 +3600,317 @@ button { font-family: inherit; cursor: pointer; }
   box-shadow: 0 2px 4px rgba(198,79,58,0.4);
 }
 
+/* ============================================================
+   COMPREHENSIVE MOBILE / TABLET — for counter-tablet use
+   This is the most important breakpoint since staff use this
+   on-site with customers waiting.
+
+   Strategy:
+   - Tablet portrait (≤900px): collapse multi-col grids → 2 col / 1 col
+   - Phone (≤600px): every grid → 1 column, larger tap targets
+   - Modals: full-width sheet from bottom on phone, centered on tablet
+   - Buttons: min-height 44px (Fitts's Law for fingers)
+============================================================ */
+
+@media (max-width: 900px) {
+  /* Dashboard hero stat-grid — was 2fr/1fr/1fr/1fr/1fr.
+   * On tablet portrait, drop to: hero spans 2 cols, supporting wrap below. */
+  .main > div[style*="gridTemplateColumns"][style*="2fr 1fr 1fr 1fr 1fr"],
+  .stat-grid-hero {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  .stat-grid-hero > :first-child {
+    grid-column: 1 / -1; /* hero spans full width */
+  }
+  /* Finances 6-col stat-grid → 2-col */
+  .main > div[style*="1.4fr 1fr 1fr 1fr 1fr 1fr"] {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+  }
+  /* Hero card font-size smaller on tablet */
+  .stat-card .value[style*="56px"],
+  .stat-card .value[style*="44px"] {
+    font-size: 36px !important;
+  }
+}
+
+@media (max-width: 600px) {
+  /* Everything collapses to single column */
+  .main > div[style*="gridTemplateColumns"][style*="2fr 1fr 1fr 1fr 1fr"],
+  .stat-grid-hero,
+  .main > div[style*="1.4fr 1fr 1fr 1fr 1fr 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
+  .stat-grid-hero > :first-child {
+    grid-column: auto;
+  }
+  .stat-card .value[style*="56px"],
+  .stat-card .value[style*="44px"] {
+    font-size: 32px !important;
+  }
+  .main { padding: 14px 12px; }
+  .main-head { flex-direction: column; align-items: flex-start; gap: 12px; }
+
+  /* Stat cards smaller padding on phone */
+  .stat-card { padding: 14px 16px; }
+  .stat-card .value { font-size: 24px; }
+  .stat-card .label { font-size: 9px; }
+
+  /* Modal becomes full-screen sheet on phone — bigger touch area */
+  .modal-overlay { padding: 0; align-items: flex-end; }
+  .modal {
+    max-width: 100% !important;
+    max-height: 96vh !important;
+    border-radius: 14px 14px 0 0;
+    border-bottom: none;
+    width: 100%;
+  }
+  .modal-head h2 { font-size: 22px; }
+
+  /* Bigger tap targets on phone */
+  .btn { min-height: 44px; padding: 12px 18px; }
+  .btn-sm { min-height: 36px; padding: 8px 14px; font-size: 11px; }
+  .booking-row { padding: 14px 12px; }
+  .booking-row .actions button { min-height: 40px; }
+
+  /* FAB sits higher on phone to clear the home indicator */
+  .fab-container { bottom: 80px !important; right: 16px !important; }
+
+  /* Sidebar even more compact */
+  :root { --sidebar-w: 48px; }
+  .sidebar nav button { padding: 10px 4px; min-height: 44px; }
+  .sidebar nav button .icon { font-size: 16px; }
+
+  /* Coaching tabs scroll horizontally if needed */
+  .coaching-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+  .coaching-tabs button { flex-shrink: 0; }
+
+  /* Member/customer rows stack name+actions vertically */
+  .member-row, .customer-row {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 8px !important;
+  }
+
+  /* Timeline: critical — make horizontally scrollable on phone */
+  .timeline-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .timeline {
+    min-width: 700px;
+  }
+
+  /* Sticky bulk-actions bar — full bleed */
+  .bulk-actions-bar {
+    margin: 0 -12px 14px;
+    border-radius: 0 !important;
+  }
+}
+
+/* Touch-device specific — fingers need bigger targets */
+@media (hover: none) and (pointer: coarse) {
+  .btn-sm { min-height: 40px; }
+  input, select, textarea { min-height: 44px; font-size: 16px; /* iOS won't zoom if ≥16px */ }
+  /* Hover effects don't work — make active state more obvious */
+  .booking-block:active { transform: scale(0.98); }
+  button:active { transform: scale(0.97); }
+}
+
+/* iOS safe-area support */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .app-shell {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* ============================================================
+   TIME CHIP GRID — visual time picker
+   Replaces the 32-option dropdown. Scannable + tappable.
+============================================================ */
+.time-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 6px;
+  margin-top: 4px;
+}
+.time-chip {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 10px 6px;
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 0.12s ease;
+  min-height: 40px;  /* Fitts's Law */
+  text-align: center;
+}
+.time-chip:hover:not(.is-disabled):not(.is-selected) {
+  background: var(--ink);
+  color: var(--cream);
+}
+.time-chip.is-selected {
+  background: var(--ink);
+  color: var(--cream);
+  border-color: var(--ink);
+  box-shadow: 0 0 0 2px var(--clay);
+}
+.time-chip.is-disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  background: rgba(26,26,26,0.04);
+  color: var(--ink);
+  text-decoration: line-through;
+}
+@media (max-width: 600px) {
+  .time-chip-grid {
+    grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+  }
+  .time-chip { min-height: 44px; font-size: 13px; }
+}
+
+/* ============================================================
+   UNDO TOAST — bottom-center sticky bar with countdown progress
+============================================================ */
+.undo-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--ink);
+  color: var(--cream);
+  padding: 0;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(26,26,26,0.28);
+  z-index: 5000;
+  display: none;
+  align-items: center;
+  gap: 0;
+  min-width: 320px;
+  max-width: 90vw;
+  opacity: 0;
+  transition: transform 0.22s ease, opacity 0.22s ease;
+  overflow: hidden;
+  position: fixed;
+}
+.undo-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.undo-toast .undo-message {
+  flex: 1;
+  padding: 14px 18px;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+.undo-toast .undo-button {
+  background: transparent;
+  border: none;
+  border-left: 1px solid rgba(241,234,214,0.18);
+  color: var(--clay-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 800;
+  padding: 14px 18px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.undo-toast .undo-button:hover {
+  background: rgba(241,234,214,0.08);
+  color: var(--cream);
+}
+.undo-toast .undo-dismiss {
+  background: transparent;
+  border: none;
+  border-left: 1px solid rgba(241,234,214,0.18);
+  color: var(--cream);
+  font-size: 18px;
+  width: 38px;
+  height: 100%;
+  align-self: stretch;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.12s ease;
+}
+.undo-toast .undo-dismiss:hover { opacity: 1; }
+.undo-toast .undo-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  width: 100%;
+  background: var(--clay);
+  transform: scaleX(1);
+  transform-origin: left center;
+  transition: transform linear;
+}
+
+@media (max-width: 600px) {
+  .undo-toast {
+    left: 12px;
+    right: 12px;
+    transform: translateY(20px);
+    min-width: 0;
+    bottom: 90px; /* clear FAB and home indicator */
+    max-width: none;
+  }
+  .undo-toast.show {
+    transform: translateY(0);
+  }
+}
+
+/* ============================================================
+   ACCESSIBILITY — visible focus rings, screen-reader only utilities
+============================================================ */
+/* Visible focus ring for keyboard navigation. Uses :focus-visible
+ * so mouse users don't see it but keyboard users do. */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible,
+a:focus-visible {
+  outline: 3px solid var(--clay);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Override for the close × button — outline looked weird in tight corners */
+button.x:focus-visible {
+  outline: 2px solid var(--clay);
+  outline-offset: 1px;
+}
+
+/* Time chip already has its own selected state, but keep focus visible */
+.time-chip:focus-visible {
+  outline: 3px solid var(--clay);
+  outline-offset: 2px;
+}
+
+/* Screen-reader-only utility for hidden labels */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
   </style>
 
   <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
@@ -4105,6 +4427,88 @@ function showToast(text, kind = "default") {
   toastTimeout = setTimeout(() => { el.style.display = "none"; }, 3000);
 }
 
+/* ====== UNDO TOAST SYSTEM ======
+ * For low-stakes destructive actions (cancel booking), instead of a friction-y
+ * confirm modal we do the action immediately + show a 10-second undo toast.
+ *
+ * Pattern from Gmail, Notion, etc — counter-staff need speed and forgiveness,
+ * not interrogation.
+ *
+ * Usage:
+ *   await doActionWithUndo("Booking cancelled", () => api("adminUncancelBooking", { bookingId }))
+ *
+ * The toast lives for 10s. Tapping "Undo" runs the undo fn. Otherwise the
+ * action is final.
+ */
+let _undoToastTimeout = null;
+let _undoCurrentResolve = null;
+function showUndoToast({ message, undoFn, durationMs = 10000 }) {
+  let el = document.getElementById("undo-toast-root");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "undo-toast-root";
+    document.body.appendChild(el);
+  }
+  el.innerHTML = "";
+  el.className = "undo-toast";
+
+  const msgSpan = document.createElement("span");
+  msgSpan.className = "undo-message";
+  msgSpan.textContent = message;
+  el.appendChild(msgSpan);
+
+  const undoBtn = document.createElement("button");
+  undoBtn.className = "undo-button";
+  undoBtn.type = "button";
+  undoBtn.textContent = "Undo";
+  el.appendChild(undoBtn);
+
+  const dismissBtn = document.createElement("button");
+  dismissBtn.className = "undo-dismiss";
+  dismissBtn.type = "button";
+  dismissBtn.setAttribute("aria-label", "Dismiss");
+  dismissBtn.textContent = "×";
+  el.appendChild(dismissBtn);
+
+  // Progress bar showing remaining time
+  const progress = document.createElement("div");
+  progress.className = "undo-progress";
+  el.appendChild(progress);
+
+  el.style.display = "flex";
+  // Force reflow then start animation
+  void el.offsetWidth;
+  el.classList.add("show");
+  progress.style.transitionDuration = durationMs + "ms";
+  progress.style.transform = "scaleX(0)";
+
+  function hide() {
+    el.classList.remove("show");
+    clearTimeout(_undoToastTimeout);
+    _undoToastTimeout = null;
+    setTimeout(() => { if (!el.classList.contains("show")) el.style.display = "none"; }, 200);
+  }
+
+  undoBtn.addEventListener("click", async () => {
+    hide();
+    try {
+      const r = await undoFn();
+      if (r && r.ok === false) {
+        showToast(r.error || "Couldn't undo", "error");
+      } else {
+        showToast("Undone", "success");
+      }
+    } catch (e) {
+      showToast("Undo failed", "error");
+    }
+  });
+
+  dismissBtn.addEventListener("click", hide);
+
+  clearTimeout(_undoToastTimeout);
+  _undoToastTimeout = setTimeout(hide, durationMs);
+}
+
 /* ====== CONFIRM SYSTEM ======
  * Replaces window.confirm() with a styled modal that clearly states the
  * consequence of destructive actions. Used for irreversible operations like
@@ -4171,7 +4575,7 @@ function ConfirmHost() {
   const typeMatches = !needsType || typedValue === request.typeToConfirm;
 
   return (
-    <div className="modal-overlay" onClick={() => close(false)} style={{ zIndex: 250 }}>
+    <div className="modal-overlay" onClick={() => close(false)} style={{ zIndex: 9999 }}>
       <div className="modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ padding: 24 }}>
           <div style={{
@@ -4916,7 +5320,7 @@ function ScreenDashboard() {
 
       {/* Hero metric: today's total revenue is THE primary number. Other stats
        * supporting. Hierarchy: 1 hero (4-wide), 4 supporting (1-wide each). */}
-      <div style={{
+      <div className="stat-grid-hero" style={{
         display: "grid",
         gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr",
         gap: 14,
@@ -6436,20 +6840,41 @@ function BookingDetailModal({ booking, onClose, onAction }) {
   const [acting, setActing] = useState(false);
 
   async function doAction(action, confirmMsg) {
+    // Cancel-booking uses UNDO pattern: act first, show undo toast.
+    // Other destructive actions (release/no-show which send SMS to customer)
+    // still need explicit confirmation since SMS can't be unsent.
+    if (action === "adminCancelBooking") {
+      setActing(true);
+      const r = await api(action, { bookingId: booking.bookingId });
+      setActing(false);
+      if (r.ok) {
+        const bid = booking.bookingId;
+        const name = booking.name;
+        // Close the modal immediately so user can see the undo toast
+        onAction && onAction();
+        onClose && onClose();
+        showUndoToast({
+          message: "Cancelled · " + name + " · " + (booking.date + " " + booking.time),
+          undoFn: async () => {
+            const ur = await api("adminUncancelBooking", { bookingId: bid });
+            if (ur.ok) onAction && onAction();
+            return ur;
+          }
+        });
+      } else {
+        showToast(r.error || "Failed", "error");
+      }
+      return;
+    }
+
     if (confirmMsg) {
-      // Heuristic: if action is destructive (cancel/release/no-show), use the
-      // styled confirm modal with consequence text. Mark-paid stays instant.
-      const isDestructive = /Cancel|NoShow|Release|Void|Delete|Reset/.test(action);
+      const isDestructive = /NoShow|Release|Void|Delete|Reset/.test(action);
       if (isDestructive) {
         const ok = await confirmAction({
-          title: action.includes("Cancel") ? "Cancel this booking?" :
-                 action.includes("Release") || action.includes("NoShow") ? "Release this court?" :
-                 "Confirm action?",
+          title: action.includes("Release") || action.includes("NoShow") ? "Release this court?" : "Confirm action?",
           message: booking.name + " · C·" + booking.courts + " · " + booking.date + " " + booking.time,
           consequence: confirmMsg.replace(/^[^?]+\?\s*/, "").trim() || confirmMsg,
-          confirmLabel: action.includes("Cancel") ? "Yes, cancel booking" :
-                        action.includes("Release") || action.includes("NoShow") ? "Yes, release court" :
-                        "Confirm",
+          confirmLabel: action.includes("Release") || action.includes("NoShow") ? "Yes, release court" : "Confirm",
           destructive: true
         });
         if (!ok) return;
@@ -6490,7 +6915,7 @@ function BookingDetailModal({ booking, onClose, onAction }) {
             <div className="kicker">{booking.bookingId}</div>
             <h2>{booking.name}</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         {/* Customer recognition card — avatar + name + tier + phone, prominent
@@ -6618,7 +7043,7 @@ function BookingDetailModal({ booking, onClose, onAction }) {
             <button
               className="btn ghost"
               style={{ color: "var(--clay)" }}
-              onClick={() => doAction("adminCancelBooking", "Cancel this booking? An SMS will be sent if it's upcoming.")}
+              onClick={() => doAction("adminCancelBooking")}
               disabled={acting}
             >Cancel booking</button>
           )}
@@ -6788,7 +7213,7 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
             <div className="kicker">New court reservation</div>
             <h2>Add Booking</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <div className="field">
@@ -6821,13 +7246,26 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
               onChange={(e) => setForm({ ...form, date: e.target.value, courts: [1] })}
             />
           </div>
-          <div className="field">
-            <div className="field-label">Start time</div>
-            <select value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value, courts: [1] })}>
-              {timeOptions.map(o => (
-                <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>
-              ))}
-            </select>
+          <div className="field" style={{ flex: 1 }}>
+            <div className="field-label">Start time {form.time && <span style={{ opacity: 0.5 }}>· {form.time}</span>}</div>
+            <div className="time-chip-grid">
+              {timeOptions.map(o => {
+                const isSelected = o.value === form.time;
+                return (
+                  <button
+                    type="button"
+                    key={o.value}
+                    disabled={o.disabled}
+                    onClick={() => setForm({ ...form, time: o.value, courts: [1] })}
+                    className={"time-chip" + (isSelected ? " is-selected" : "") + (o.disabled ? " is-disabled" : "")}
+                    aria-pressed={isSelected}
+                    title={o.disabled ? "Full · all courts booked" : "Available"}
+                  >
+                    {o.value}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -6927,7 +7365,7 @@ function AddBookingChooserModal({ onClose, onPick }) {
             <div className="kicker">What does the guest want?</div>
             <h2>Add Booking</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, padding: "10px 0 20px" }}>
@@ -7032,7 +7470,7 @@ function NewWalkInBlockModal({ dateDefault, onClose, onCreated }) {
             <div className="kicker">Open court for drop-in players</div>
             <h2>New Open Play</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <div className="field-row three">
@@ -7205,7 +7643,7 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
             <div className="kicker">{block.blockId} · {block.date}</div>
             <h2>Open Play · Court {block.courtNumber}</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginBottom: 14 }}>
@@ -7326,7 +7764,7 @@ function CoachingInfoModal({ session, onClose }) {
             <div className="kicker">{session.bookingId}</div>
             <h2>★ Coaching Session</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <div className="modal-detail-row">
@@ -7426,7 +7864,7 @@ function AddWalkInPlayerModal({ block, onClose, onAdded }) {
             <div className="kicker">{block.playerCount}/{block.playerCap} · Court {block.courtNumber}</div>
             <h2>Add Player</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <div className="field">
@@ -7707,7 +8145,7 @@ function AddMemberModal({ foundingFull, onClose, onCreated }) {
             <div className="kicker">New membership</div>
             <h2>Add Member</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <div className="field">
@@ -7845,7 +8283,7 @@ function EditMemberModal({ member, onClose, onSaved }) {
             <div className="kicker">{member.memberNumber} · {member.phone}</div>
             <h2>{member.name}</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <div className="modal-detail-row">
@@ -8166,7 +8604,7 @@ function CoachModal({ coach, onClose, onSaved }) {
             <div className="kicker">{isNew ? "New coach" : coach.coachId}</div>
             <h2>{isNew ? "Add Coach" : coach.name}</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <div className="field-row">
@@ -8598,7 +9036,7 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
             <div className="kicker">{isNew ? "New coaching session" : session.sessionId}</div>
             <h2>{isNew ? "Book Session" : selectedCoach ? selectedCoach.name : "Session"}</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         {isNew && (
@@ -8710,8 +9148,9 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
             onChange={(e) => setForm({ ...form, lessonFee: parseFloat(e.target.value) || 0 })}
             placeholder="Total amount coach charged the student(s)"
           />
-          <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.1em", opacity: 0.55, marginTop: 4 }}>
-            Enter the TOTAL (not per-hour). E.g. coach charges $30 for a 1.5hr lesson → enter 30. Used for revenue split. Leave at 0 if coach is renting court for personal practice.
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.05em", opacity: 0.65, marginTop: 6, lineHeight: 1.5 }}>
+            Enter the <strong>total fee</strong> the student actually pays (after any discount). The split below auto-calculates from the coach's deal. <br/>
+            <span style={{ color: "var(--clay)" }}>Giving a discount?</span> Just enter the discounted amount here — e.g. coach normally charges $30 but you offered $25, enter <strong>25</strong>. Both the facility and the coach absorb the discount proportionally. To make the facility absorb the full discount (coach gets normal earnings), enable the override below.
           </div>
         </div>
 
@@ -9033,7 +9472,7 @@ function PaymentConfirmModal({ coach, sessionIds, totalAmount, onClose, onConfir
             <div className="kicker">Record payment</div>
             <h2>{coach.name}</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <div className="modal-detail-row">
@@ -9132,20 +9571,42 @@ function ScreenPOS() {
     loadProducts();
     loadTodayStats();
     loadTabCount();
+    // Prefetch settleable entries — fired-and-forgotten, populates cache so
+    // when user clicks "Attach booking" the modal opens instantly.
+    api("adminListSettleableEntries").catch(() => {});
   }, []);
 
   // Categories present in products
   const categories = useMemo(() => {
     const set = new Set();
     for (const p of (products || [])) set.add(p.category || "Other");
-    return ["All", ...Array.from(set).sort()];
+    // "Top" appears only if there's usage data
+    const top = (() => {
+      try {
+        const raw = localStorage.getItem("yard-pos-usage");
+        if (!raw) return false;
+        const data = JSON.parse(raw);
+        return Object.keys(data).length > 0;
+      } catch (e) { return false; }
+    })();
+    return [...(top ? ["Top"] : []), "All", ...Array.from(set).sort()];
   }, [products]);
 
-  // Visible products = filter by category + search + active
+  // Visible products — filter by category + search + active. "Top" category
+  // shows products ranked by recent usage from localStorage (yard-pos-usage).
+  const usageScores = useMemo(() => {
+    try {
+      const raw = localStorage.getItem("yard-pos-usage");
+      if (raw) return JSON.parse(raw) || {};
+    } catch (e) {}
+    return {};
+  }, [products, cart]); // refresh after each cart change
+
   const visibleProducts = useMemo(() => {
     if (!products) return [];
-    return products.filter(p => {
+    let out = products.filter(p => {
       if (!p.active) return false;
+      if (category === "Top") return true; // handled below
       if (category !== "All" && p.category !== category) return false;
       if (search) {
         const s = search.toLowerCase();
@@ -9153,10 +9614,32 @@ function ScreenPOS() {
       }
       return true;
     });
-  }, [products, category, search]);
+    if (category === "Top") {
+      // Sort by usage score; take top 8. Apply search filter still.
+      if (search) {
+        const s = search.toLowerCase();
+        out = out.filter(p => p.name.toLowerCase().includes(s) || p.sku.toLowerCase().includes(s));
+      }
+      out = out
+        .map(p => ({ p, score: usageScores[p.sku] || 0 }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 12)
+        .filter(x => x.score > 0)
+        .map(x => x.p);
+    }
+    return out;
+  }, [products, category, search, usageScores]);
 
-  // Add product to cart (or increment qty)
+  // Add product to cart (or increment qty). Also bumps usage score.
   function addToCart(p) {
+    // Track usage frequency — decays over time but immediate hit boosts +1
+    try {
+      const raw = localStorage.getItem("yard-pos-usage");
+      const data = raw ? JSON.parse(raw) : {};
+      data[p.sku] = (data[p.sku] || 0) + 1;
+      localStorage.setItem("yard-pos-usage", JSON.stringify(data));
+    } catch (e) {}
+
     setCart(prev => {
       const idx = prev.findIndex(x => x.sku === p.sku);
       if (idx >= 0) {
@@ -9307,6 +9790,14 @@ function ScreenPOS() {
     }
     setSubmitting(false);
     if (r.ok) {
+      // Save last cart for "Repeat last sale" recall
+      try {
+        localStorage.setItem("yard-pos-last-cart", JSON.stringify({
+          items: cart.map(x => ({ sku: x.sku, name: x.name, quantity: x.quantity })),
+          savedAt: Date.now()
+        }));
+      } catch (e) {}
+
       setConfirmSale({
         saleId: r.saleId,
         total: r.total,
@@ -9429,6 +9920,45 @@ function ScreenPOS() {
           <div className="cart-head">
             <h3>Cart</h3>
             <div style={{ display: "flex", gap: 6 }}>
+              {cart.length === 0 && attached.length === 0 && (() => {
+                let lastCart = null;
+                try {
+                  const raw = localStorage.getItem("yard-pos-last-cart");
+                  if (raw) lastCart = JSON.parse(raw);
+                } catch (e) {}
+                if (!lastCart || !lastCart.items || lastCart.items.length === 0) return null;
+                // Only show if saved within last 60 min — older is probably not relevant
+                if (Date.now() - (lastCart.savedAt || 0) > 60 * 60 * 1000) return null;
+                return (
+                  <button
+                    className="btn-sm"
+                    title="Recall the previous sale's items"
+                    onClick={() => {
+                      // Match against current products to get fresh price + stock
+                      const rebuilt = [];
+                      for (const li of lastCart.items) {
+                        const p = (products || []).find(x => x.sku === li.sku && x.active);
+                        if (!p) continue;
+                        const qty = Math.min(li.quantity, p.stock);
+                        if (qty < 1) continue;
+                        rebuilt.push({
+                          sku: p.sku, name: p.name, category: p.category,
+                          price: p.price, quantity: qty, stockLimit: p.stock,
+                          memberEligible: p.memberEligible !== false
+                        });
+                      }
+                      if (rebuilt.length === 0) {
+                        showToast("Last cart items no longer available", "error");
+                        return;
+                      }
+                      setCart(rebuilt);
+                      showToast("Repeated last sale · " + rebuilt.length + " item" + (rebuilt.length === 1 ? "" : "s"), "success");
+                    }}
+                  >
+                    ↻ Repeat last
+                  </button>
+                );
+              })()}
               <button className="btn-sm" onClick={() => setShowAttachPicker(true)} title="Attach a court booking or walk-in player">
                 + Attach
               </button>
@@ -9675,7 +10205,7 @@ function OpenTabsModal({ onClose, onSelect, onChanged }) {
             <div className="kicker">Running customer tabs</div>
             <h2>Open Tabs</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -9813,7 +10343,7 @@ function NewTabModal({ onClose, onCreated }) {
             <div className="kicker">For accumulating items + pay-at-end</div>
             <h2>New Tab</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <div style={{ marginBottom: 14 }}>
@@ -9940,7 +10470,7 @@ function TabDetailModal({ tabId, products, onClose }) {
             </div>
             <h2>{tab.customerName || "(no name)"} <span style={{ fontSize: 13, fontFamily: "var(--mono)", opacity: 0.5, fontStyle: "normal" }}>{tab.customerPhone}</span></h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         {tab.notes && (
@@ -10166,7 +10696,7 @@ function AddItemToTabModal({ tabId, products, onClose, onAdded }) {
             <div className="kicker">Add to {tabId}</div>
             <h2>Add Item</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <input
@@ -10340,7 +10870,7 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
             <div className="kicker">Pick an unpaid booking or walk-in</div>
             <h2>Attach to Tab</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         {/* Scope filter chips */}
@@ -10502,7 +11032,7 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
             </div>
             <h2>Close Tab</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <div style={{ marginBottom: 12 }}>
@@ -10700,7 +11230,7 @@ function SaleHistoryModal({ onClose }) {
             <div className="kicker">Past receipts · voids · audit</div>
             <h2>Sale History</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         {/* Filters */}
@@ -10824,7 +11354,7 @@ function SaleDetailModal({ sale, onClose, onVoid, working }) {
             <div className="kicker">{sale.saleId} · {sale.createdAt}</div>
             <h2>Receipt</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         {sale.voided && (
@@ -10916,10 +11446,20 @@ function SaleDetailModal({ sale, onClose, onVoid, working }) {
 
 function AttachPickerModal({ alreadyAttached, onClose, onPick }) {
   const [entries, setEntries] = useState(null);
+  const [search, setSearch] = useState("");
+  const [dayFilter, setDayFilter] = useState("today"); // today | all
+  const [loading, setLoading] = useState(true);
 
+  // Hit cache first for instant render, then refresh in background.
   useEffect(() => {
+    const cached = getCachedApi("adminListSettleableEntries");
+    if (cached && cached.ok) {
+      setEntries(cached.entries || []);
+      setLoading(false);
+    }
     api("adminListSettleableEntries").then(r => {
       if (r.ok) setEntries(r.entries || []);
+      setLoading(false);
     });
   }, []);
 
@@ -10927,116 +11467,261 @@ function AttachPickerModal({ alreadyAttached, onClose, onPick }) {
     return alreadyAttached.some(a => a.kind === kind && a.id === id);
   }
 
+  // Flatten + normalize entries so we can search/filter uniformly
+  const flatRows = useMemo(() => {
+    if (!entries) return [];
+    const rows = [];
+    for (const e of entries) {
+      if (e.entryType === "booking") {
+        rows.push({
+          kind: "booking",
+          id: e.id,
+          name: e.customerName || "Guest",
+          phone: e.customerPhone || "",
+          date: e.date || "",
+          time: e.time || "",
+          timeEnd: e.timeEnd || "",
+          courts: e.courtNumbers || "",
+          amount: e.total || 0,
+          icon: "⬛",
+          tone: "var(--ink)",
+          label: "Court rental · " + (e.customerName || "Guest"),
+          sub: e.label || ""
+        });
+      } else if (e.entryType === "walkin_player") {
+        rows.push({
+          kind: "walkin_player",
+          id: e.id,
+          name: e.customerName || e.name || "Walk-in player",
+          phone: e.customerPhone || e.phone || "",
+          date: e.date || "",
+          time: e.time || "",
+          timeEnd: e.timeEnd || "",
+          courts: e.courtNumbers || "",
+          amount: e.total || e.amount || 0,
+          icon: "◉",
+          tone: "var(--peach,#D9785C)",
+          label: "Walk-in · " + (e.customerName || e.name || "Player"),
+          sub: e.label || ""
+        });
+      } else if (e.entryType === "walkin_block") {
+        for (const p of (e.unpaidPlayers || [])) {
+          rows.push({
+            kind: "walkin_player",
+            id: p.playerId,
+            name: p.name,
+            phone: p.phone || "",
+            date: e.date || "",
+            time: e.time || "",
+            timeEnd: e.timeEnd || "",
+            courts: e.courtNumber ? String(e.courtNumber) : "",
+            amount: p.amount,
+            icon: "◉",
+            tone: "var(--peach,#D9785C)",
+            label: "Walk-in · " + p.name,
+            sub: e.label || ""
+          });
+        }
+      }
+    }
+    return rows;
+  }, [entries]);
+
+  const today = todayISO();
+  const filteredRows = useMemo(() => {
+    let out = flatRows;
+    if (dayFilter === "today") out = out.filter(r => r.date === today);
+    if (search.trim()) {
+      const q = search.toLowerCase().trim();
+      out = out.filter(r =>
+        r.name.toLowerCase().includes(q) ||
+        r.phone.includes(q) ||
+        r.id.toLowerCase().includes(q)
+      );
+    }
+    // Sort by date asc, then time asc — most relevant (today early) first
+    out = [...out].sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return (a.time || "").localeCompare(b.time || "");
+    });
+    return out;
+  }, [flatRows, dayFilter, search, today]);
+
+  const todayCount = flatRows.filter(r => r.date === today).length;
+  const allCount = flatRows.length;
+
+  function pick(r) {
+    onPick({
+      kind: r.kind,
+      id: r.id,
+      label: r.label,
+      sub: r.sub,
+      price: r.amount
+    });
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 540, maxHeight: "92vh" }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal" style={{ maxWidth: 640, maxHeight: "92vh" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
             <div className="kicker">Combine with the POS sale</div>
-            <h2>Attach</h2>
+            <h2>Attach unpaid booking or walk-in</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
-        {entries === null ? (
-          <div style={{ padding: 30, display: "flex", justifyContent: "center" }}><BouncingBall size="sm" /></div>
-        ) : entries.length === 0 ? (
-          <EmptyState
-            icon="✓"
-            title="Nothing to settle"
-            hint="No bookings or walk-ins waiting for payment today. You're all caught up!"
+        {/* Filter + search row — sticky-ish above the list */}
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 0, border: "1.5px solid var(--ink)", borderRadius: 4, overflow: "hidden" }}>
+            <button
+              onClick={() => setDayFilter("today")}
+              style={{
+                padding: "8px 14px", fontFamily: "var(--mono)", fontSize: 11,
+                letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700,
+                border: "none", cursor: "pointer",
+                background: dayFilter === "today" ? "var(--ink)" : "var(--cream)",
+                color: dayFilter === "today" ? "var(--cream)" : "var(--ink)"
+              }}
+            >
+              Today · {todayCount}
+            </button>
+            <button
+              onClick={() => setDayFilter("all")}
+              style={{
+                padding: "8px 14px", fontFamily: "var(--mono)", fontSize: 11,
+                letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700,
+                border: "none", borderLeft: "1.5px solid var(--ink)", cursor: "pointer",
+                background: dayFilter === "all" ? "var(--ink)" : "var(--cream)",
+                color: dayFilter === "all" ? "var(--cream)" : "var(--ink)"
+              }}
+            >
+              All · {allCount}
+            </button>
+          </div>
+          <input
+            type="search"
+            className="search-input"
+            placeholder="Search name, phone, or ID…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            autoFocus
+            style={{ flex: 1, minWidth: 200 }}
           />
-        ) : (
-          <div style={{ maxHeight: 420, overflowY: "auto" }}>
-            {entries.filter(e => e.entryType === "booking").map(b => {
-              const already = isAttached("booking", b.id);
-              return (
-                <div key={b.id} className="att-pick-row" style={{ opacity: already ? 0.4 : 1 }}>
-                  <div>
-                    <div className="title">⬛ {b.customerName || "Guest"}</div>
-                    <div className="sub">{b.label} · {b.customerPhone || ""}</div>
-                    <div className="id">{b.id}</div>
-                  </div>
-                  <div className="amt">${b.total.toFixed(2)}</div>
-                  <button
-                    className="btn-sm primary"
-                    disabled={already}
-                    onClick={() => onPick({
-                      kind: "booking",
-                      id: b.id,
-                      label: "Court rental · " + (b.customerName || "Guest"),
-                      sub: b.label,
-                      price: b.total
-                    })}
-                  >{already ? "Added" : "Attach"}</button>
-                </div>
-              );
-            })}
+        </div>
 
-            {entries.filter(e => e.entryType === "walkin_player").map(p => {
-              const already = isAttached("walkin_player", p.id);
-              return (
-                <div key={p.id} className="att-pick-row" style={{ opacity: already ? 0.4 : 1 }}>
-                  <div>
-                    <div className="title">◉ {p.customerName || p.name || "Walk-in"}</div>
-                    <div className="sub">{p.label} · {p.customerPhone || p.phone || ""}</div>
-                    <div className="id">{p.id}</div>
-                  </div>
-                  <div className="amt">${(p.total || p.amount || 0).toFixed(2)}</div>
-                  <button
-                    className="btn-sm primary"
-                    disabled={already}
-                    onClick={() => onPick({
-                      kind: "walkin_player",
-                      id: p.id,
-                      label: "Walk-in · " + (p.customerName || p.name || "Player"),
-                      sub: p.label,
-                      price: p.total || p.amount || 0
-                    })}
-                  >{already ? "Added" : "Attach"}</button>
+        {loading && !entries ? (
+          <div>
+            {[1,2,3,4].map(i => (
+              <div key={i} style={{
+                display: "grid", gridTemplateColumns: "auto 1fr auto auto",
+                gap: 12, padding: "12px 0", alignItems: "center",
+                borderBottom: "1px solid rgba(26,26,26,0.06)"
+              }}>
+                <Skeleton w={32} h={32} radius={4} />
+                <div>
+                  <Skeleton w="40%" h={14} style={{ marginBottom: 6 }} />
+                  <Skeleton w="60%" h={10} />
                 </div>
-              );
-            })}
-
-            {/* Legacy: keep handling old walkin_block shape if backend ever emits it */}
-            {entries.filter(e => e.entryType === "walkin_block").map(blk => (
-              <div key={blk.id}>
-                <div style={{
-                  fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.16em",
-                  textTransform: "uppercase", fontWeight: 700, color: "var(--peach,#D9785C)",
-                  marginTop: 14, marginBottom: 6, padding: "6px 0", borderTop: "1px dashed rgba(26,26,26,0.15)"
-                }}>
-                  ◉ {blk.label} · {blk.unpaidPlayers.length} unpaid · ${blk.rate}/each
-                </div>
-                {blk.unpaidPlayers.map(p => {
-                  const already = isAttached("walkin_player", p.playerId);
-                  return (
-                    <div key={p.playerId} className="att-pick-row" style={{ opacity: already ? 0.4 : 1 }}>
-                      <div>
-                        <div className="title">{p.name}</div>
-                        <div className="sub">{p.phone || "no phone"}</div>
-                      </div>
-                      <div className="amt">${p.amount.toFixed(2)}</div>
-                      <button
-                        className="btn-sm primary"
-                        disabled={already}
-                        onClick={() => onPick({
-                          kind: "walkin_player",
-                          id: p.playerId,
-                          label: "Walk-in · " + p.name,
-                          sub: blk.label,
-                          price: p.amount
-                        })}
-                      >{already ? "Added" : "Attach"}</button>
-                    </div>
-                  );
-                })}
+                <Skeleton w={50} h={14} />
+                <Skeleton w={70} h={28} />
               </div>
             ))}
           </div>
+        ) : filteredRows.length === 0 ? (
+          <EmptyState
+            icon={search ? "?" : "✓"}
+            title={search ? "No matches" : dayFilter === "today" ? "Nothing to attach today" : "Nothing to attach"}
+            hint={search ? "Try clearing the search or switching to All." : "All bookings and walk-ins today are already paid or attached."}
+            action={search ? { label: "Clear search", onClick: () => setSearch(""), primary: false } : null}
+            secondary={dayFilter === "today" && allCount > todayCount ? { label: "Show all (" + allCount + ")", onClick: () => setDayFilter("all") } : null}
+          />
+        ) : (
+          <div style={{ maxHeight: 460, overflowY: "auto", marginLeft: -4, marginRight: -4 }}>
+            {filteredRows.map(r => {
+              const already = isAttached(r.kind, r.id);
+              const isToday = r.date === today;
+              return (
+                <div
+                  key={r.kind + ":" + r.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "auto 1fr auto auto",
+                    gap: 14,
+                    alignItems: "center",
+                    padding: "12px 8px",
+                    borderRadius: 4,
+                    background: already ? "rgba(26,26,26,0.03)" : "transparent",
+                    borderBottom: "1px solid rgba(26,26,26,0.06)",
+                    opacity: already ? 0.55 : 1,
+                    transition: "background 0.12s ease"
+                  }}
+                  onMouseEnter={(e) => { if (!already) e.currentTarget.style.background = "rgba(26,26,26,0.04)"; }}
+                  onMouseLeave={(e) => { if (!already) e.currentTarget.style.background = "transparent"; }}
+                >
+                  {/* Time/date column — strong visual anchor */}
+                  <div style={{
+                    minWidth: 64,
+                    textAlign: "center",
+                    fontFamily: "var(--mono)",
+                    lineHeight: 1.2
+                  }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: r.tone }}>{r.time}</div>
+                    {r.timeEnd && (
+                      <div style={{ fontSize: 9, opacity: 0.55, marginTop: 2 }}>→{r.timeEnd}</div>
+                    )}
+                    {!isToday && (
+                      <div style={{ fontSize: 9, opacity: 0.6, marginTop: 2, fontWeight: 700, color: "var(--clay)" }}>
+                        {r.date.slice(5)}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Name + court — strongest content */}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{
+                      fontFamily: "var(--serif)", fontStyle: "italic",
+                      fontSize: 16, color: "var(--ink)",
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                      lineHeight: 1.2
+                    }}>
+                      <span style={{ marginRight: 6, color: r.tone, fontStyle: "normal" }}>{r.icon}</span>
+                      {r.name}
+                    </div>
+                    <div style={{
+                      fontFamily: "var(--mono)", fontSize: 10, opacity: 0.65,
+                      marginTop: 3, letterSpacing: "0.02em"
+                    }}>
+                      {r.courts && <span style={{ fontWeight: 700, color: r.tone }}>C·{r.courts}</span>}
+                      {r.courts && r.phone && <span> · </span>}
+                      {r.phone && <span>{r.phone}</span>}
+                    </div>
+                  </div>
+
+                  {/* Amount */}
+                  <div style={{
+                    fontFamily: "var(--mono)", fontSize: 15, fontWeight: 800,
+                    color: r.tone, whiteSpace: "nowrap"
+                  }}>
+                    {fmtMoney(r.amount)}
+                  </div>
+
+                  {/* Action */}
+                  <button
+                    className={"btn-sm " + (already ? "" : "primary")}
+                    disabled={already}
+                    onClick={() => pick(r)}
+                    style={{ minWidth: 70 }}
+                  >
+                    {already ? "✓ Added" : "Attach"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         )}
 
-        <div className="actions">
+        <div className="actions" style={{ marginTop: 14 }}>
           <button className="btn ghost" onClick={onClose}>Done</button>
         </div>
       </div>
@@ -11106,7 +11791,7 @@ function ProductModal({ product, onClose, onSaved }) {
             <div className="kicker">{isNew ? "New product" : product.sku}</div>
             <h2>{isNew ? "Add Product" : product.name}</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <div className="field-row">
@@ -11228,7 +11913,7 @@ function StockManagementModal({ products, onClose, onChanged }) {
             <div className="kicker">Stock adjustments</div>
             <h2>Manage Stock</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <div style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.12em", opacity: 0.6, marginBottom: 12 }}>
@@ -11280,7 +11965,7 @@ function SaleConfirmModal({ sale, onClose }) {
             <div className="kicker">{sale.saleId}</div>
             <h2>Sale Complete</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <div style={{ textAlign: "center", padding: "20px 0" }}>
@@ -11515,7 +12200,7 @@ function CustomerHistoryModal({ customer, onClose }) {
             <div className="kicker">{primaryLabel}{customer.phone ? " · " + customer.phone : " · no phone"}</div>
             <h2>{customer.name || "(anonymous)"}</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         {/* Source badges row */}
@@ -12718,7 +13403,7 @@ function AccountingReportPickerModal({ onClose, onPick }) {
             <div className="kicker">Generate an accounting report PDF</div>
             <h2>Download Accounting Report</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         {/* Mode tabs */}
@@ -13800,7 +14485,7 @@ function SponsorshipModal({ banner, onClose, onSaved }) {
             <div className="kicker">{isNew ? "Add sponsor banner" : banner.bannerId}</div>
             <h2>{isNew ? "New Banner" : banner.sponsorName}</h2>
           </div>
-          <button className="x" onClick={onClose}>×</button>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
         <div className="field">
@@ -14605,7 +15290,7 @@ function QuickCreateFab({ go, screen }) {
           }}
         />
       )}
-      <div style={{
+      <div className="fab-container" style={{
         position: "fixed",
         bottom: 28,
         right: 28,
