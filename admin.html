@@ -2092,6 +2092,20 @@ button { font-family: inherit; cursor: pointer; }
   color: var(--clay-2);
 }
 
+/* Past days (yesterday and earlier) — subtle muted treatment on the header
+ * to reinforce that this day is "done". Bookings inside still get the
+ * stronger ✓ DONE treatment via .booking-block.past styles. */
+.week-day-head.is-past {
+  background: rgba(26,26,26,0.78);
+  color: rgba(241,234,214,0.78);
+}
+.week-day-head.is-past .label .num {
+  color: rgba(241,234,214,0.82);
+}
+.week-day.is-past-day {
+  background: rgba(26,26,26,0.015);
+}
+
 /* Month grid: calendar */
 .month-grid {
   display: grid;
@@ -5185,12 +5199,21 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
                 {blocks.filter(b => b.court === c).map((b, idx) => {
                   const left = b.startIdx * slotW;
                   const width = b.slots * slotW - 2;
-                  // "Past" = block has ended. Today only — past dates already render historical.
-                  // We compare actual minutes-since-open with slot end (each slot = 30min from OPEN_HOUR).
-                  // Using currentMinsFromOpen instead of nowOffset so this works AFTER close hour too.
                   const endSlotIdx = b.startIdx + b.slots;
                   const slotEndMins = endSlotIdx * 30;
-                  const isPast = (dateStr === todayISO()) && (currentMinsFromOpen >= 0) && (slotEndMins <= currentMinsFromOpen);
+                  // "Past" rules:
+                  //   • Any booking on a PAST date is past (yesterday and earlier)
+                  //   • On TODAY: a booking is past only if its end time has elapsed
+                  //   • On future dates: never past
+                  const todayStr = todayISO();
+                  let isPast;
+                  if (dateStr < todayStr) {
+                    isPast = true;
+                  } else if (dateStr === todayStr) {
+                    isPast = currentMinsFromOpen >= 0 && slotEndMins <= currentMinsFromOpen;
+                  } else {
+                    isPast = false;
+                  }
                   // Member tier class for differentiation
                   const tierClass = b.memberTier === "founding" ? " tier-founding"
                                   : b.memberTier === "standard" ? " tier-standard"
@@ -5429,15 +5452,21 @@ function ScreenDashboard() {
             const mem = (data.members && data.members.revenueToday) || 0;
             const operational = court + pos + coaching + walkin;
             const total = operational + mem;
+            // Auto-shrink so big numbers like $2,450.00 don't overflow the card
+            const fz = total < 1000 ? 56
+                     : total < 10000 ? 48
+                     : total < 100000 ? 40
+                     : 34;
             return (
               <>
                 <div className="value" style={{
                   color: "var(--cream)",
-                  fontSize: 56,
+                  fontSize: fz,
                   fontStyle: "italic",
                   fontFamily: "var(--serif)",
                   lineHeight: 1.1,
-                  marginTop: 6
+                  marginTop: 6,
+                  whiteSpace: "nowrap"
                 }}
                 title={
                   "Total revenue today: " + fmtMoney(total) +
@@ -6652,7 +6681,9 @@ function WeekView({ entries, days, onDayClick, onBlockClick }) {
       {days.map(iso => {
         const d = new Date(iso + "T12:00:00");
         const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-        const isToday = iso === todayISO();
+        const todayStr = todayISO();
+        const isToday = iso === todayStr;
+        const isPastDay = iso < todayStr;
         const stats = dayStats[iso] || { guestCount: 0, coachCount: 0, walkinCount: 0, totalRev: 0, courtRev: 0, coachingRev: 0, walkinRev: 0 };
 
         const counts = [];
@@ -6662,12 +6693,12 @@ function WeekView({ entries, days, onDayClick, onBlockClick }) {
         const countText = counts.length > 0 ? counts.join(" · ") : "No activity";
 
         return (
-          <div className="week-day" key={iso}>
+          <div className={"week-day" + (isPastDay ? " is-past-day" : "")} key={iso}>
             <div
-              className={"week-day-head" + (isToday ? " is-today" : "")}
+              className={"week-day-head" + (isToday ? " is-today" : "") + (isPastDay ? " is-past" : "")}
               onClick={() => onDayClick(iso)}
               style={{ cursor: "pointer" }}
-              title="Click to open this day's full view"
+              title={isPastDay ? "Past day · click to open" : "Click to open this day's full view"}
             >
               <div className="label">
                 {DOW[d.getDay()]} <span className="num">{d.getDate()}</span>
@@ -13806,11 +13837,19 @@ function FinancesRangeView({ data, granularity, opOnly }) {
   const maxVal = Math.max(1, ...series.map(s => s.total));
 
   const showMember = !opOnly && hasMembership;
+  // Hero card needs more room when number gets to 5+ digits (>$10k).
+  // Column template: hero gets 2fr instead of 1.4fr to handle wide totals like $1,478.20
   const colTemplate = showMember
-    ? "1.4fr 1fr 1fr 1fr 1fr 1fr 1fr"
+    ? "2fr 1fr 1fr 1fr 1fr 1fr 1fr"
     : (!opOnly
-        ? "1.4fr 1fr 1fr 1fr 1fr 1fr"
-        : "1.4fr 1fr 1fr 1fr 1fr");
+        ? "2fr 1fr 1fr 1fr 1fr 1fr"
+        : "2fr 1fr 1fr 1fr 1fr");
+  // Shrink hero font when number is large so it doesn't crowd the card edge.
+  // <$1k: 44px · <$10k: 40px · <$100k: 36px · ≥$100k: 32px
+  const heroFontSize = displayedTotal < 1000 ? 44
+                     : displayedTotal < 10000 ? 40
+                     : displayedTotal < 100000 ? 36
+                     : 32;
 
   return (
     <>
@@ -13820,7 +13859,7 @@ function FinancesRangeView({ data, granularity, opOnly }) {
           <div className="label" style={{ color: "var(--cream)", opacity: 0.7 }}>
             {opOnly ? "Operational revenue" : "Total revenue"}
           </div>
-          <div className="value" style={{ color: "var(--cream)", fontSize: 44 }}>{fmtMoney(displayedTotal)}</div>
+          <div className="value" style={{ color: "var(--cream)", fontSize: heroFontSize, whiteSpace: "nowrap" }}>{fmtMoney(displayedTotal)}</div>
           <div className="sub" style={{ color: "var(--cream)", opacity: 0.7 }}>
             {opOnly
               ? fmtInt(data.summary.paidBookings + data.summary.paidWalkInPlayers + data.summary.paidCoachingSessions + data.summary.posTransactions) + " paid transactions"
@@ -13976,12 +14015,17 @@ function FinancesView({ data, onChanged, opOnly }) {
   const pct = (n) => displayedTotal > 0 ? Math.round((n / displayedTotal) * 100) : 0;
   // Choose grid column count: 6 (operational + sponsorship), or 7 (+ membership)
   const showMember = !opOnly && hasMembership;
-  const colCount = 5 + (showMember ? 1 : 0) + (!opOnly ? 1 : 0); // hero + 4 op + sponsorship + maybe membership
+  const colCount = 5 + (showMember ? 1 : 0) + (!opOnly ? 1 : 0);
+  // Wider hero column to fit big totals like "$1,478.20"
   const colTemplate = showMember
-    ? "1.4fr 1fr 1fr 1fr 1fr 1fr 1fr"
+    ? "2fr 1fr 1fr 1fr 1fr 1fr 1fr"
     : (!opOnly
-        ? "1.4fr 1fr 1fr 1fr 1fr 1fr"
-        : "1.4fr 1fr 1fr 1fr 1fr"); // hide sponsorship card too in op-only
+        ? "2fr 1fr 1fr 1fr 1fr 1fr"
+        : "2fr 1fr 1fr 1fr 1fr");
+  const heroFontSize = displayedTotal < 1000 ? 44
+                     : displayedTotal < 10000 ? 40
+                     : displayedTotal < 100000 ? 36
+                     : 32;
 
   return (
     <>
@@ -13991,7 +14035,7 @@ function FinancesView({ data, onChanged, opOnly }) {
           <div className="label" style={{ color: "var(--cream)", opacity: 0.7 }}>
             {opOnly ? "Operational revenue" : "Total revenue"}
           </div>
-          <div className="value" style={{ color: "var(--cream)", fontSize: 44 }}>{fmtMoney(displayedTotal)}</div>
+          <div className="value" style={{ color: "var(--cream)", fontSize: heroFontSize, whiteSpace: "nowrap" }}>{fmtMoney(displayedTotal)}</div>
           <div className="sub" style={{ color: "var(--cream)", opacity: 0.7 }}>
             {opOnly
               ? fmtInt(data.summary.paidBookings + data.summary.paidWalkInPlayers + data.summary.paidCoachingSessions + data.summary.posTransactions) + " paid transactions"
