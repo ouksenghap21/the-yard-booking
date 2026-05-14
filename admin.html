@@ -1821,9 +1821,54 @@ button { font-family: inherit; cursor: pointer; }
   color: var(--cream);
 }
 .court-picker .ct.unavail {
-  opacity: 0.3;
+  opacity: 0.4;
   cursor: not-allowed;
   background: var(--concrete);
+  position: relative;
+  color: rgba(26,26,26,0.6);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+/* Diagonal "blocked" slash overlay — makes it crystal clear */
+.court-picker .ct.unavail::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent 0 5px,
+    rgba(198,79,58,0.18) 5px 7px
+  );
+  pointer-events: none;
+  border-radius: inherit;
+}
+.court-picker .ct.unavail:hover {
+  opacity: 0.5;
+}
+/* Conflict state: was selected (e.g. from a previous time slot) but is no
+ * longer available. Show in clay with a strikethrough so user knows to
+ * tap it to remove the bad selection. */
+.court-picker .ct.on.unavail {
+  background: var(--clay);
+  color: var(--cream);
+  opacity: 0.85;
+  cursor: pointer;
+  text-decoration: line-through;
+  position: relative;
+}
+.court-picker .ct.on.unavail::after {
+  content: "tap to remove";
+  position: absolute;
+  bottom: -16px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--clay);
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .modal-warning {
@@ -4117,10 +4162,51 @@ async function _doFetchRaw(action, params) {
     }
   }
   try {
-    const r = await fetch(url.toString(), { method: "GET" });
-    return await r.json();
+    // Abort if the request takes longer than 25s — Apps Script cold starts can
+    // hang. A clear "timed out" message beats a spinner that never resolves.
+    const ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+    const timeoutId = ctrl ? setTimeout(() => ctrl.abort(), 25000) : null;
+    const r = await fetch(url.toString(), {
+      method: "GET",
+      signal: ctrl ? ctrl.signal : undefined
+    });
+    if (timeoutId) clearTimeout(timeoutId);
+
+    // Read as text first so we can see what kind of error we got. Apps Script
+    // crashes return HTML, not JSON — JSON.parse on those gives the cryptic
+    // "Unexpected token <" message that's not user-friendly.
+    const text = await r.text();
+    if (!r.ok) {
+      // HTTP error (rare with Apps Script but possible)
+      return { ok: false, error: "Server returned " + r.status + ". Please retry." };
+    }
+    try {
+      return JSON.parse(text);
+    } catch (parseErr) {
+      // Body wasn't JSON. Try to extract a useful message from common cases:
+      //  - Apps Script error page: "<title>Error</title>...<p>Something went wrong</p>"
+      //  - HTML error page: a meaningful <pre> or <body> snippet
+      let msg = "Server returned an error. Please retry in a moment.";
+      const titleMatch = text.match(/<title>([^<]+)<\/title>/i);
+      const preMatch = text.match(/<pre[^>]*>([^<]+)<\/pre>/i);
+      if (preMatch && preMatch[1]) {
+        msg = preMatch[1].trim().slice(0, 200);
+      } else if (titleMatch && titleMatch[1] && titleMatch[1].toLowerCase() !== "error") {
+        msg = titleMatch[1].trim();
+      } else if (text.length < 400 && !text.startsWith("<")) {
+        msg = text.trim();
+      }
+      console.warn("[api] non-JSON response for " + action + ":", text.substring(0, 500));
+      return { ok: false, error: msg };
+    }
   } catch (e) {
-    return { ok: false, error: e.message };
+    if (e.name === "AbortError") {
+      return { ok: false, error: "Request timed out (25s). The server may be cold-starting — please retry." };
+    }
+    if (e.message && e.message.toLowerCase().indexOf("failed to fetch") >= 0) {
+      return { ok: false, error: "Network error. Check your connection and retry." };
+    }
+    return { ok: false, error: e.message || "Unknown error" };
   }
 }
 
@@ -7148,23 +7234,20 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
     return { available, unavailable };
   }, [availSlots, form.time, form.slots]);
 
-  // Auto-select first available court when:
+  // Auto-clean court selection when:
   //   - availability data loads
-  //   - the user changes date/time/duration causing court reshuffle
-  // If the currently-selected courts are no longer available, swap them out
+  //   - date/time/duration changes (which may make previously-selected courts blocked)
+  // We watch BOTH the available AND unavailable lists so we never miss a change.
+  // We do NOT auto-add a court — the user picks explicitly. Auto-adding was
+  // causing stale-availability bugs where a no-longer-free court was selected.
   useEffect(() => {
-    if (!courtAvailability.available.length) return;
-    const validCurrentlySelected = form.courts.filter(c => courtAvailability.available.includes(c));
-    if (validCurrentlySelected.length === form.courts.length && form.courts.length > 0) {
-      return;  // current selection is fine
-    }
-    // Either no selection or some/all selected courts are now unavailable
-    if (validCurrentlySelected.length === 0) {
-      setForm(f => ({ ...f, courts: [courtAvailability.available[0]] }));
-    } else {
-      setForm(f => ({ ...f, courts: validCurrentlySelected }));
-    }
-  }, [courtAvailability.available.join(",")]);
+    if (!courtAvailability.available.length && !courtAvailability.unavailable.length) return;
+    setForm(f => {
+      const validSelected = f.courts.filter(c => !courtAvailability.unavailable.includes(c));
+      if (validSelected.length === f.courts.length) return f; // already clean
+      return { ...f, courts: validSelected };
+    });
+  }, [courtAvailability.available.join(","), courtAvailability.unavailable.join(",")]);
 
   // CLIENT-SIDE price preview — fast, instant, no network call
   useEffect(() => {
@@ -7187,13 +7270,19 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
   }, [config, memberInfo, form.date, form.time, form.slots, form.courts.length]);
 
   function toggleCourt(c) {
-    if (courtAvailability.unavailable.includes(c)) return;
+    const isCurrentlySelected = form.courts.includes(c);
+    const isUnavail = courtAvailability.unavailable.includes(c);
+    // Cannot select a blocked court. Make this visible — courier user just hears nothing otherwise.
+    if (!isCurrentlySelected && isUnavail) {
+      showToast("Court " + c + " is blocked at this time", "error");
+      return;
+    }
+    // Either deselecting (always OK) or selecting an available court
     setForm(f => {
       const set = new Set(f.courts);
       if (set.has(c)) set.delete(c);
       else set.add(c);
-      const arr = Array.from(set).sort();
-      return { ...f, courts: arr.length ? arr : [c] };
+      return { ...f, courts: Array.from(set).sort() };
     });
   }
 
@@ -7202,23 +7291,50 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
     if (!form.name) return showToast("Name required", "error");
     if (form.courts.length === 0) return showToast("Pick at least one court", "error");
 
+    // Block submission if any selected court is currently flagged unavailable.
+    // Without this, the user might submit a stale selection and get a confusing
+    // backend error after a 5–10s wait.
+    const conflicts = form.courts.filter(c => courtAvailability.unavailable.includes(c));
+    if (conflicts.length > 0) {
+      return showToast(
+        "Court " + conflicts.join(", ") + " " + (conflicts.length === 1 ? "is" : "are") + " blocked at " + form.time + ". Pick a different court or time.",
+        "error"
+      );
+    }
+
     setSubmitting(true);
-    const r = await api("adminCreateBooking", {
-      phone: form.phone,
-      name: form.name,
-      email: form.email,
-      date: form.date,
-      time: form.time,
-      slots: form.slots,
-      courts: form.courts.length,
-      source: "Staff"
-    });
+    let r;
+    try {
+      r = await api("adminCreateBooking", {
+        phone: form.phone,
+        name: form.name,
+        email: form.email,
+        date: form.date,
+        time: form.time,
+        slots: form.slots,
+        courts: form.courts.length,
+        courtList: form.courts.join(","),  // explicit list — backend respects this
+        source: "Staff"
+      });
+    } catch (e) {
+      setSubmitting(false);
+      // Network failure or unexpected exception
+      showToast("Couldn't reach server — check your connection and try again", "error");
+      return;
+    }
     setSubmitting(false);
-    if (r.ok) {
+    if (r && r.ok) {
       showToast("Booking created", "success");
       onCreated && onCreated();
     } else {
-      showToast(r.error || "Failed", "error");
+      // Map common technical errors to friendly text
+      let msg = (r && r.error) ? r.error : "Booking failed";
+      if (/unexpected token|JSON|parse/i.test(msg)) {
+        msg = "Server hiccup — please retry in a moment";
+      } else if (/timeout|timed out/i.test(msg)) {
+        msg = "Server is slow — please retry";
+      }
+      showToast(msg, "error");
     }
   }
 
@@ -7274,7 +7390,7 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
             <input
               type="date"
               value={form.date}
-              onChange={(e) => setForm({ ...form, date: e.target.value, courts: [1] })}
+              onChange={(e) => setForm({ ...form, date: e.target.value, courts: [] })}
             />
           </div>
           <div className="field" style={{ flex: 1 }}>
@@ -7287,7 +7403,7 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
                     type="button"
                     key={o.value}
                     disabled={o.disabled}
-                    onClick={() => setForm({ ...form, time: o.value, courts: [1] })}
+                    onClick={() => setForm({ ...form, time: o.value, courts: [] })}
                     className={"time-chip" + (isSelected ? " is-selected" : "") + (o.disabled ? " is-disabled" : "")}
                     aria-pressed={isSelected}
                     title={o.disabled ? "Full · all courts booked" : "Available"}
@@ -7326,12 +7442,36 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
                   key={c}
                   className={"ct" + (isOn ? " on" : "") + (isUnavail ? " unavail" : "")}
                   onClick={() => toggleCourt(c)}
+                  title={isUnavail ? "Court " + c + " is blocked at this time/duration" : (isOn ? "Tap to deselect" : "Tap to select")}
+                  role="button"
+                  aria-pressed={isOn}
+                  aria-disabled={isUnavail && !isOn}
                 >
                   C·{c}
                 </div>
               );
             })}
           </div>
+          {/* Helper text below the court picker — guides user when zero are selected
+           * or when literally everything is blocked. */}
+          {form.courts.length === 0 && courtAvailability.available.length > 0 && (
+            <div style={{
+              fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.08em",
+              opacity: 0.65, marginTop: 8, color: "var(--clay)"
+            }}>
+              ↑ Tap one or more available courts
+            </div>
+          )}
+          {courtAvailability.available.length === 0 && availSlots.length > 0 && (
+            <div style={{
+              fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.08em",
+              opacity: 0.8, marginTop: 8, color: "var(--clay)",
+              padding: "8px 10px", background: "rgba(198,79,58,0.08)",
+              borderLeft: "3px solid var(--clay)", borderRadius: 3
+            }}>
+              ⚠ All courts are blocked at {form.time} for {form.slots * 30} min. Try a different time or shorter duration.
+            </div>
+          )}
         </div>
 
         {memberInfo && (
