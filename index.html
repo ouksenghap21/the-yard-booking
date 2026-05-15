@@ -1048,6 +1048,290 @@ a.ulink, button.ulink{
   <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
 </head>
+  <!--
+═══════════════════════════════════════════════════════════════════════════
+THE YARD — TOURNAMENT BANNER SNIPPET
+═══════════════════════════════════════════════════════════════════════════
+
+WHAT THIS IS:
+  A drop-in banner that auto-displays the next live or upcoming tournament
+  on your booking site (index.html). When no tournament is publicly visible,
+  the banner stays hidden — no empty bar, no broken layout.
+
+HOW TO USE:
+  1. Open your index.html in a code editor
+  2. Find a spot near the TOP of <body>, just after your header/logo
+  3. Paste this ENTIRE block (including the comments)
+  4. Edit the API_URL value on the line marked below — paste the same
+     Apps Script Web App URL you use in admin.html
+
+WHAT IT DOES:
+  • Calls listPublicTournaments once when the page loads
+  • If a live or upcoming tournament exists, shows a clickable banner
+  • Clicking the banner opens tournament.html?id=<that-tournament>
+  • If anything fails (API down, no tournaments, JS error), banner hides
+    cleanly and your booking page works normally
+
+SAFE BEHAVIOR:
+  • Fails silent — no error popups, no console spam
+  • CSS-scoped — uses #yard-tournament-banner ID so won't clash with your
+    booking site's styles
+  • Non-blocking — booking page loads first; banner appears 1-2s later
+  • Lightweight — about 4KB minified
+
+CUSTOMISATION:
+  • To change colors, edit the CSS variables at the top of the <style> block
+  • To hide the banner on certain pages, just don't include this snippet
+  • To show past tournaments too, change "includePast: false" to "true"
+    (default is upcoming/live only, which is what most people want)
+
+═══════════════════════════════════════════════════════════════════════════
+-->
+
+<style>
+  #yard-tournament-banner {
+    display: none;  /* hidden until JS confirms there's a tournament to show */
+    position: relative;
+    margin: 0 auto;
+    max-width: 1100px;
+    padding: 0 16px 12px;
+    font-family: "Manrope", system-ui, -apple-system, sans-serif;
+  }
+  #yard-tournament-banner .ytb-inner {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 18px;
+    background: linear-gradient(135deg, #1A1A1A 0%, #2A2520 100%);
+    color: #F1EAD6;
+    border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(26, 26, 26, 0.18);
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    text-decoration: none;
+  }
+  #yard-tournament-banner .ytb-inner:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(26, 26, 26, 0.26);
+  }
+  #yard-tournament-banner .ytb-badge {
+    flex-shrink: 0;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-family: "DM Mono", "Courier New", monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  #yard-tournament-banner .ytb-badge.live {
+    background: #3D7A4F;
+    color: #F1EAD6;
+  }
+  #yard-tournament-banner .ytb-badge.upcoming {
+    background: #A8744A;
+    color: #F1EAD6;
+  }
+  #yard-tournament-banner .ytb-main {
+    flex: 1;
+    min-width: 0;
+  }
+  #yard-tournament-banner .ytb-title {
+    font-family: "Fraunces", "Georgia", serif;
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #yard-tournament-banner .ytb-meta {
+    font-family: "DM Mono", "Courier New", monospace;
+    font-size: 11px;
+    opacity: 0.78;
+    margin-top: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #yard-tournament-banner .ytb-cta {
+    flex-shrink: 0;
+    font-family: "DM Mono", "Courier New", monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    opacity: 0.85;
+    padding-left: 8px;
+    border-left: 1px solid rgba(241, 234, 214, 0.18);
+  }
+  #yard-tournament-banner .ytb-cta::after {
+    content: " →";
+  }
+
+  /* Mobile — stack the badge above title, hide the CTA arrow */
+  @media (max-width: 540px) {
+    #yard-tournament-banner .ytb-inner {
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 12px 14px;
+    }
+    #yard-tournament-banner .ytb-cta {
+      display: none;
+    }
+    #yard-tournament-banner .ytb-title {
+      font-size: 16px;
+    }
+    #yard-tournament-banner .ytb-meta {
+      font-size: 10px;
+    }
+  }
+</style>
+
+<div id="yard-tournament-banner" role="region" aria-label="Upcoming tournament">
+  <a class="ytb-inner" id="yard-tournament-banner-link" href="#">
+    <span class="ytb-badge" id="yard-tournament-banner-badge">UPCOMING</span>
+    <div class="ytb-main">
+      <div class="ytb-title" id="yard-tournament-banner-title"></div>
+      <div class="ytb-meta" id="yard-tournament-banner-meta"></div>
+    </div>
+    <span class="ytb-cta">Details</span>
+  </a>
+</div>
+
+<script>
+(function() {
+  // ═══════════════════════════════════════════════════════════════════════
+  // EDIT THIS ONE LINE — paste your Apps Script Web App URL here
+  // (same URL used by admin.html and the rest of your booking site)
+  // ═══════════════════════════════════════════════════════════════════════
+  var API_URL = "https://script.google.com/macros/s/AKfycbySSk--iEFY8vTvldpARENCQ6KApJik0UHqASKa7PfJ1IkIJkmEAvOQPCsKR84MFtAY/exec";
+
+  // Bail if URL wasn't filled in — no point making a network call
+  if (!API_URL || API_URL.indexOf("PASTE_") === 0) return;
+
+  var banner = document.getElementById("yard-tournament-banner");
+  if (!banner) return;  // banner HTML not in DOM, nothing to do
+
+  // Build a fetch with a 5-second timeout so a slow/dead API doesn't keep
+  // this script hanging forever
+  function fetchWithTimeout(url, options, timeoutMs) {
+    return new Promise(function(resolve, reject) {
+      var timeoutId = setTimeout(function() {
+        reject(new Error("timeout"));
+      }, timeoutMs);
+      fetch(url, options).then(function(r) {
+        clearTimeout(timeoutId);
+        resolve(r);
+      }).catch(function(e) {
+        clearTimeout(timeoutId);
+        reject(e);
+      });
+    });
+  }
+
+  function formatDate(s) {
+    if (!s) return "";
+    try {
+      var d = new Date(s + "T12:00:00");
+      return d.toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric"
+      });
+    } catch (e) { return s; }
+  }
+
+  function pickTournament(list) {
+    if (!list || !list.length) return null;
+    // The endpoint already sorts: live first, then nearest upcoming.
+    // So the first element is the right one.
+    return list[0];
+  }
+
+  function buildPublicUrl(tournamentId) {
+    // tournament.html lives alongside index.html, so use relative path
+    return "tournament.html?id=" + encodeURIComponent(tournamentId);
+  }
+
+  function show(t) {
+    var badgeEl = document.getElementById("yard-tournament-banner-badge");
+    var titleEl = document.getElementById("yard-tournament-banner-title");
+    var metaEl = document.getElementById("yard-tournament-banner-meta");
+    var linkEl = document.getElementById("yard-tournament-banner-link");
+    if (!badgeEl || !titleEl || !metaEl || !linkEl) return;
+
+    // Badge text/style
+    if (t.when === "live") {
+      badgeEl.textContent = "LIVE NOW";
+      badgeEl.className = "ytb-badge live";
+    } else {
+      badgeEl.textContent = "UPCOMING";
+      badgeEl.className = "ytb-badge upcoming";
+    }
+
+    titleEl.textContent = t.name;
+
+    // Meta line — date + format + spots (omit pieces that are empty)
+    var metaPieces = [];
+    var isMultiDay = t.startDate && t.endDate && t.startDate !== t.endDate;
+    if (isMultiDay) {
+      metaPieces.push(formatDate(t.startDate) + " → " + formatDate(t.endDate));
+    } else if (t.startDate) {
+      metaPieces.push(formatDate(t.startDate));
+    }
+    if (t.format) metaPieces.push(t.format);
+    if (t.playerCap > 0 && t.when !== "live") {
+      var spots = t.playerCap - t.registeredPlayers;
+      if (spots > 0 && spots <= 4) {
+        metaPieces.push(spots + " spot" + (spots === 1 ? "" : "s") + " left");
+      } else if (spots <= 0) {
+        metaPieces.push("Field full · waitlist open");
+      }
+    }
+    metaEl.textContent = metaPieces.join(" · ");
+
+    linkEl.href = buildPublicUrl(t.id);
+    banner.style.display = "block";
+  }
+
+  // Defer the fetch so the booking page renders first — banner appears
+  // as a non-blocking enhancement
+  function load() {
+    var formData = new URLSearchParams();
+    formData.append("action", "listPublicTournaments");
+
+    fetchWithTimeout(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: formData.toString()
+    }, 5000).then(function(r) {
+      return r.json();
+    }).then(function(data) {
+      if (!data || !data.ok) return;  // silently skip
+      var t = pickTournament(data.tournaments);
+      if (t) show(t);
+    }).catch(function() {
+      // Network error / timeout / parse error — banner stays hidden,
+      // booking page is unaffected
+    });
+  }
+
+  // Wait for the page to be interactive before kicking off the fetch
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", function() {
+      setTimeout(load, 400);  // small delay so booking calendar loads first
+    });
+  } else {
+    setTimeout(load, 400);
+  }
+})();
+</script>
+
+<!-- ═════════════════════════════════════════════════════════════════════
+     END OF TOURNAMENT BANNER SNIPPET
+     ═════════════════════════════════════════════════════════════════════ -->
 <body>
   <div id="root"></div>
 
