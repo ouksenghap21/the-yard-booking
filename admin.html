@@ -3553,7 +3553,9 @@ button { font-family: inherit; cursor: pointer; }
 .finance-chart .seg-walk  { background: var(--peach, #D9785C); }
 .finance-chart .seg-pos   { background: var(--ink); }
 .finance-chart .seg-member { background: var(--clay); }
+.finance-chart .seg-tournament { background: var(--wood); opacity: 0.7; }
 .finance-chart-legend .seg-member { background: var(--clay); }
+.finance-chart-legend .seg-tournament { background: var(--wood); opacity: 0.7; }
 .finance-chart .day-label {
   position: absolute;
   bottom: -22px;
@@ -4046,7 +4048,9 @@ const API_CACHE_TTL = {
   adminListCustomers: 30000,
   adminListSmsLog: 30000,
   tabListOpen: 10000,
-  adminListWalkInBlocks: 15000
+  adminListWalkInBlocks: 15000,
+  adminListTournaments: 30000,
+  adminGetTournament: 15000
 };
 
 const _apiCache = new Map();
@@ -13828,6 +13832,7 @@ function FinancesRangeView({ data, granularity, opOnly }) {
   const h = data.headline;
   const hasMembership = (h.membershipRev || 0) > 0;
   const hasSponsorship = (h.sponsorshipRev || 0) > 0;
+  const hasTournament = ((h.tournamentRev || 0) > 0) || ((h.tournamentExp || 0) > 0);
   const operationalRev = h.operationalRev !== undefined
     ? h.operationalRev
     : (h.courtRev + h.walkinRev + h.coachingRev + h.posRev);
@@ -13837,13 +13842,12 @@ function FinancesRangeView({ data, granularity, opOnly }) {
   const maxVal = Math.max(1, ...series.map(s => s.total));
 
   const showMember = !opOnly && hasMembership;
+  const showTournament = !opOnly && hasTournament;
   // Hero card needs more room when number gets to 5+ digits (>$10k).
-  // Column template: hero gets 2fr instead of 1.4fr to handle wide totals like $1,478.20
-  const colTemplate = showMember
-    ? "2fr 1fr 1fr 1fr 1fr 1fr 1fr"
-    : (!opOnly
-        ? "2fr 1fr 1fr 1fr 1fr 1fr"
-        : "2fr 1fr 1fr 1fr 1fr");
+  // Build template dynamically based on which optional cards are showing
+  // (hero + court + walkin + coaching + pos + optional sponsorship + member + tournament)
+  const extraCols = (!opOnly ? 1 : 0) + (showMember ? 1 : 0) + (showTournament ? 1 : 0);
+  const colTemplate = "2fr" + " 1fr".repeat(4 + extraCols);
   // Shrink hero font when number is large so it doesn't crowd the card edge.
   // <$1k: 44px · <$10k: 40px · <$100k: 36px · ≥$100k: 32px
   const heroFontSize = displayedTotal < 1000 ? 44
@@ -13920,6 +13924,25 @@ function FinancesRangeView({ data, granularity, opOnly }) {
             </div>
           </div>
         )}
+        {showTournament && (
+          <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
+            <div className="label">🏆 Tournaments</div>
+            <div
+              className="value"
+              style={{ color: (h.tournamentNet || 0) >= 0 ? "var(--wood)" : "var(--clay)" }}
+              title={
+                "Tournament revenue this period: " + fmtMoney(h.tournamentRev || 0) +
+                "\nTournament expenses: " + fmtMoney(h.tournamentExp || 0) +
+                "\nNet contribution: " + fmtMoney(h.tournamentNet || 0)
+              }
+            >
+              {fmtMoneyWhole(h.tournamentNet || 0)}
+            </div>
+            <div className="sub">
+              {fmtMoney(h.tournamentRev || 0)} in − {fmtMoney(h.tournamentExp || 0)} out
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Explicit math row — shows the equation so the total is verifiable */}
@@ -13941,11 +13964,19 @@ function FinancesRangeView({ data, granularity, opOnly }) {
             {showMember && (
               <>{" + "}{fmtMoney(h.membershipRev)} <span style={{ opacity: 0.5 }}>memberships</span></>
             )}
+            {showTournament && (
+              <>{" + "}{fmtMoney(h.tournamentNet || 0)} <span style={{ opacity: 0.5 }}>tournaments net</span></>
+            )}
           </>
         )}
         {opOnly && hasMembership && (
           <span style={{ marginLeft: 14, color: "var(--clay)", fontWeight: 700 }}>
             · {fmtMoney(h.membershipRev)} memberships excluded
+          </span>
+        )}
+        {opOnly && hasTournament && (
+          <span style={{ marginLeft: 14, color: "var(--clay)", fontWeight: 700 }}>
+            · {fmtMoney(h.tournamentNet || 0)} tournaments excluded
           </span>
         )}
       </div>
@@ -14006,6 +14037,7 @@ function FinancesView({ data, onChanged, opOnly }) {
   const splits = data.splits;
   const hasMembership = (h.membershipRev || 0) > 0;
   const hasSponsorship = (h.sponsorshipRev || 0) > 0;
+  const hasTournament = ((h.tournamentRev || 0) > 0) || ((h.tournamentExp || 0) > 0);
   // Displayed total respects the toggle. operationalRev is the safe fallback
   // when backend hasn't been redeployed yet.
   const operationalRev = h.operationalRev !== undefined
@@ -14013,15 +14045,11 @@ function FinancesView({ data, onChanged, opOnly }) {
     : (h.courtRev + h.walkinRev + h.coachingRev + h.posRev);
   const displayedTotal = opOnly ? operationalRev : (h.totalRevenue || 0);
   const pct = (n) => displayedTotal > 0 ? Math.round((n / displayedTotal) * 100) : 0;
-  // Choose grid column count: 6 (operational + sponsorship), or 7 (+ membership)
+  // Choose grid columns dynamically (hero + 4 ops + optional sponsor/member/tournament)
   const showMember = !opOnly && hasMembership;
-  const colCount = 5 + (showMember ? 1 : 0) + (!opOnly ? 1 : 0);
-  // Wider hero column to fit big totals like "$1,478.20"
-  const colTemplate = showMember
-    ? "2fr 1fr 1fr 1fr 1fr 1fr 1fr"
-    : (!opOnly
-        ? "2fr 1fr 1fr 1fr 1fr 1fr"
-        : "2fr 1fr 1fr 1fr 1fr");
+  const showTournament = !opOnly && hasTournament;
+  const extraCols = (!opOnly ? 1 : 0) + (showMember ? 1 : 0) + (showTournament ? 1 : 0);
+  const colTemplate = "2fr" + " 1fr".repeat(4 + extraCols);
   const heroFontSize = displayedTotal < 1000 ? 44
                      : displayedTotal < 10000 ? 40
                      : displayedTotal < 100000 ? 36
@@ -14096,6 +14124,25 @@ function FinancesView({ data, onChanged, opOnly }) {
             </div>
           </div>
         )}
+        {showTournament && (
+          <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
+            <div className="label">🏆 Tournaments</div>
+            <div
+              className="value"
+              style={{ color: (h.tournamentNet || 0) >= 0 ? "var(--wood)" : "var(--clay)" }}
+              title={
+                "Tournament revenue this period: " + fmtMoney(h.tournamentRev || 0) +
+                "\nTournament expenses: " + fmtMoney(h.tournamentExp || 0) +
+                "\nNet contribution: " + fmtMoney(h.tournamentNet || 0)
+              }
+            >
+              {fmtMoneyWhole(h.tournamentNet || 0)}
+            </div>
+            <div className="sub">
+              {fmtMoney(h.tournamentRev || 0)} in − {fmtMoney(h.tournamentExp || 0)} out
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Explicit math row — shows the equation so the total is verifiable */}
@@ -14117,11 +14164,19 @@ function FinancesView({ data, onChanged, opOnly }) {
             {showMember && (
               <>{" + "}{fmtMoney(h.membershipRev)} <span style={{ opacity: 0.5 }}>memberships</span></>
             )}
+            {showTournament && (
+              <>{" + "}{fmtMoney(h.tournamentNet || 0)} <span style={{ opacity: 0.5 }}>tournaments net</span></>
+            )}
           </>
         )}
         {opOnly && hasMembership && (
           <span style={{ marginLeft: 14, color: "var(--clay)", fontWeight: 700 }}>
             · {fmtMoney(h.membershipRev)} memberships excluded
+          </span>
+        )}
+        {opOnly && hasTournament && (
+          <span style={{ marginLeft: 14, color: "var(--clay)", fontWeight: 700 }}>
+            · {fmtMoney(h.tournamentNet || 0)} tournaments excluded
           </span>
         )}
       </div>
@@ -14231,10 +14286,13 @@ function DailyRevenueChart({ daily }) {
             return dow === 0 || dow === 6;
           })();
           const mem = d.membership || 0;
+          const trn = d.tournament || 0;
           const tip = d.date + " · $" + d.total.toFixed(2)
             + " ($" + d.court.toFixed(0) + " court · $" + d.walkin.toFixed(0) + " walk-in · $"
             + d.coaching.toFixed(0) + " coaching · $" + d.pos.toFixed(0) + " POS"
-            + (mem > 0 ? " · $" + mem.toFixed(0) + " memberships" : "") + ")";
+            + (mem > 0 ? " · $" + mem.toFixed(0) + " memberships" : "")
+            + (trn !== 0 ? " · " + (trn >= 0 ? "+$" : "−$") + Math.abs(trn).toFixed(0) + " tournaments net" : "")
+            + ")";
           return (
             <div key={d.date} className={"bar-col" + (isToday ? " today" : "") + (isWknd ? " weekend" : "")} title={tip}>
               <div className="stack" style={{ height: h + "%" }}>
@@ -14243,6 +14301,7 @@ function DailyRevenueChart({ daily }) {
                 {d.walkin > 0 && <div className="seg seg-walk" style={{ flex: d.walkin }} />}
                 {d.pos > 0 && <div className="seg seg-pos" style={{ flex: d.pos }} />}
                 {mem > 0 && <div className="seg seg-member" style={{ flex: mem }} />}
+                {trn > 0 && <div className="seg seg-tournament" style={{ flex: trn }} />}
               </div>
               <div className="day-label">{day}</div>
             </div>
@@ -14256,6 +14315,9 @@ function DailyRevenueChart({ daily }) {
         <span className="leg-item"><i className="leg-swatch seg-pos" /> POS</span>
         {daily.some(d => (d.membership || 0) > 0) && (
           <span className="leg-item"><i className="leg-swatch seg-member" /> Memberships</span>
+        )}
+        {daily.some(d => (d.tournament || 0) > 0) && (
+          <span className="leg-item"><i className="leg-swatch seg-tournament" /> Tournaments</span>
         )}
       </div>
     </div>
@@ -14610,6 +14672,1494 @@ function SplitBar({ segments }) {
 /* ====================================================================
    SPONSORSHIPS — banner sales inventory + revenue tracking
    ==================================================================== */
+
+/* ========================================================================
+   TOURNAMENTS — list + detail + create modal + finances integration
+   ======================================================================== */
+
+const TOURNAMENT_TYPES = [
+  { value: "in-house", label: "In-house" },
+  { value: "venue-rental", label: "Venue rental" },
+  { value: "sponsored", label: "Sponsored" },
+  { value: "community", label: "Community" }
+];
+
+const TOURNAMENT_STATUSES = [
+  { value: "planning", label: "Planning" },
+  { value: "registration-open", label: "Registration open" },
+  { value: "active", label: "Active" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" }
+];
+
+const REVENUE_CATEGORIES = [
+  { value: "venue-fee", label: "Venue fee (organizer pays you)" },
+  { value: "entry-fee", label: "Entry fees from players" },
+  { value: "sponsor-cash", label: "Sponsor cash" },
+  { value: "sponsor-in-kind", label: "Sponsor in-kind (food/trophies/etc)" },
+  { value: "other", label: "Other" }
+];
+
+const EXPENSE_CATEGORIES = [
+  { value: "prize-pool", label: "Prize pool payout" },
+  { value: "referees", label: "Referees / officials" },
+  { value: "catering", label: "Catering / water / food" },
+  { value: "trophies", label: "Trophies / medals" },
+  { value: "marketing", label: "Marketing / printing" },
+  { value: "other", label: "Other" }
+];
+
+function tournamentTypeLabel(type) {
+  const t = TOURNAMENT_TYPES.find(x => x.value === type);
+  return t ? t.label : (type || "—");
+}
+
+function tournamentStatusPill(when, status) {
+  // Visual emphasis: "in-progress" gets the most urgent treatment
+  const map = {
+    "in-progress": { bg: "var(--green)", color: "var(--cream)", label: "LIVE" },
+    "upcoming":    { bg: "rgba(168,116,74,0.15)", color: "var(--wood)", label: "UPCOMING" },
+    "past":        { bg: "rgba(26,26,26,0.08)", color: "var(--ink)", label: "COMPLETED" },
+    "cancelled":   { bg: "rgba(217,120,92,0.15)", color: "var(--clay)", label: "CANCELLED" }
+  };
+  const c = map[when] || map.past;
+  return (
+    <span style={{
+      fontFamily: "var(--mono)", fontSize: 9, fontWeight: 700,
+      letterSpacing: "0.14em", padding: "3px 9px", borderRadius: 999,
+      textTransform: "uppercase", background: c.bg, color: c.color, whiteSpace: "nowrap"
+    }}>
+      {c.label}
+    </span>
+  );
+}
+
+function ScreenTournaments() {
+  const [data, setData] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [editTournament, setEditTournament] = useState(null);  // tournamentId to edit
+  const [detailId, setDetailId] = useState(null);              // tournamentId for detail modal
+  const [filter, setFilter] = useState("all");                 // all | upcoming | in-progress | past | cancelled
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  // FAB integration — listen for "yard:open-create" with target="tournaments"
+  useEffect(() => {
+    function onCreate(e) {
+      if (e.detail && e.detail.target === "tournaments") setShowCreate(true);
+    }
+    window.addEventListener("yard:open-create", onCreate);
+    return () => window.removeEventListener("yard:open-create", onCreate);
+  }, []);
+
+  async function load() {
+    const cached = getCachedApi("adminListTournaments");
+    if (cached && cached.ok) {
+      setData(cached);
+      setLastUpdated(Date.now());
+    }
+    const r = await api("adminListTournaments");
+    if (r.ok) {
+      setData(r);
+      setLastUpdated(Date.now());
+    }
+  }
+  useEffect(() => { load(); }, []);
+
+  if (!data) {
+    return (
+      <div className="main">
+        <div style={{ padding: 60, display: "flex", justifyContent: "center" }}>
+          <BouncingBall size="md" />
+        </div>
+      </div>
+    );
+  }
+
+  const summary = data.summary || {};
+  const tournaments = data.tournaments || [];
+  const filtered = filter === "all"
+    ? tournaments
+    : tournaments.filter(t => t.when === filter);
+
+  return (
+    <div className="main">
+      <div className="main-head">
+        <div>
+          <div className="title">
+            {summary.upcoming || 0} upcoming · {summary.inProgress || 0} live · {summary.past || 0} past
+          </div>
+          <h1>Tournaments</h1>
+        </div>
+        <div className="meta">
+          {lastUpdated && <LastUpdated ts={lastUpdated} />}
+          <button
+            className="btn"
+            style={{ marginTop: 10 }}
+            onClick={() => setShowCreate(true)}
+          >
+            + Create tournament
+          </button>
+        </div>
+      </div>
+
+      {/* Stat strip */}
+      <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr", marginBottom: 20 }}>
+        <div className="stat-card">
+          <div className="label">Upcoming</div>
+          <div className="value">{fmtInt(summary.upcoming || 0)}</div>
+          <div className="sub">tournaments on the calendar</div>
+        </div>
+        <div className="stat-card" style={{ borderColor: "var(--green)" }}>
+          <div className="label">Live now</div>
+          <div className="value" style={{ color: "var(--green)" }}>{fmtInt(summary.inProgress || 0)}</div>
+          <div className="sub">in-progress today</div>
+        </div>
+        <div className="stat-card">
+          <div className="label">Past this year</div>
+          <div className="value">{fmtInt(summary.past || 0)}</div>
+          <div className="sub">completed events</div>
+        </div>
+        <div className="stat-card" style={{ borderColor: "var(--clay)" }}>
+          <div className="label">Net profit YTD</div>
+          <div className="value" style={{ color: (summary.netProfitYTD || 0) >= 0 ? "var(--green)" : "var(--clay)" }}>
+            {fmtMoney(summary.netProfitYTD || 0)}
+          </div>
+          <div className="sub">revenue − expenses across all</div>
+        </div>
+      </div>
+
+      {/* Filter pills */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        {[
+          { v: "all", l: "All" },
+          { v: "in-progress", l: "Live now" },
+          { v: "upcoming", l: "Upcoming" },
+          { v: "past", l: "Past" },
+          { v: "cancelled", l: "Cancelled" }
+        ].map(f => (
+          <button
+            key={f.v}
+            onClick={() => setFilter(f.v)}
+            style={{
+              padding: "7px 14px",
+              border: "1.5px solid var(--ink)",
+              borderRadius: 999,
+              background: filter === f.v ? "var(--ink)" : "transparent",
+              color: filter === f.v ? "var(--cream)" : "var(--ink)",
+              fontFamily: "var(--mono)", fontSize: 10,
+              letterSpacing: "0.14em", textTransform: "uppercase",
+              fontWeight: 700, cursor: "pointer"
+            }}
+          >
+            {f.l}
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyState
+          icon="🏆"
+          title={filter === "all" ? "No tournaments yet" : "Nothing matches"}
+          hint={filter === "all" ? "Click \"Create tournament\" above to schedule your first one — pick courts, dates, and the format. Money lines come later." : "Try a different filter."}
+        />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filtered.map(t => (
+            <TournamentRow
+              key={t.id}
+              t={t}
+              onOpenDetail={() => setDetailId(t.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {showCreate && (
+        <TournamentCreateModal
+          onClose={() => setShowCreate(false)}
+          onCreated={() => { setShowCreate(false); load(); }}
+        />
+      )}
+      {editTournament && (
+        <TournamentCreateModal
+          existing={editTournament}
+          onClose={() => setEditTournament(null)}
+          onCreated={() => { setEditTournament(null); load(); }}
+        />
+      )}
+      {detailId && (
+        <TournamentDetailModal
+          tournamentId={detailId}
+          onClose={() => setDetailId(null)}
+          onChanged={load}
+          onEdit={(full) => { setDetailId(null); setEditTournament(full); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function TournamentRow({ t, onOpenDetail }) {
+  const isMultiDay = t.startDate !== t.endDate;
+  const dateLabel = isMultiDay
+    ? t.startDate + " → " + t.endDate
+    : t.startDate;
+  const courtsLabel = t.courts.length > 0
+    ? "Courts " + t.courts.join(", ")
+    : "(no courts)";
+  return (
+    <div
+      onClick={onOpenDetail}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr auto auto auto auto",
+        gap: 16, alignItems: "center",
+        padding: "14px 18px",
+        background: "var(--cream)",
+        border: "1.5px solid rgba(26,26,26,0.10)",
+        borderLeft: t.when === "in-progress"
+          ? "4px solid var(--green)"
+          : t.when === "upcoming"
+            ? "4px solid var(--wood)"
+            : "4px solid rgba(26,26,26,0.10)",
+        borderRadius: 6, cursor: "pointer"
+      }}
+      title="Click for full detail"
+    >
+      <div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6, letterSpacing: "0.08em" }}>
+          {t.id} · {tournamentTypeLabel(t.type)} {t.format ? "· " + t.format : ""}
+        </div>
+        <div style={{ fontFamily: "var(--serif)", fontSize: 22, fontWeight: 500, marginTop: 2 }}>
+          {t.name}
+        </div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.75, marginTop: 4 }}>
+          {dateLabel} · {t.startTime}–{t.endTime} · {courtsLabel}
+        </div>
+      </div>
+      <div style={{ textAlign: "right" }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, letterSpacing: "0.14em", textTransform: "uppercase" }}>
+          Players
+        </div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700 }}>
+          {t.registeredPlayers}{t.playerCap > 0 ? "/" + t.playerCap : ""}
+        </div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>
+          {t.paidPlayers} paid
+        </div>
+      </div>
+      <div style={{ textAlign: "right" }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, letterSpacing: "0.14em", textTransform: "uppercase" }}>
+          Revenue
+        </div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700, color: "var(--green)" }}>
+          {fmtMoney(t.totalRevenue)}
+        </div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>
+          {fmtMoney(t.totalRevenueReceived)} received
+        </div>
+      </div>
+      <div style={{ textAlign: "right" }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, letterSpacing: "0.14em", textTransform: "uppercase" }}>
+          Net
+        </div>
+        <div style={{
+          fontFamily: "var(--mono)", fontSize: 14, fontWeight: 700,
+          color: t.netProfit >= 0 ? "var(--green)" : "var(--clay)"
+        }}>
+          {fmtMoney(t.netProfit)}
+        </div>
+      </div>
+      {tournamentStatusPill(t.when, t.status)}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* TOURNAMENT CREATE / EDIT MODAL                                      */
+/* ------------------------------------------------------------------ */
+
+function TournamentCreateModal({ existing, onClose, onCreated }) {
+  // `existing` is a full tournament object from list endpoint (lightweight)
+  // OR null/undefined for create. For edit we fetch full detail to get all fields.
+  const [form, setForm] = useState(() => ({
+    name: existing ? existing.name : "",
+    type: existing ? existing.type : "in-house",
+    format: existing ? existing.format : "",
+    startDate: existing ? existing.startDate : todayISO(),
+    endDate: existing ? existing.endDate : todayISO(),
+    startTime: existing ? existing.startTime : "09:00",
+    endTime: existing ? existing.endTime : "18:00",
+    courts: existing ? existing.courts.slice() : [1, 2, 3, 4],
+    entryFee: existing ? (existing.entryFee || 0) : 0,
+    playerCap: existing ? (existing.playerCap || 0) : 16,
+    status: existing ? existing.status : "planning",
+    bracketUrl: existing ? (existing.bracketUrl || "") : "",
+    sponsorNames: existing ? (existing.sponsorNames || "") : "",
+    publicVisible: existing ? !!existing.publicVisible : false,
+    contactMethod: existing ? (existing.contactMethod || "") : "",
+    notes: existing ? (existing.notes || "") : ""
+  }));
+  const [submitting, setSubmitting] = useState(false);
+
+  function toggleCourt(c) {
+    setForm(f => {
+      const set = new Set(f.courts);
+      if (set.has(c)) set.delete(c);
+      else set.add(c);
+      return { ...f, courts: Array.from(set).sort((a, b) => a - b) };
+    });
+  }
+
+  async function submit() {
+    if (!form.name.trim()) return showToast("Name required", "error");
+    if (form.courts.length === 0) return showToast("Pick at least one court", "error");
+    if (form.endDate < form.startDate) return showToast("End date before start date", "error");
+    if (form.startDate === form.endDate && form.endTime <= form.startTime) {
+      return showToast("End time must be after start time", "error");
+    }
+
+    setSubmitting(true);
+    const params = {
+      name: form.name,
+      type: form.type,
+      format: form.format,
+      startDate: form.startDate,
+      endDate: form.endDate,
+      startTime: form.startTime,
+      endTime: form.endTime,
+      courts: form.courts.join(","),
+      entryFee: form.entryFee,
+      playerCap: form.playerCap,
+      status: form.status,
+      bracketUrl: form.bracketUrl,
+      sponsorNames: form.sponsorNames,
+      publicVisible: form.publicVisible,
+      contactMethod: form.contactMethod,
+      notes: form.notes
+    };
+
+    let r;
+    try {
+      if (existing) {
+        params.tournamentId = existing.id;
+        r = await api("adminUpdateTournament", params);
+      } else {
+        r = await api("adminCreateTournament", params);
+      }
+    } catch (e) {
+      setSubmitting(false);
+      return showToast("Network error — please retry", "error");
+    }
+    setSubmitting(false);
+
+    if (r && r.ok) {
+      showToast(existing ? "Tournament updated" : "Tournament created", "success");
+      onCreated && onCreated(r);
+    } else {
+      let msg = (r && r.error) || "Failed";
+      if (/unexpected token|JSON|parse/i.test(msg)) msg = "Server hiccup — please retry";
+      showToast(msg, "error");
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720 }}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">{existing ? existing.id : "New tournament"}</div>
+            <h2>{existing ? "Edit tournament" : "Create tournament"}</h2>
+          </div>
+          <button onClick={onClose} aria-label="Close">×</button>
+        </div>
+
+        <div className="modal-body">
+          <div className="field">
+            <div className="field-label">Name</div>
+            <input
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="The Yard Summer Open"
+              autoFocus
+            />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="field">
+              <div className="field-label">Type</div>
+              <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+                {TOURNAMENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <div className="field-label">Status</div>
+              <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                {TOURNAMENT_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="field">
+            <div className="field-label">
+              Format <span style={{ opacity: 0.5, fontSize: 10 }}>· free text · examples: Round Robin · Pool → Single Elim · King of the Court</span>
+            </div>
+            <input
+              type="text"
+              value={form.format}
+              onChange={(e) => setForm({ ...form, format: e.target.value })}
+              placeholder="Round Robin"
+            />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="field">
+              <div className="field-label">Start date</div>
+              <input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
+            </div>
+            <div className="field">
+              <div className="field-label">End date</div>
+              <input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="field">
+              <div className="field-label">Start time</div>
+              <input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} />
+            </div>
+            <div className="field">
+              <div className="field-label">End time</div>
+              <input type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} />
+            </div>
+          </div>
+
+          <div className="field">
+            <div className="field-label">
+              Courts to reserve
+              {form.courts.length > 0 && (
+                <span style={{ opacity: 0.6, fontSize: 10 }}> · {form.courts.length} selected</span>
+              )}
+            </div>
+            <div className="court-picker">
+              {[1, 2, 3, 4, 5, 6, 7, 8].map(c => (
+                <div
+                  key={c}
+                  className={"ct" + (form.courts.includes(c) ? " on" : "")}
+                  onClick={() => toggleCourt(c)}
+                  role="button"
+                  aria-pressed={form.courts.includes(c)}
+                >
+                  C·{c}
+                </div>
+              ))}
+            </div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.65, marginTop: 6 }}>
+              These courts will be blocked for the dates/times above. Other courts stay available for normal bookings.
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="field">
+              <div className="field-label">Entry fee per player ($)</div>
+              <input
+                type="number" step="0.01" min="0"
+                value={form.entryFee}
+                onChange={(e) => setForm({ ...form, entryFee: parseFloat(e.target.value) || 0 })}
+              />
+            </div>
+            <div className="field">
+              <div className="field-label">Player cap <span style={{ opacity: 0.5, fontSize: 10 }}>· 0 = unlimited</span></div>
+              <input
+                type="number" min="0" step="1"
+                value={form.playerCap}
+                onChange={(e) => setForm({ ...form, playerCap: parseInt(e.target.value) || 0 })}
+              />
+            </div>
+          </div>
+
+          <div className="field">
+            <div className="field-label">
+              External bracket URL <span style={{ opacity: 0.5, fontSize: 10 }}>· optional · Pickleball Brackets / DUPR link</span>
+            </div>
+            <input
+              type="url"
+              value={form.bracketUrl}
+              onChange={(e) => setForm({ ...form, bracketUrl: e.target.value })}
+              placeholder="https://pickleballbrackets.com/..."
+            />
+          </div>
+
+          <div className="field">
+            <div className="field-label">
+              Sponsor name(s) <span style={{ opacity: 0.5, fontSize: 10 }}>· comma-separated for display</span>
+            </div>
+            <input
+              type="text"
+              value={form.sponsorNames}
+              onChange={(e) => setForm({ ...form, sponsorNames: e.target.value })}
+              placeholder="ABA, Wing, Chip Mong"
+            />
+          </div>
+
+          <div className="field">
+            <div className="field-label">
+              Contact for sign-up inquiries <span style={{ opacity: 0.5, fontSize: 10 }}>· shown on public info page</span>
+            </div>
+            <input
+              type="text"
+              value={form.contactMethod}
+              onChange={(e) => setForm({ ...form, contactMethod: e.target.value })}
+              placeholder="Telegram @theyard or +855 12 345 678"
+            />
+          </div>
+
+          <div className="field">
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={form.publicVisible}
+                onChange={(e) => setForm({ ...form, publicVisible: e.target.checked })}
+              />
+              <span>Public info page visible (shareable link · no roster shown to public)</span>
+            </label>
+          </div>
+
+          <div className="field">
+            <div className="field-label">Internal notes</div>
+            <textarea
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              rows={3}
+              placeholder="Anything you want to remember about this tournament"
+            />
+          </div>
+        </div>
+
+        <div className="modal-foot">
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={submit} disabled={submitting}>
+            {submitting ? (existing ? "Saving…" : "Creating…") : (existing ? "Save changes" : "Create tournament")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* TOURNAMENT DETAIL MODAL — header + revenue + expenses + players    */
+/* ------------------------------------------------------------------ */
+
+function TournamentDetailModal({ tournamentId, onClose, onChanged, onEdit }) {
+  const [t, setT] = useState(null);
+  const [activeTab, setActiveTab] = useState("overview");
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    const r = await api("adminGetTournament", { tournamentId: tournamentId });
+    if (r.ok) setT(r.tournament);
+    else { showToast(r.error || "Failed to load", "error"); onClose(); }
+  }
+  useEffect(() => { load(); }, [tournamentId]);
+
+  async function refresh() {
+    invalidateApiCache("adminGetTournament");
+    invalidateApiCache("adminListTournaments");
+    await load();
+    onChanged && onChanged();
+  }
+
+  if (!t) {
+    return (
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal" onClick={(e) => e.stopPropagation()} style={{ minHeight: 200 }}>
+          <div style={{ padding: 60, display: "flex", justifyContent: "center" }}>
+            <BouncingBall size="sm" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const isMultiDay = t.startDate !== t.endDate;
+  const dateLabel = isMultiDay ? t.startDate + " → " + t.endDate : t.startDate;
+
+  async function cancelTournament() {
+    if (!await confirmAction({
+      title: "Cancel tournament?",
+      message: "All reserved court slots will be freed.",
+      consequence: "Players, revenue lines, and expenses are preserved for audit/refund purposes. This can't be undone.",
+      destructive: true,
+      confirmLabel: "Cancel tournament"
+    })) return;
+    setBusy(true);
+    const r = await api("adminCancelTournament", { tournamentId: t.id });
+    setBusy(false);
+    if (r.ok) { showToast("Tournament cancelled", "success"); refresh(); }
+    else showToast(r.error || "Failed", "error");
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 920 }}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">{t.id} · {tournamentTypeLabel(t.type)} {t.format ? "· " + t.format : ""}</div>
+            <h2 style={{ marginTop: 2 }}>{t.name}</h2>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.75, marginTop: 4 }}>
+              {dateLabel} · {t.startTime}–{t.endTime} · Courts {t.courts.join(", ")}
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Close">×</button>
+        </div>
+
+        {/* Quick summary strip */}
+        <div style={{
+          padding: "14px 22px",
+          background: "rgba(26,26,26,0.025)",
+          borderTop: "1px solid rgba(26,26,26,0.08)",
+          borderBottom: "1px solid rgba(26,26,26,0.08)",
+          display: "grid",
+          gridTemplateColumns: "repeat(5, 1fr)",
+          gap: 14
+        }}>
+          <div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, letterSpacing: "0.14em", textTransform: "uppercase" }}>Players</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 18, fontWeight: 700 }}>{t.registeredPlayers}{t.playerCap > 0 ? "/" + t.playerCap : ""}</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>{t.paidPlayers} paid</div>
+          </div>
+          <div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, letterSpacing: "0.14em", textTransform: "uppercase" }}>Revenue</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 18, fontWeight: 700, color: "var(--green)" }}>{fmtMoney(t.totalRevenue)}</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>{fmtMoney(t.totalRevenueReceived)} received</div>
+          </div>
+          <div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, letterSpacing: "0.14em", textTransform: "uppercase" }}>Expense</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 18, fontWeight: 700, color: "var(--clay)" }}>{fmtMoney(t.totalExpense)}</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>{fmtMoney(t.totalExpensePaid)} paid out</div>
+          </div>
+          <div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, letterSpacing: "0.14em", textTransform: "uppercase" }}>Net profit</div>
+            <div style={{
+              fontFamily: "var(--mono)", fontSize: 18, fontWeight: 700,
+              color: t.netProfit >= 0 ? "var(--green)" : "var(--clay)"
+            }}>{fmtMoney(t.netProfit)}</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>{fmtMoney(t.netProfitCashBasis)} cash basis</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, letterSpacing: "0.14em", textTransform: "uppercase" }}>Status</div>
+            <div style={{ marginTop: 4 }}>{tournamentStatusPill(t.status === "cancelled" ? "cancelled" : (t.startDate > todayISO() ? "upcoming" : t.endDate < todayISO() ? "past" : "in-progress"), t.status)}</div>
+          </div>
+        </div>
+
+        {/* Tab strip */}
+        <div style={{ display: "flex", gap: 0, padding: "0 22px", borderBottom: "1px solid rgba(26,26,26,0.08)" }}>
+          {[
+            { v: "overview", l: "Overview" },
+            { v: "revenue", l: "Revenue (" + t.revenueLines.length + ")" },
+            { v: "expenses", l: "Expenses (" + t.expenseLines.length + ")" },
+            { v: "roster", l: "Roster (" + t.players.length + ")" },
+            { v: "actions", l: "Actions" }
+          ].map(tab => (
+            <button
+              key={tab.v}
+              onClick={() => setActiveTab(tab.v)}
+              style={{
+                padding: "12px 16px",
+                background: "transparent",
+                border: "none",
+                borderBottom: activeTab === tab.v ? "2px solid var(--ink)" : "2px solid transparent",
+                fontFamily: "var(--mono)", fontSize: 11,
+                letterSpacing: "0.1em", textTransform: "uppercase",
+                fontWeight: 700, cursor: "pointer",
+                color: activeTab === tab.v ? "var(--ink)" : "rgba(26,26,26,0.55)"
+              }}
+            >
+              {tab.l}
+            </button>
+          ))}
+        </div>
+
+        <div className="modal-body" style={{ minHeight: 260 }}>
+          {activeTab === "overview" && (
+            <TournamentOverviewTab t={t} />
+          )}
+          {activeTab === "revenue" && (
+            <TournamentRevenueTab t={t} onChanged={refresh} />
+          )}
+          {activeTab === "expenses" && (
+            <TournamentExpenseTab t={t} onChanged={refresh} />
+          )}
+          {activeTab === "roster" && (
+            <TournamentRosterTab t={t} onChanged={refresh} />
+          )}
+          {activeTab === "actions" && (
+            <TournamentActionsTab t={t} onChanged={refresh} onCancel={cancelTournament} onEdit={() => onEdit && onEdit(t)} busy={busy} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TournamentOverviewTab({ t }) {
+  const publicUrl = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, "") + "/tournament.html?id=" + t.id;
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
+        <div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 6 }}>Format</div>
+          <div style={{ fontFamily: "var(--serif)", fontSize: 18 }}>{t.format || "—"}</div>
+        </div>
+        <div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 6 }}>Entry fee</div>
+          <div style={{ fontFamily: "var(--serif)", fontSize: 18 }}>{t.entryFee > 0 ? fmtMoney(t.entryFee) + " / player" : "Free"}</div>
+        </div>
+        {t.sponsorNames && (
+          <div style={{ gridColumn: "1 / -1" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 6 }}>Sponsors</div>
+            <div style={{ fontFamily: "var(--serif)", fontSize: 16 }}>{t.sponsorNames}</div>
+          </div>
+        )}
+        {t.bracketUrl && (
+          <div style={{ gridColumn: "1 / -1" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 6 }}>External bracket</div>
+            <a href={t.bracketUrl} target="_blank" rel="noopener noreferrer" style={{ color: "var(--clay)", wordBreak: "break-all", fontFamily: "var(--mono)", fontSize: 12 }}>
+              {t.bracketUrl} ↗
+            </a>
+          </div>
+        )}
+        {t.contactMethod && (
+          <div style={{ gridColumn: "1 / -1" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 6 }}>Sign-up contact</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 13 }}>{t.contactMethod}</div>
+          </div>
+        )}
+        {t.publicVisible && (
+          <div style={{ gridColumn: "1 / -1", padding: 12, background: "rgba(61,122,79,0.08)", borderLeft: "3px solid var(--green)", borderRadius: 4 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.75, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 6 }}>Public info page</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, marginBottom: 8, wordBreak: "break-all" }}>{publicUrl}</div>
+            <button
+              className="btn-sm"
+              onClick={() => {
+                navigator.clipboard.writeText(publicUrl).then(() => showToast("Link copied", "success"));
+              }}
+            >
+              Copy link
+            </button>
+          </div>
+        )}
+        {t.notes && (
+          <div style={{ gridColumn: "1 / -1" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 6 }}>Notes</div>
+            <div style={{ whiteSpace: "pre-wrap", fontFamily: "var(--serif)", fontSize: 14, lineHeight: 1.55 }}>{t.notes}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TournamentRevenueTab({ t, onChanged }) {
+  const [showAdd, setShowAdd] = useState(false);
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.7 }}>
+          {t.revenueLines.length} line{t.revenueLines.length === 1 ? "" : "s"} · Total {fmtMoney(t.totalRevenue)}
+        </div>
+        <button className="btn-sm" onClick={() => setShowAdd(true)}>+ Add revenue line</button>
+      </div>
+
+      {t.revenueLines.length === 0 ? (
+        <EmptyState
+          icon="$"
+          title="No revenue lines yet"
+          hint="Add entry fees, venue rental fee, sponsor cash, or anything else that comes in for this tournament."
+        />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {t.revenueLines.map(line => (
+            <RevenueLineRow key={line.lineId} line={line} onChanged={onChanged} tournamentId={t.id} />
+          ))}
+        </div>
+      )}
+
+      {showAdd && (
+        <RevenueLineAddModal
+          tournamentId={t.id}
+          onClose={() => setShowAdd(false)}
+          onAdded={() => { setShowAdd(false); onChanged(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function RevenueLineRow({ line, onChanged, tournamentId }) {
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const lineTotal = line.amount * (line.quantity || 1);
+  const received = !!line.receivedDate;
+
+  async function remove() {
+    if (!await confirmAction({
+      title: "Delete this revenue line?",
+      message: line.description + " · " + fmtMoney(lineTotal),
+      destructive: true,
+      confirmLabel: "Delete"
+    })) return;
+    setBusy(true);
+    const r = await api("adminDeleteTournamentRevenue", { lineId: line.lineId });
+    setBusy(false);
+    if (r.ok) { showToast("Removed", "success"); onChanged(); }
+    else showToast(r.error || "Failed", "error");
+  }
+  async function markReceived() {
+    setBusy(true);
+    const r = await api("adminUpdateTournamentRevenue", {
+      lineId: line.lineId,
+      receivedDate: todayISO()
+    });
+    setBusy(false);
+    if (r.ok) { showToast("Marked received", "success"); onChanged(); }
+    else showToast(r.error || "Failed", "error");
+  }
+
+  const catLabel = (REVENUE_CATEGORIES.find(c => c.value === line.category) || {}).label || line.category;
+
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "auto 1fr auto auto auto",
+      gap: 12, alignItems: "center",
+      padding: "10px 12px",
+      background: received ? "rgba(61,122,79,0.05)" : "var(--cream)",
+      border: "1px solid rgba(26,26,26,0.08)",
+      borderLeft: received ? "3px solid var(--green)" : "3px solid rgba(26,26,26,0.2)",
+      borderRadius: 4
+    }}>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.65, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+        {catLabel}
+      </div>
+      <div>
+        <div style={{ fontFamily: "var(--serif)", fontSize: 14 }}>{line.description || "(no description)"}</div>
+        {line.quantity > 1 && (
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.65 }}>
+            {fmtMoney(line.amount)} × {line.quantity}
+          </div>
+        )}
+      </div>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700, color: "var(--green)" }}>
+        {fmtMoney(lineTotal)}
+      </div>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.65 }}>
+        {received ? "received " + line.receivedDate : "pending"}
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        {!received && (
+          <button className="btn-sm" onClick={markReceived} disabled={busy} title="Mark this revenue as received today">
+            Received
+          </button>
+        )}
+        <button className="btn-sm ghost" onClick={remove} disabled={busy} title="Remove this line">×</button>
+      </div>
+    </div>
+  );
+}
+
+function RevenueLineAddModal({ tournamentId, onClose, onAdded }) {
+  const [form, setForm] = useState({
+    category: "entry-fee", description: "", amount: 0, quantity: 1,
+    paymentMethod: "Cash", receivedDate: "", notes: ""
+  });
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (isNaN(parseFloat(form.amount))) return showToast("Amount required", "error");
+    setBusy(true);
+    const r = await api("adminAddTournamentRevenue", {
+      tournamentId: tournamentId,
+      ...form
+    });
+    setBusy(false);
+    if (r.ok) onAdded();
+    else showToast(r.error || "Failed", "error");
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540 }}>
+        <div className="modal-head">
+          <div><h3>Add revenue line</h3></div>
+          <button onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div className="modal-body">
+          <div className="field">
+            <div className="field-label">Category</div>
+            <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+              {REVENUE_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <div className="field-label">Description</div>
+            <input
+              type="text" value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder="e.g. Entry fees · 24 doubles teams"
+            />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="field">
+              <div className="field-label">Amount per unit ($)</div>
+              <input
+                type="number" step="0.01" min="0"
+                value={form.amount}
+                onChange={(e) => setForm({ ...form, amount: parseFloat(e.target.value) || 0 })}
+              />
+            </div>
+            <div className="field">
+              <div className="field-label">Quantity</div>
+              <input
+                type="number" min="1" step="1"
+                value={form.quantity}
+                onChange={(e) => setForm({ ...form, quantity: parseInt(e.target.value) || 1 })}
+              />
+            </div>
+          </div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.6, marginTop: -8, marginBottom: 12 }}>
+            Line total: {fmtMoney((parseFloat(form.amount) || 0) * (parseInt(form.quantity) || 1))}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="field">
+              <div className="field-label">Payment method</div>
+              <select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
+                <option>Cash</option><option>ABA</option><option>Wing</option><option>Pending</option>
+              </select>
+            </div>
+            <div className="field">
+              <div className="field-label">Received date <span style={{ opacity: 0.5, fontSize: 10 }}>· blank = accrued</span></div>
+              <input type="date" value={form.receivedDate} onChange={(e) => setForm({ ...form, receivedDate: e.target.value })} />
+            </div>
+          </div>
+          <div className="field">
+            <div className="field-label">Notes</div>
+            <input type="text" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          </div>
+        </div>
+        <div className="modal-foot">
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={submit} disabled={busy}>{busy ? "Adding…" : "Add line"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TournamentExpenseTab({ t, onChanged }) {
+  const [showAdd, setShowAdd] = useState(false);
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.7 }}>
+          {t.expenseLines.length} line{t.expenseLines.length === 1 ? "" : "s"} · Total {fmtMoney(t.totalExpense)}
+        </div>
+        <button className="btn-sm" onClick={() => setShowAdd(true)}>+ Add expense line</button>
+      </div>
+      {t.expenseLines.length === 0 ? (
+        <EmptyState
+          icon="−"
+          title="No expense lines yet"
+          hint="Track prize payouts, referees, catering, trophies — anything that costs you for this tournament."
+        />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {t.expenseLines.map(line => (
+            <ExpenseLineRow key={line.lineId} line={line} onChanged={onChanged} />
+          ))}
+        </div>
+      )}
+      {showAdd && (
+        <ExpenseLineAddModal
+          tournamentId={t.id}
+          onClose={() => setShowAdd(false)}
+          onAdded={() => { setShowAdd(false); onChanged(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ExpenseLineRow({ line, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  const paid = !!line.paidDate;
+  const catLabel = (EXPENSE_CATEGORIES.find(c => c.value === line.category) || {}).label || line.category;
+
+  async function remove() {
+    if (!await confirmAction({
+      title: "Delete this expense line?",
+      message: line.description + " · " + fmtMoney(line.amount),
+      destructive: true,
+      confirmLabel: "Delete"
+    })) return;
+    setBusy(true);
+    const r = await api("adminDeleteTournamentExpense", { lineId: line.lineId });
+    setBusy(false);
+    if (r.ok) { showToast("Removed", "success"); onChanged(); }
+    else showToast(r.error || "Failed", "error");
+  }
+  async function markPaid() {
+    setBusy(true);
+    const r = await api("adminUpdateTournamentExpense", {
+      lineId: line.lineId,
+      paidDate: todayISO()
+    });
+    setBusy(false);
+    if (r.ok) { showToast("Marked paid", "success"); onChanged(); }
+    else showToast(r.error || "Failed", "error");
+  }
+
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "auto 1fr auto auto auto",
+      gap: 12, alignItems: "center",
+      padding: "10px 12px",
+      background: paid ? "rgba(217,120,92,0.05)" : "var(--cream)",
+      border: "1px solid rgba(26,26,26,0.08)",
+      borderLeft: paid ? "3px solid var(--clay)" : "3px solid rgba(26,26,26,0.2)",
+      borderRadius: 4
+    }}>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.65, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+        {catLabel}
+      </div>
+      <div style={{ fontFamily: "var(--serif)", fontSize: 14 }}>{line.description || "(no description)"}</div>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700, color: "var(--clay)" }}>
+        {fmtMoney(line.amount)}
+      </div>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.65 }}>
+        {paid ? "paid " + line.paidDate : "accrued"}
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        {!paid && (
+          <button className="btn-sm" onClick={markPaid} disabled={busy}>Paid</button>
+        )}
+        <button className="btn-sm ghost" onClick={remove} disabled={busy}>×</button>
+      </div>
+    </div>
+  );
+}
+
+function ExpenseLineAddModal({ tournamentId, onClose, onAdded }) {
+  const [form, setForm] = useState({
+    category: "prize-pool", description: "", amount: 0,
+    paymentMethod: "Cash", paidDate: "", notes: ""
+  });
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (isNaN(parseFloat(form.amount))) return showToast("Amount required", "error");
+    setBusy(true);
+    const r = await api("adminAddTournamentExpense", { tournamentId: tournamentId, ...form });
+    setBusy(false);
+    if (r.ok) onAdded();
+    else showToast(r.error || "Failed", "error");
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540 }}>
+        <div className="modal-head">
+          <div><h3>Add expense line</h3></div>
+          <button onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div className="modal-body">
+          <div className="field">
+            <div className="field-label">Category</div>
+            <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+              {EXPENSE_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <div className="field-label">Description</div>
+            <input type="text" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </div>
+          <div className="field">
+            <div className="field-label">Amount ($)</div>
+            <input
+              type="number" step="0.01" min="0"
+              value={form.amount}
+              onChange={(e) => setForm({ ...form, amount: parseFloat(e.target.value) || 0 })}
+            />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="field">
+              <div className="field-label">Payment method</div>
+              <select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
+                <option>Cash</option><option>ABA</option><option>Wing</option><option>Pending</option>
+              </select>
+            </div>
+            <div className="field">
+              <div className="field-label">Paid date <span style={{ opacity: 0.5, fontSize: 10 }}>· blank = accrued</span></div>
+              <input type="date" value={form.paidDate} onChange={(e) => setForm({ ...form, paidDate: e.target.value })} />
+            </div>
+          </div>
+        </div>
+        <div className="modal-foot">
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={submit} disabled={busy}>{busy ? "Adding…" : "Add line"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TournamentRosterTab({ t, onChanged }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [showBroadcast, setShowBroadcast] = useState(false);
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.7 }}>
+          {t.players.length} player{t.players.length === 1 ? "" : "s"}{t.playerCap > 0 ? " · " + (t.playerCap - t.players.length) + " spot(s) left" : ""} · {t.paidPlayers} paid
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {t.players.length > 0 && (
+            <button className="btn-sm" onClick={() => setShowBroadcast(true)}>📣 SMS all</button>
+          )}
+          <button className="btn-sm" onClick={() => setShowAdd(true)}>+ Add player</button>
+        </div>
+      </div>
+
+      {t.players.length === 0 ? (
+        <EmptyState
+          icon="👥"
+          title="Roster is empty"
+          hint="Add players as they sign up. You can mark them paid, set divisions/seeds, and SMS them all at once."
+        />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {t.players.map(p => (
+            <PlayerRow key={p.playerId} player={p} onChanged={onChanged} entryFee={t.entryFee} />
+          ))}
+        </div>
+      )}
+
+      {showAdd && (
+        <PlayerAddModal
+          tournamentId={t.id}
+          defaultFee={t.entryFee}
+          onClose={() => setShowAdd(false)}
+          onAdded={() => { setShowAdd(false); onChanged(); }}
+        />
+      )}
+      {showBroadcast && (
+        <BroadcastSmsModal
+          tournamentId={t.id}
+          tournamentName={t.name}
+          onClose={() => setShowBroadcast(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function PlayerRow({ player, onChanged, entryFee }) {
+  const [busy, setBusy] = useState(false);
+  async function togglePaid() {
+    setBusy(true);
+    const r = await api("adminUpdateTournamentPlayer", {
+      playerId: player.playerId,
+      paid: !player.paid,
+      amountPaid: !player.paid ? (entryFee || 0) : 0,
+      paymentMethod: !player.paid ? "Cash" : ""
+    });
+    setBusy(false);
+    if (r.ok) onChanged();
+    else showToast(r.error || "Failed", "error");
+  }
+  async function remove() {
+    if (!await confirmAction({
+      title: "Remove " + player.name + "?",
+      message: "They'll be unregistered from this tournament.",
+      destructive: true,
+      confirmLabel: "Remove"
+    })) return;
+    setBusy(true);
+    const r = await api("adminRemoveTournamentPlayer", { playerId: player.playerId });
+    setBusy(false);
+    if (r.ok) { showToast("Removed", "success"); onChanged(); }
+    else showToast(r.error || "Failed", "error");
+  }
+  return (
+    <div style={{
+      display: "grid", gridTemplateColumns: "1fr auto auto auto auto",
+      gap: 10, alignItems: "center",
+      padding: "8px 12px",
+      background: player.paid ? "rgba(61,122,79,0.05)" : "var(--cream)",
+      border: "1px solid rgba(26,26,26,0.06)",
+      borderLeft: player.paid ? "3px solid var(--green)" : "3px solid rgba(26,26,26,0.15)",
+      borderRadius: 4, fontSize: 13
+    }}>
+      <div>
+        <div style={{ fontFamily: "var(--serif)", fontSize: 14 }}>
+          {player.name}
+          {player.partnerName && <span style={{ opacity: 0.7 }}> &amp; {player.partnerName}</span>}
+        </div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>
+          {player.phone || "(no phone)"}
+          {player.division && " · " + player.division}
+          {player.skillLevel && " · " + player.skillLevel}
+        </div>
+      </div>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.7 }}>
+        {player.paid ? "Paid " + fmtMoney(player.amountPaid) : "Unpaid"}
+      </div>
+      <button className="btn-sm" onClick={togglePaid} disabled={busy}>
+        {player.paid ? "Unpay" : "Mark paid"}
+      </button>
+      <button className="btn-sm ghost" onClick={remove} disabled={busy}>×</button>
+    </div>
+  );
+}
+
+function PlayerAddModal({ tournamentId, defaultFee, onClose, onAdded }) {
+  const [form, setForm] = useState({
+    name: "", phone: "", partnerName: "", skillLevel: "", division: "",
+    paid: false, amountPaid: defaultFee || 0, paymentMethod: "Cash"
+  });
+  const [busy, setBusy] = useState(false);
+  async function submit() {
+    if (!form.name.trim()) return showToast("Name required", "error");
+    setBusy(true);
+    const r = await api("adminAddTournamentPlayer", { tournamentId: tournamentId, ...form });
+    setBusy(false);
+    if (r.ok) onAdded();
+    else showToast(r.error || "Failed", "error");
+  }
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540 }}>
+        <div className="modal-head">
+          <div><h3>Add player</h3></div>
+          <button onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div className="modal-body">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="field">
+              <div className="field-label">Name</div>
+              <input type="text" autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            </div>
+            <div className="field">
+              <div className="field-label">Phone</div>
+              <input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+855..." />
+            </div>
+          </div>
+          <div className="field">
+            <div className="field-label">Partner (for doubles)</div>
+            <input type="text" value={form.partnerName} onChange={(e) => setForm({ ...form, partnerName: e.target.value })} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="field">
+              <div className="field-label">Skill level</div>
+              <input type="text" value={form.skillLevel} onChange={(e) => setForm({ ...form, skillLevel: e.target.value })} placeholder="Intermediate / 3.5 DUPR" />
+            </div>
+            <div className="field">
+              <div className="field-label">Division</div>
+              <input type="text" value={form.division} onChange={(e) => setForm({ ...form, division: e.target.value })} placeholder="Open Doubles" />
+            </div>
+          </div>
+          <div className="field">
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={form.paid} onChange={(e) => setForm({ ...form, paid: e.target.checked })} />
+              <span>Already paid</span>
+            </label>
+          </div>
+          {form.paid && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div className="field">
+                <div className="field-label">Amount paid ($)</div>
+                <input type="number" step="0.01" min="0" value={form.amountPaid} onChange={(e) => setForm({ ...form, amountPaid: parseFloat(e.target.value) || 0 })} />
+              </div>
+              <div className="field">
+                <div className="field-label">Payment method</div>
+                <select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
+                  <option>Cash</option><option>ABA</option><option>Wing</option>
+                </select>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn" onClick={submit} disabled={busy}>{busy ? "Adding…" : "Add player"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BroadcastSmsModal({ tournamentId, tournamentName, onClose }) {
+  const [body, setBody] = useState("Hi {name}! Reminder about " + tournamentName + " — see you at The Yard.");
+  const [target, setTarget] = useState("all");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  async function send() {
+    if (!body.trim()) return showToast("Message body required", "error");
+    setBusy(true);
+    const r = await api("adminBroadcastTournamentSms", {
+      tournamentId: tournamentId,
+      body: body,
+      targetGroup: target
+    });
+    setBusy(false);
+    setResult(r);
+    if (r.ok) showToast(r.sent + " sent · " + r.failed + " failed", r.failed > 0 ? "error" : "success");
+    else showToast(r.error || "Failed", "error");
+  }
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+        <div className="modal-head">
+          <div><h3>Broadcast SMS</h3></div>
+          <button onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div className="modal-body">
+          <div className="field">
+            <div className="field-label">Send to</div>
+            <select value={target} onChange={(e) => setTarget(e.target.value)}>
+              <option value="all">All players</option>
+              <option value="paid">Paid players only</option>
+              <option value="unpaid">Unpaid players only</option>
+            </select>
+          </div>
+          <div className="field">
+            <div className="field-label">
+              Message <span style={{ opacity: 0.5, fontSize: 10 }}>· {"{name}"} will be replaced with each player's name</span>
+            </div>
+            <textarea rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6, marginTop: 4 }}>
+              {body.length} chars (SMS is ~160 chars per message)
+            </div>
+          </div>
+          {result && result.ok && (
+            <div style={{
+              padding: 10, marginTop: 8,
+              background: result.failed > 0 ? "rgba(217,120,92,0.08)" : "rgba(61,122,79,0.08)",
+              borderLeft: "3px solid " + (result.failed > 0 ? "var(--clay)" : "var(--green)"),
+              fontFamily: "var(--mono)", fontSize: 11
+            }}>
+              Sent {result.sent} of {result.total} · {result.failed} failed
+            </div>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button className="btn ghost" onClick={onClose}>Close</button>
+          <button className="btn" onClick={send} disabled={busy}>{busy ? "Sending…" : "Send broadcast"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TournamentActionsTab({ t, onChanged, onCancel, onEdit, busy }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <ActionRow
+        title="Edit tournament"
+        description="Change name, dates, courts, fees, or other settings. Changing dates/courts will re-reserve slots."
+        button="Edit"
+        onClick={onEdit}
+        disabled={busy}
+      />
+      {t.bracketUrl && (
+        <ActionRow
+          title="Open external bracket"
+          description={t.bracketUrl}
+          button="Open ↗"
+          onClick={() => window.open(t.bracketUrl, "_blank")}
+        />
+      )}
+      <ActionRow
+        title="Generate round-robin schedule"
+        description="For 4-16 player tournaments. Creates a printable match schedule. Best for in-house casual events."
+        button="Generate"
+        onClick={async () => {
+          const r = await api("adminGenerateRoundRobin", { tournamentId: t.id });
+          if (r.ok) {
+            // Open in new window — let the browser print
+            const win = window.open("", "_blank");
+            if (!win) { showToast("Pop-up blocked", "error"); return; }
+            let html = "<html><head><title>" + t.name + " — Schedule</title>";
+            html += "<style>body{font-family:system-ui;padding:30px;max-width:800px;margin:auto}h1{font-size:24px}h2{font-size:16px;margin-top:24px;border-bottom:1px solid #ccc;padding-bottom:6px}table{border-collapse:collapse;width:100%;margin-top:6px}td,th{padding:6px 10px;border-bottom:1px solid #eee;text-align:left}</style>";
+            html += "</head><body>";
+            html += "<h1>" + t.name + " — Round-Robin Schedule</h1>";
+            html += "<p>" + t.format + " · " + t.players.length + " players · " + r.totalMatches + " total matches</p>";
+            for (const round of r.rounds) {
+              html += "<h2>Round " + round.round + "</h2><table>";
+              html += "<tr><th>Court</th><th>Match</th><th>Score</th></tr>";
+              for (const m of round.matches) {
+                if (m.bye) {
+                  html += "<tr><td>—</td><td><em>" + m.sittingOut.name + " has a bye this round</em></td><td>—</td></tr>";
+                } else {
+                  html += "<tr><td>C" + (m.court || "?") + (m.waitForNext ? " (queue)" : "") + "</td>";
+                  html += "<td>" + m.p1.name + " vs " + m.p2.name + "</td><td>____ — ____</td></tr>";
+                }
+              }
+              html += "</table>";
+            }
+            html += "<p style='margin-top:30px;font-size:11px;color:#888'>Generated by The Yard · " + new Date().toLocaleString() + "</p>";
+            html += "</body></html>";
+            win.document.write(html);
+            win.document.close();
+            setTimeout(() => win.print(), 200);
+          } else {
+            showToast(r.error || "Failed", "error");
+          }
+        }}
+      />
+      {t.status !== "cancelled" && (
+        <ActionRow
+          title="Cancel tournament"
+          description="Frees all reserved court slots. Player roster and financial records are preserved for audit/refund."
+          button="Cancel tournament"
+          danger
+          onClick={onCancel}
+          disabled={busy}
+        />
+      )}
+    </div>
+  );
+}
+
+function ActionRow({ title, description, button, onClick, danger, disabled }) {
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "1fr auto",
+      gap: 18, alignItems: "center",
+      padding: "12px 16px",
+      background: "var(--cream)",
+      border: "1px solid rgba(26,26,26,0.08)",
+      borderRadius: 4
+    }}>
+      <div>
+        <div style={{ fontFamily: "var(--serif)", fontSize: 15, fontWeight: 500 }}>{title}</div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.7, marginTop: 4, lineHeight: 1.5 }}>{description}</div>
+      </div>
+      <button
+        className={"btn-sm" + (danger ? "" : "")}
+        onClick={onClick}
+        disabled={disabled}
+        style={danger ? { background: "var(--clay)", color: "var(--cream)", borderColor: "var(--clay)" } : {}}
+      >
+        {button}
+      </button>
+    </div>
+  );
+}
 
 function ScreenSponsorships() {
   const [data, setData] = useState(null);
@@ -15638,6 +17188,7 @@ function QuickCreateFab({ go, screen }) {
     { id: "coaching",     icon: "★", label: "New coaching session", hint: "Private or group lesson" },
     { id: "pos",          icon: "$", label: "New POS sale",        hint: "Ring up drinks/products" },
     { id: "members",      icon: "★", label: "New member",          hint: "Sign up Founding or Standard" },
+    { id: "tournaments",  icon: "🏆", label: "New tournament",      hint: "Block courts, set fees, track players" },
     { id: "sponsorships", icon: "⬛", label: "New sponsor banner",  hint: "Sell ad space" },
   ];
 
@@ -15928,6 +17479,7 @@ function App() {
     { id: "coaching",  label: "Coaching",  ready: true },
     { id: "customers", label: "Customers", ready: true },
     { id: "finances",  label: "Finances",  ready: true },
+    { id: "tournaments", label: "Tournaments", ready: true },
     { id: "sponsorships", label: "Sponsorships", ready: true },
     { id: "sms",       label: "SMS Log",   ready: true },
     { id: "settings",  label: "Settings",  ready: true }
@@ -16026,6 +17578,7 @@ function App() {
     case "customers": body = <ScreenCustomers />; break;
     case "finances":  body = <ScreenFinances />; break;
     case "sponsorships": body = <ScreenSponsorships />; break;
+    case "tournaments": body = <ScreenTournaments />; break;
     case "sms":       body = <ScreenSmsLog />; break;
     default:          body = <ScreenDashboard />;
   }
