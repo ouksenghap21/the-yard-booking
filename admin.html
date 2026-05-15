@@ -668,10 +668,12 @@ button { font-family: inherit; cursor: pointer; }
 .booking-block.type-booking  { background: var(--green); color: var(--cream); border-color: var(--green); }
 .booking-block.type-coaching { background: var(--wood); color: var(--cream); border-color: var(--wood); }
 .booking-block.type-walkin   { background: var(--peach,#D9785C); color: var(--cream); border-color: var(--peach,#D9785C); }
+.booking-block.type-openplay { background: #5B6BA8; color: var(--cream); border-color: #5B6BA8; }
 
 /* Type icon prefix in the name */
 .booking-block.type-coaching .name::before { content: "★ "; opacity: 0.85; }
 .booking-block.type-walkin   .name::before { content: "◉ "; opacity: 0.85; }
+.booking-block.type-openplay .name::before { content: "◎ "; opacity: 0.85; }
 
 /* STATE modifiers — applied via a ::before overlay so the text stays
    full-opacity and remains readable on small blocks. The block itself
@@ -4080,6 +4082,7 @@ const _PERSIST_ENDPOINTS = new Set([
   "adminGetSponsorshipSettings",
   "adminGetPricingRules",
   "adminListTournaments",
+  "adminListOpenPlaySessions",
   "tabListOpen",
   "adminListWalkInBlocks"
 ]);
@@ -4964,6 +4967,64 @@ function BookingsPageSkeleton() {
   );
 }
 
+/* WeekViewSkeleton — 7 stacked day cards with placeholder timeline rows.
+ * Mirrors the real WeekView layout so the transition to loaded is seamless. */
+function WeekViewSkeleton() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {[0, 1, 2, 3, 4, 5, 6].map(i => (
+        <div key={i} style={{
+          border: "1px solid var(--concrete)",
+          borderRadius: 6,
+          padding: 12,
+          background: "var(--cream)"
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+            <Skeleton w={120} h={16} />
+            <Skeleton w={80} h={12} />
+          </div>
+          <div style={{ display: "flex", gap: 4 }}>
+            {[0, 1, 2, 3, 4, 5, 6, 7].map(j => (
+              <Skeleton key={j} w={50 + (j * 7) % 40} h={24} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* MonthViewSkeleton — 5-week calendar grid of placeholder cells. */
+function MonthViewSkeleton() {
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "repeat(7, 1fr)",
+      gap: 4,
+      padding: 8
+    }}>
+      {Array.from({ length: 35 }).map((_, i) => (
+        <div key={i} style={{
+          aspectRatio: "1 / 1",
+          border: "1px solid var(--concrete)",
+          borderRadius: 4,
+          padding: 8,
+          background: "var(--cream)",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between"
+        }}>
+          <Skeleton w={20} h={11} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <Skeleton w={40} h={9} />
+            <Skeleton w={28} h={8} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* EmptyState — pair every empty result with a clear next action.
  * Replaces the bare "No X" text that left users wondering what to do.
  *   icon:     decorative emoji/symbol shown big
@@ -5170,9 +5231,10 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
         .split(",").map(s => parseInt(s.trim())).filter(n => n >= 1 && n <= COURTS_COUNT);
       const isCoaching = b.entryType === "coaching";
       const isWalkIn = b.entryType === "walkin";
+      const isOpenPlay = b.entryType === "openplay";
 
       // Determine the TYPE (color axis) and STATE (texture/opacity axis)
-      // Type: booking | coaching | walkin
+      // Type: booking | coaching | walkin | openplay
       // State: awaiting | at_risk | paid | no_show_freed | no_show_kept | completed
       let type, state;
       if (isCoaching) {
@@ -5187,6 +5249,14 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
         const rev = b.total || 0;
         const expected = count * (b.rate || 0);
         state = count === 0 ? "awaiting" : (rev >= expected && expected > 0 ? "paid" : "awaiting");
+      } else if (isOpenPlay) {
+        type = "openplay";
+        const cap = b.playerCap || 0;
+        const count = b.playerCount || 0;
+        const price = b.price || 0;
+        const collected = b.total || 0;
+        const expected = count * price;
+        state = count === 0 ? "awaiting" : (expected > 0 && collected >= expected ? "paid" : "awaiting");
       } else {
         type = "booking";
         state = derived;
@@ -5201,18 +5271,22 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
             ? "Coach: " + (b.coachName || b.name || "—")
             : isWalkIn
             ? "Open Play · " + (b.playerCount || 0) + "/" + (b.playerCap || 15)
+            : isOpenPlay
+            ? (b.title || "Drop-in") + " · " + (b.playerCount || 0) + (b.playerCap ? "/" + b.playerCap : "")
             : (b.name || "—"),
           subtext: isCoaching
             ? (b.studentName ? b.studentName : (b.sessionType || ""))
             : isWalkIn
             ? "$" + (b.rate || 0) + "/player"
+            : isOpenPlay
+            ? (b.skillLevel || "All") + " · $" + (b.price || 0) + "/player"
             : b.time + "–" + b.timeEnd,
           time: b.time + "–" + b.timeEnd,
           total: b.total || 0,
           type: type,
           state: state,
           // legacy `status` kept for any old CSS that still references it
-          status: isCoaching ? "coaching" : isWalkIn ? "walkin" : derived,
+          status: isCoaching ? "coaching" : isWalkIn ? "walkin" : isOpenPlay ? "openplay" : derived,
           isMember: !!(b.memberTier && b.memberTier.length > 0),
           memberTier: String(b.memberTier || "").toLowerCase(),  // "founding" | "standard" | ""
           isCoaching: isCoaching,
@@ -5418,6 +5492,7 @@ function ScreenDashboard() {
   const [detailBooking, setDetailBooking] = useState(null);
   const [walkInBlock, setWalkInBlock] = useState(null);
   const [coachingInfo, setCoachingInfo] = useState(null);
+  const [openPlayDetailId, setOpenPlayDetailId] = useState(null);
 
   async function handleBlockClick(entry) {
     if (!entry) return;
@@ -5447,6 +5522,8 @@ function ScreenDashboard() {
       }
     } else if (entry.entryType === "coaching") {
       setCoachingInfo(entry);
+    } else if (entry.entryType === "openplay") {
+      setOpenPlayDetailId(entry.sessionId || entry.bookingId);
     } else {
       setDetailBooking(entry);
     }
@@ -5724,6 +5801,13 @@ function ScreenDashboard() {
         <CoachingInfoModal
           session={coachingInfo}
           onClose={() => setCoachingInfo(null)}
+        />
+      )}
+      {openPlayDetailId && (
+        <OpenPlayDetailModal
+          sessionId={openPlayDetailId}
+          onClose={() => setOpenPlayDetailId(null)}
+          onChanged={() => { invalidateApiCache("adminListOpenPlaySessions"); invalidateApiCache("adminListTimelineEntries"); refresh(); }}
         />
       )}
     </div>
@@ -6394,6 +6478,7 @@ function ScreenBookings() {
   const [detailBooking, setDetailBooking] = useState(null);
   const [walkInBlock, setWalkInBlock] = useState(null); // walk-in block modal
   const [coachingInfo, setCoachingInfo] = useState(null); // simple coaching info modal
+  const [openPlayDetailId, setOpenPlayDetailId] = useState(null); // open play session detail
   const [addBookingFlow, setAddBookingFlow] = useState(null); // null | "chooser" | "court" | "walkin"
 
   // FAB integration
@@ -6436,6 +6521,8 @@ function ScreenBookings() {
       }
     } else if (entry.entryType === "coaching") {
       setCoachingInfo(entry);
+    } else if (entry.entryType === "openplay") {
+      setOpenPlayDetailId(entry.sessionId || entry.bookingId);
     } else {
       setDetailBooking(entry);
     }
@@ -6523,6 +6610,12 @@ function ScreenBookings() {
   const dayWalkIns = useMemo(() => {
     if (!entries) return [];
     return entries.filter(e => e.date === date && e.entryType === "walkin");
+  }, [entries, date]);
+
+  // Open Play sessions on day (separate from guest bookings)
+  const dayOpenPlay = useMemo(() => {
+    if (!entries) return [];
+    return entries.filter(e => e.date === date && e.entryType === "openplay");
   }, [entries, date]);
 
   // Status counts (guest bookings only)
@@ -6769,6 +6862,62 @@ function ScreenBookings() {
                 </div>
               )}
 
+              {/* Open Play / Drop-in sessions for the day */}
+              {dayOpenPlay.length > 0 && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.18em", textTransform: "uppercase", fontWeight: 700, color: "var(--green,#3D7A4F)", marginBottom: 8 }}>
+                    ◎ Open Play sessions · {dayOpenPlay.length}
+                  </div>
+                  {dayOpenPlay.map(op => {
+                    const cap = op.playerCap || 0;
+                    const count = op.playerCount || 0;
+                    const full = cap > 0 && count >= cap;
+                    const opIsPast = (() => {
+                      if (op.date < todayISO()) return true;
+                      if (op.date === todayISO() && op.timeEnd) {
+                        const now = new Date();
+                        const [h, m] = String(op.timeEnd).split(":").map(Number);
+                        const endMins = (h || 0) * 60 + (m || 0);
+                        const nowMins = now.getHours() * 60 + now.getMinutes();
+                        return nowMins > endMins;
+                      }
+                      return false;
+                    })();
+                    return (
+                      <div
+                        key={op.bookingId}
+                        className={"booking-row" + (opIsPast ? " is-past" : "")}
+                        style={{ borderLeft: "5px solid var(--green,#3D7A4F)", background: opIsPast ? undefined : "rgba(61,122,79,0.05)", cursor: "pointer" }}
+                        onClick={() => setOpenPlayDetailId(op.sessionId || op.bookingId)}
+                      >
+                        <div className="when">{op.time}<span className="endtime">→ {op.timeEnd}</span></div>
+                        <div className="who">
+                          <div className="name">
+                            ◎ {op.title || "Open Play"} · Court{op.courtNumbers && op.courtNumbers.indexOf(",") !== -1 ? "s" : ""} {op.courtNumbers}
+                            <span style={{
+                              marginLeft: 8, fontFamily: "var(--mono)", fontSize: 9,
+                              letterSpacing: "0.16em", textTransform: "uppercase",
+                              background: full ? "var(--clay)" : "var(--green,#3D7A4F)", color: "var(--cream)",
+                              padding: "2px 7px", borderRadius: 3
+                            }}>
+                              {count}{cap > 0 ? "/" + cap : ""} {full ? "· FULL" : (count === 1 ? "player" : "players")}
+                            </span>
+                          </div>
+                          <div className="meta">{op.durationHours}h · {op.skillLevel || "All"} · ${(op.price || 0).toFixed(2)}/player</div>
+                          <div className="id">{op.bookingId}</div>
+                        </div>
+                        <div className="actions">
+                          <div className="total" style={{ color: "var(--green,#3D7A4F)" }}>${(op.total || 0).toFixed(2)}</div>
+                          <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.12em", opacity: 0.5, marginTop: 4 }}>
+                            click to manage
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               {/* Guest bookings */}
               {dayBookings.length === 0 ? (
                 <div className="empty">
@@ -6789,9 +6938,7 @@ function ScreenBookings() {
       {/* WEEK VIEW */}
       {view === "week" && (
         entries === null ? (
-          <div style={{ padding: 40, display: "flex", justifyContent: "center" }}>
-            <BouncingBall size="md" />
-          </div>
+          <WeekViewSkeleton />
         ) : (
           <WeekView entries={entries} days={range.all || []} onDayClick={(iso) => { setView("day"); setDate(iso); }} onBlockClick={handleBlockClick} />
         )
@@ -6800,9 +6947,7 @@ function ScreenBookings() {
       {/* MONTH VIEW */}
       {view === "month" && (
         entries === null ? (
-          <div style={{ padding: 40, display: "flex", justifyContent: "center" }}>
-            <BouncingBall size="md" />
-          </div>
+          <MonthViewSkeleton />
         ) : (
           <MonthView entries={entries} centerDate={date} onDayClick={(iso) => { setView("day"); setDate(iso); }} />
         )
@@ -6828,6 +6973,14 @@ function ScreenBookings() {
         <CoachingInfoModal
           session={coachingInfo}
           onClose={() => setCoachingInfo(null)}
+        />
+      )}
+
+      {openPlayDetailId && (
+        <OpenPlayDetailModal
+          sessionId={openPlayDetailId}
+          onClose={() => setOpenPlayDetailId(null)}
+          onChanged={() => { invalidateApiCache("adminListOpenPlaySessions"); invalidateApiCache("adminListTimelineEntries"); load(); }}
         />
       )}
 
@@ -6876,17 +7029,21 @@ function WeekView({ entries, days, onDayClick, onBlockClick }) {
       const guestEntries = dayEntries.filter(e => e.entryType === "booking" && e.derivedStatus !== "cancelled");
       const coachEntries = dayEntries.filter(e => e.entryType === "coaching");
       const walkinEntries = dayEntries.filter(e => e.entryType === "walkin");
+      const openplayEntries = dayEntries.filter(e => e.entryType === "openplay");
       const courtRev = guestEntries.reduce((s, e) => s + (e.total || 0), 0);
       const coachingRev = coachEntries.reduce((s, e) => s + (e.facilityEarns || 0), 0);
       const walkinRev = walkinEntries.reduce((s, e) => s + (e.total || 0), 0);
+      const openplayRev = openplayEntries.reduce((s, e) => s + (e.total || 0), 0);
       map[iso] = {
         guestCount: guestEntries.length,
         coachCount: coachEntries.length,
         walkinCount: walkinEntries.length,
+        openplayCount: openplayEntries.length,
         courtRev: courtRev,
         coachingRev: coachingRev,
         walkinRev: walkinRev,
-        totalRev: courtRev + coachingRev + walkinRev
+        openplayRev: openplayRev,
+        totalRev: courtRev + coachingRev + walkinRev + openplayRev
       };
     }
     return map;
@@ -6900,12 +7057,13 @@ function WeekView({ entries, days, onDayClick, onBlockClick }) {
         const todayStr = todayISO();
         const isToday = iso === todayStr;
         const isPastDay = iso < todayStr;
-        const stats = dayStats[iso] || { guestCount: 0, coachCount: 0, walkinCount: 0, totalRev: 0, courtRev: 0, coachingRev: 0, walkinRev: 0 };
+        const stats = dayStats[iso] || { guestCount: 0, coachCount: 0, walkinCount: 0, openplayCount: 0, totalRev: 0, courtRev: 0, coachingRev: 0, walkinRev: 0, openplayRev: 0 };
 
         const counts = [];
         if (stats.guestCount > 0) counts.push(stats.guestCount + " booking" + (stats.guestCount === 1 ? "" : "s"));
         if (stats.coachCount > 0) counts.push(stats.coachCount + " ★");
         if (stats.walkinCount > 0) counts.push(stats.walkinCount + " ◉");
+        if (stats.openplayCount > 0) counts.push(stats.openplayCount + " ◎");
         const countText = counts.length > 0 ? counts.join(" · ") : "No activity";
 
         return (
@@ -6926,6 +7084,7 @@ function WeekView({ entries, days, onDayClick, onBlockClick }) {
                     {stats.courtRev > 0 && <span>${stats.courtRev.toFixed(0)} court</span>}
                     {stats.coachingRev > 0 && <span style={{ marginLeft: 6, color: "var(--wood-2,#C9A24A)" }}>★ ${stats.coachingRev.toFixed(0)}</span>}
                     {stats.walkinRev > 0 && <span style={{ marginLeft: 6, color: "var(--peach,#D9785C)" }}>◉ ${stats.walkinRev.toFixed(0)}</span>}
+                    {stats.openplayRev > 0 && <span style={{ marginLeft: 6, color: "var(--green,#3D7A4F)" }}>◎ ${stats.openplayRev.toFixed(0)}</span>}
                   </span>
                 )}
               </div>
@@ -6973,7 +7132,7 @@ function MonthView({ entries, centerDate, onDayClick }) {
   const byDate = useMemo(() => {
     const map = {};
     for (const e of entries) {
-      if (!map[e.date]) map[e.date] = { bookings: 0, coaching: 0, walkin: 0, revenue: 0, slots: 0, entries: [] };
+      if (!map[e.date]) map[e.date] = { bookings: 0, coaching: 0, walkin: 0, openplay: 0, revenue: 0, slots: 0, entries: [] };
       if (e.entryType === "booking" && e.derivedStatus !== "cancelled") {
         map[e.date].bookings++;
         map[e.date].revenue += (e.total || 0);
@@ -6989,6 +7148,14 @@ function MonthView({ entries, centerDate, onDayClick }) {
       } else if (e.entryType === "walkin") {
         map[e.date].walkin++;
         map[e.date].revenue += (e.total || 0);
+        const courtCount = String(e.courtNumbers || "").split(",").filter(Boolean).length;
+        map[e.date].slots += (e.slots || 0) * courtCount;
+        map[e.date].entries.push(e);
+      } else if (e.entryType === "openplay") {
+        map[e.date].openplay++;
+        map[e.date].revenue += (e.total || 0);
+        // Open Play sessions occupy MULTIPLE courts for their full duration —
+        // slot capacity must count slots × courts, like bookings.
         const courtCount = String(e.courtNumbers || "").split(",").filter(Boolean).length;
         map[e.date].slots += (e.slots || 0) * courtCount;
         map[e.date].entries.push(e);
@@ -7033,13 +7200,13 @@ function MonthView({ entries, centerDate, onDayClick }) {
         {cells.map((day, i) => {
           if (day === null) return <div key={"empty-" + i} className="month-cell-v2 empty" />;
           const iso = y + "-" + String(m + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0");
-          const stats = byDate[iso] || { bookings: 0, coaching: 0, revenue: 0, slots: 0, entries: [] };
+          const stats = byDate[iso] || { bookings: 0, coaching: 0, walkin: 0, openplay: 0, revenue: 0, slots: 0, entries: [] };
           const dt = new Date(y, m, day);
           const isWknd = dt.getDay() === 0 || dt.getDay() === 6;
           const isTodayCell = iso === today;
           const isPast = iso < today;
           const utilPct = Math.min(100, Math.round((stats.slots / DAILY_CAPACITY) * 100));
-          const totalEvents = stats.bookings + stats.coaching;
+          const totalEvents = stats.bookings + stats.coaching + stats.walkin + stats.openplay;
 
           // Saturation: 0..1 scaling based on revenue
           const sat = Math.min(1, stats.revenue / maxRev);
@@ -7088,6 +7255,9 @@ function MonthView({ entries, centerDate, onDayClick }) {
                   {stats.walkin > 0 && (
                     <span className="dot-walkin" title={stats.walkin + " walk-in"} style={{ color: "var(--peach,#D9785C)" }}>◉ {stats.walkin}</span>
                   )}
+                  {stats.openplay > 0 && (
+                    <span className="dot-openplay" title={stats.openplay + " open play"} style={{ color: "var(--green,#3D7A4F)" }}>◎ {stats.openplay}</span>
+                  )}
                   <div className="util-mini-v2">
                     <div className="fill" style={{ width: utilPct + "%" }} />
                   </div>
@@ -7116,13 +7286,21 @@ function MonthView({ entries, centerDate, onDayClick }) {
               {hoverStats.bookings > 0 && <span>{hoverStats.bookings} guest</span>}
               {hoverStats.coaching > 0 && <span> · {hoverStats.coaching} ★</span>}
               {hoverStats.walkin > 0 && <span> · {hoverStats.walkin} ◉</span>}
+              {hoverStats.openplay > 0 && <span> · {hoverStats.openplay} ◎</span>}
               <span> · ${hoverStats.revenue.toFixed(0)} revenue</span>
             </div>
           </div>
           <div className="list">
             {hoverStats.entries.slice(0, 6).map((e, idx) => {
-              const icon = e.entryType === "coaching" ? "★ " : e.entryType === "walkin" ? "◉ " : "";
-              const rowClass = "row" + (e.entryType === "coaching" ? " is-coach" : e.entryType === "walkin" ? " is-walkin" : "");
+              const icon = e.entryType === "coaching" ? "★ "
+                : e.entryType === "walkin" ? "◉ "
+                : e.entryType === "openplay" ? "◎ "
+                : "";
+              const rowClass = "row"
+                + (e.entryType === "coaching" ? " is-coach"
+                : e.entryType === "walkin" ? " is-walkin"
+                : e.entryType === "openplay" ? " is-openplay"
+                : "");
               return (
                 <div key={idx} className={rowClass}>
                   <span className="t">{e.time}</span>
@@ -15235,6 +15413,20 @@ function ScreenOpenPlay() {
     return s.when === filter;
   });
 
+  // Top-level stats: today's load, this week's bookings, total $ collected
+  const todaySessions = sessions.filter(s => s.when === "today");
+  const upcomingThisWeek = sessions.filter(s => {
+    if (s.when !== "upcoming" && s.when !== "today") return false;
+    const d = new Date(s.date + "T12:00:00");
+    const today = new Date();
+    const sevenDays = new Date();
+    sevenDays.setDate(today.getDate() + 7);
+    return d <= sevenDays;
+  });
+  const todayPlayers = todaySessions.reduce((sum, s) => sum + (s.registeredCount || 0), 0);
+  const todayExpected = todaySessions.reduce((sum, s) => sum + (s.expectedRevenue || 0), 0);
+  const todayCollected = todaySessions.reduce((sum, s) => sum + (s.collectedRevenue || 0), 0);
+
   return (
     <div className="main">
       <div className="page-header">
@@ -15250,9 +15442,60 @@ function ScreenOpenPlay() {
         </div>
       </div>
 
+      {/* TOP-LEVEL STAT TILES — at-a-glance pulse of the operation */}
+      {sessions.length > 0 && (
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+          gap: 12,
+          marginBottom: 22
+        }}>
+          <div className="stat-card" style={{ borderLeft: "4px solid var(--green)" }}>
+            <div className="stat-label">Today</div>
+            <div className="stat-value">{todaySessions.length}</div>
+            <div className="stat-sub">
+              {todaySessions.length === 1 ? "session" : "sessions"}
+              {todayPlayers > 0 && " · " + todayPlayers + " players"}
+            </div>
+          </div>
+          <div className="stat-card" style={{ borderLeft: "4px solid var(--peach,#D9785C)" }}>
+            <div className="stat-label">This week (upcoming)</div>
+            <div className="stat-value">{upcomingThisWeek.length}</div>
+            <div className="stat-sub">scheduled</div>
+          </div>
+          <div className="stat-card" style={{ borderLeft: "4px solid var(--wood)" }}>
+            <div className="stat-label">Today's revenue</div>
+            <div className="stat-value">{fmtMoney(todayCollected)}</div>
+            <div className="stat-sub">
+              of {fmtMoney(todayExpected)} expected
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Explainer banner — tells admin what each per-player action means */}
+      <div style={{
+        padding: "10px 14px",
+        background: "rgba(61,122,79,0.07)",
+        border: "1px solid rgba(61,122,79,0.18)",
+        borderRadius: 4,
+        marginBottom: 18,
+        fontSize: 12,
+        fontFamily: "var(--mono)",
+        opacity: 0.85,
+        lineHeight: 1.6
+      }}>
+        <div style={{ fontWeight: 700, marginBottom: 4, letterSpacing: "0.05em", textTransform: "uppercase", fontSize: 10, opacity: 0.7 }}>How it works</div>
+        <span>◎ <b>Sign-up</b> reserves a spot (no payment).&nbsp;</span>
+        <span>✓ <b>Check-in</b> marks the player as physically present when they arrive.&nbsp;</span>
+        <span>💵 <b>Paid</b> records the $ collected at the counter.&nbsp;</span>
+        <span>Cap restriction by <b>DUPR</b> can be set per session — players self-report their rating on signup.</span>
+      </div>
+
       <div style={{
         display: "flex", gap: 8, marginBottom: 18,
-        borderBottom: "1px solid var(--concrete)", paddingBottom: 14
+        borderBottom: "1px solid var(--concrete)", paddingBottom: 14,
+        flexWrap: "wrap"
       }}>
         {[
           ["upcoming", "Upcoming", counts.upcoming],
@@ -15272,11 +15515,11 @@ function ScreenOpenPlay() {
 
       {visible.length === 0 ? (
         <EmptyState
-          icon="◉"
+          icon="◎"
           title={filter === "upcoming" ? "No upcoming sessions" : "No sessions"}
           hint={
             filter === "upcoming"
-              ? "Create a session to fill off-peak hours. Players sign up directly from the booking site."
+              ? "Create a drop-in session to fill off-peak hours. Players sign up directly from the booking site with their name, phone, and skill level."
               : ""
           }
           action={filter === "upcoming" ? { label: "+ Create first session", onClick: () => setShowCreate(true), primary: true } : null}
@@ -15306,16 +15549,30 @@ function ScreenOpenPlay() {
   );
 }
 
-/* OpenPlayRow — a single session in the admin list. Shows date/time, title,
-   registration progress (5/8), revenue collected vs expected, status pill. */
+/* OpenPlayRow — a single session in the admin list.
+   Visual hierarchy: date+time anchor / title+meta / progress bar / revenue / status pill.
+   Clicking opens the detail modal. */
 function OpenPlayRow({ session, onOpen }) {
   const cap = session.playerCap || 0;
   const filled = session.registeredCount || 0;
+  const paid = session.paidCount || 0;
   const pct = cap > 0 ? Math.min(100, (filled / cap) * 100) : 0;
+  const paidPct = cap > 0 ? Math.min(100, (paid / cap) * 100) : (filled > 0 ? (paid / filled) * 100 : 0);
   const isFull = cap > 0 && filled >= cap;
   const isPast = session.when === "past";
   const isCancelled = session.when === "cancelled";
   const isToday = session.when === "today";
+
+  // DUPR restriction display
+  const hasDupr = session.minDupr !== null || session.maxDupr !== null;
+
+  // Friendly date label
+  const dateLabel = (() => {
+    if (!session.date) return "—";
+    const d = new Date(session.date + "T12:00:00");
+    if (isToday) return "TODAY";
+    return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  })();
 
   let badgeBg = "var(--concrete)";
   let badgeColor = "var(--ink)";
@@ -15323,93 +15580,142 @@ function OpenPlayRow({ session, onOpen }) {
   if (isCancelled) { badgeBg = "var(--clay)"; badgeColor = "var(--cream)"; badgeText = "Cancelled"; }
   else if (isPast) { badgeBg = "var(--concrete)"; badgeColor = "var(--ink)"; badgeText = "Past"; }
   else if (isToday) { badgeBg = "var(--green)"; badgeColor = "var(--cream)"; badgeText = "Today"; }
-  else if (isFull) { badgeBg = "var(--wood)"; badgeColor = "var(--cream)"; badgeText = "Full · waitlist"; }
+  else if (isFull) { badgeBg = "var(--wood)"; badgeColor = "var(--cream)"; badgeText = "Full"; }
+
+  const accentColor = isCancelled ? "var(--clay)"
+    : isToday ? "var(--green)"
+    : isPast ? "rgba(26,26,26,0.2)"
+    : "#5B6BA8";  // slate violet — matches timeline block color for openplay
 
   return (
     <div
       onClick={onOpen}
       style={{
         border: "1px solid var(--concrete)",
-        borderLeft: "4px solid " + (isCancelled ? "var(--clay)" : isToday ? "var(--green)" : isPast ? "rgba(26,26,26,0.2)" : "var(--peach,#D9785C)"),
-        borderRadius: 4,
-        padding: "14px 16px",
+        borderLeft: "4px solid " + accentColor,
+        borderRadius: 6,
+        padding: "16px 18px",
         cursor: "pointer",
-        display: "grid",
-        gridTemplateColumns: "130px 1fr 180px 140px 90px",
-        gap: 16,
-        alignItems: "center",
-        opacity: (isPast || isCancelled) ? 0.65 : 1,
-        background: "var(--cream)"
+        opacity: (isPast || isCancelled) ? 0.7 : 1,
+        background: "var(--cream)",
+        transition: "transform 0.15s, box-shadow 0.15s, border-color 0.15s"
+      }}
+      onMouseEnter={(e) => {
+        if (isPast || isCancelled) return;
+        e.currentTarget.style.transform = "translateY(-1px)";
+        e.currentTarget.style.boxShadow = "0 4px 14px rgba(26,26,26,0.10)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = "";
+        e.currentTarget.style.boxShadow = "";
       }}
     >
-      {/* Date + time */}
-      <div>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700 }}>
-          {session.date}
-        </div>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.7, marginTop: 2 }}>
-          {session.startTime} · {session.durationHours}h
-        </div>
-      </div>
-
-      {/* Title + skill level + courts */}
-      <div>
-        <div style={{ fontWeight: 600, marginBottom: 3 }}>
-          {session.title || "(no title)"}
-        </div>
-        <div style={{ fontSize: 11, opacity: 0.7, fontFamily: "var(--mono)" }}>
-          {session.skillLevel || "All levels"} · Courts {session.courts}
-        </div>
-      </div>
-
-      {/* Registration progress */}
-      <div>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 4 }}>
-          <span style={{ fontFamily: "var(--mono)", fontSize: 15, fontWeight: 700 }}>
-            {filled}{cap > 0 ? "/" + cap : ""}
-          </span>
-          <span style={{ fontSize: 11, opacity: 0.6 }}>
-            {cap > 0 ? "players" : "unlimited"}
-          </span>
-        </div>
-        {cap > 0 && (
-          <div style={{ height: 4, background: "var(--concrete)", borderRadius: 2, overflow: "hidden" }}>
-            <div style={{
-              width: pct + "%",
-              height: "100%",
-              background: isFull ? "var(--wood)" : "var(--green)",
-              transition: "width 0.3s ease"
-            }} />
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "120px 1fr 200px 140px 100px",
+        gap: 16,
+        alignItems: "center"
+      }}>
+        {/* DATE column */}
+        <div>
+          <div style={{
+            fontFamily: "var(--mono)",
+            fontSize: 12,
+            fontWeight: 700,
+            letterSpacing: "0.05em",
+            color: isToday ? "var(--green)" : "var(--ink)"
+          }}>
+            {dateLabel}
           </div>
-        )}
-      </div>
-
-      {/* Revenue */}
-      <div style={{ textAlign: "right" }}>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 15, fontWeight: 600 }}>
-          {fmtMoney(session.collectedRevenue || 0)}
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.7, marginTop: 3 }}>
+            {session.startTime} · {session.durationHours}h
+          </div>
         </div>
-        <div style={{ fontSize: 10, opacity: 0.6, fontFamily: "var(--mono)" }}>
-          of {fmtMoney(session.expectedRevenue || 0)} expected
-        </div>
-      </div>
 
-      {/* Status badge */}
-      <div style={{ textAlign: "right" }}>
-        <span style={{
-          background: badgeBg,
-          color: badgeColor,
-          padding: "4px 10px",
-          borderRadius: 999,
-          fontSize: 9,
-          fontFamily: "var(--mono)",
-          fontWeight: 700,
-          letterSpacing: "0.14em",
-          textTransform: "uppercase",
-          whiteSpace: "nowrap"
-        }}>
-          {badgeText}
-        </span>
+        {/* TITLE + META */}
+        <div>
+          <div style={{
+            fontFamily: "var(--serif)",
+            fontSize: 17,
+            fontWeight: 500,
+            marginBottom: 4,
+            letterSpacing: "-0.005em"
+          }}>
+            {session.title || "(no title)"}
+          </div>
+          <div style={{ fontSize: 11, opacity: 0.7, fontFamily: "var(--mono)", display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <span>◎ {session.skillLevel || "All levels"}</span>
+            <span>Courts {session.courts}</span>
+            {hasDupr && (
+              <span style={{ color: "var(--wood-2,#A8744A)", fontWeight: 700 }}>
+                DUPR {session.minDupr !== null ? session.minDupr.toFixed(1) : "any"}–{session.maxDupr !== null ? session.maxDupr.toFixed(1) : "any"}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* REG PROGRESS */}
+        <div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 5 }}>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 16, fontWeight: 700 }}>
+              {filled}{cap > 0 ? "/" + cap : ""}
+            </span>
+            <span style={{ fontSize: 10, opacity: 0.6, fontFamily: "var(--mono)", letterSpacing: "0.06em" }}>
+              {cap > 0 ? "REGISTERED" : "UNLIMITED"}
+            </span>
+            {paid > 0 && (
+              <span style={{ fontSize: 10, opacity: 0.65, marginLeft: "auto", fontFamily: "var(--mono)" }}>
+                {paid} paid
+              </span>
+            )}
+          </div>
+          {cap > 0 && (
+            <div style={{ position: "relative", height: 6, background: "var(--concrete)", borderRadius: 3, overflow: "hidden" }}>
+              {/* Registered (lighter) */}
+              <div style={{
+                position: "absolute", inset: 0,
+                width: pct + "%",
+                background: isFull ? "var(--wood)" : "rgba(91,107,168,0.4)",
+                transition: "width 0.3s ease"
+              }} />
+              {/* Paid (darker, overlaid) */}
+              <div style={{
+                position: "absolute", inset: 0,
+                width: paidPct + "%",
+                background: isFull ? "var(--wood-2,#8B5A37)" : "#5B6BA8",
+                transition: "width 0.3s ease"
+              }} />
+            </div>
+          )}
+        </div>
+
+        {/* REVENUE */}
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 15, fontWeight: 700, color: session.collectedRevenue > 0 ? "var(--green)" : "var(--ink)" }}>
+            {fmtMoney(session.collectedRevenue || 0)}
+          </div>
+          <div style={{ fontSize: 10, opacity: 0.55, fontFamily: "var(--mono)", letterSpacing: "0.04em" }}>
+            of {fmtMoney(session.expectedRevenue || 0)}
+          </div>
+        </div>
+
+        {/* STATUS PILL */}
+        <div style={{ textAlign: "right" }}>
+          <span style={{
+            background: badgeBg,
+            color: badgeColor,
+            padding: "4px 10px",
+            borderRadius: 999,
+            fontSize: 9,
+            fontFamily: "var(--mono)",
+            fontWeight: 700,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            whiteSpace: "nowrap"
+          }}>
+            {badgeText}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -15433,7 +15739,9 @@ function OpenPlayCreateModal({ onClose, onCreated }) {
     skillLevel: "All",
     playerCap: 8,
     price: 5,
-    notes: ""
+    notes: "",
+    minDupr: "",
+    maxDupr: ""
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -15452,6 +15760,10 @@ function OpenPlayCreateModal({ onClose, onCreated }) {
     if (form.durationHours <= 0) { setError("Duration must be > 0"); return; }
     if (form.playerCap < 0) { setError("Cap can't be negative"); return; }
     if (form.price < 0) { setError("Price can't be negative"); return; }
+    // DUPR sanity (server validates too but catch obvious typos here)
+    if (form.minDupr !== "" && form.maxDupr !== "" && parseFloat(form.minDupr) > parseFloat(form.maxDupr)) {
+      setError("Min DUPR can't be greater than Max DUPR"); return;
+    }
     setSaving(true);
     const r = await api("adminCreateOpenPlaySession", {
       date: form.date,
@@ -15462,7 +15774,9 @@ function OpenPlayCreateModal({ onClose, onCreated }) {
       skillLevel: form.skillLevel,
       playerCap: form.playerCap,
       price: form.price,
-      notes: form.notes
+      notes: form.notes,
+      minDupr: form.minDupr,
+      maxDupr: form.maxDupr
     });
     setSaving(false);
     if (r.ok) {
@@ -15613,6 +15927,42 @@ function OpenPlayCreateModal({ onClose, onCreated }) {
               />
             </div>
             <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4 }}>0 = free</div>
+          </div>
+        </div>
+
+        {/* DUPR restriction — optional; leave blank for no restriction */}
+        <div>
+          <label style={{ display: "block", marginBottom: 6, fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>
+            DUPR Range <span style={{ opacity: 0.6, textTransform: "none", letterSpacing: 0 }}>(optional — gates sign-up by skill)</span>
+          </label>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <input
+                type="number"
+                min="2.0"
+                max="8.0"
+                step="0.1"
+                value={form.minDupr}
+                onChange={(e) => setForm({ ...form, minDupr: e.target.value })}
+                placeholder="Min (e.g. 3.0)"
+                style={{ width: "100%" }}
+              />
+            </div>
+            <div>
+              <input
+                type="number"
+                min="2.0"
+                max="8.0"
+                step="0.1"
+                value={form.maxDupr}
+                onChange={(e) => setForm({ ...form, maxDupr: e.target.value })}
+                placeholder="Max (e.g. 4.0)"
+                style={{ width: "100%" }}
+              />
+            </div>
+          </div>
+          <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4 }}>
+            Players self-report DUPR on signup. If you set a range, players outside it can't register. Leave both blank for open enrollment.
           </div>
         </div>
 
@@ -15814,8 +16164,20 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
 
       {/* Players list */}
       <div style={{ marginBottom: 18 }}>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700, marginBottom: 10 }}>
-          Roster ({activePlayers.length})
+        <div style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+          marginBottom: 10,
+          flexWrap: "wrap",
+          gap: 8
+        }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700 }}>
+            Roster ({activePlayers.length})
+          </div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6, letterSpacing: "0.06em" }}>
+            ✓ Check in when player arrives · Mark paid when $ collected at counter
+          </div>
         </div>
         {activePlayers.length === 0 ? (
           <div style={{ padding: 30, textAlign: "center", opacity: 0.5, fontStyle: "italic" }}>
@@ -15835,7 +16197,35 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
               }}>
                 <div>
                   <div style={{ fontWeight: 600 }}>{p.name}</div>
-                  <div style={{ fontSize: 11, opacity: 0.6, fontFamily: "var(--mono)" }}>{p.phone}</div>
+                  <div style={{ fontSize: 11, opacity: 0.6, fontFamily: "var(--mono)", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <span>{p.phone}</span>
+                    {p.skillSelf && (
+                      <span style={{
+                        background: "rgba(91,107,168,0.12)",
+                        color: "#5B6BA8",
+                        padding: "1px 6px",
+                        borderRadius: 3,
+                        fontSize: 9,
+                        letterSpacing: "0.08em",
+                        fontWeight: 700
+                      }}>
+                        {p.skillSelf.toUpperCase()}
+                      </span>
+                    )}
+                    {p.duprSelf !== null && p.duprSelf !== undefined && (
+                      <span style={{
+                        background: "rgba(168,116,74,0.12)",
+                        color: "var(--wood-2,#A8744A)",
+                        padding: "1px 6px",
+                        borderRadius: 3,
+                        fontSize: 9,
+                        letterSpacing: "0.04em",
+                        fontWeight: 700
+                      }}>
+                        DUPR {Number(p.duprSelf).toFixed(1)}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <button
                   className="btn-sm"
@@ -18029,8 +18419,32 @@ function ScreenSettings() {
   const [pricingWarnings, setPricingWarnings] = useState([]);
 
   async function load() {
-    setLoading(true);
-    const r = await api("adminGetPromo");
+    // STEP 1 — synchronous cache hydration so the page paints instantly
+    // with stale data while the fresh fetches go out in parallel.
+    const cPromo = getCachedApi("adminGetPromo");
+    const cPos   = getCachedApi("adminGetPosSettings");
+    const cGoals = getCachedApi("adminGetGoals");
+    const cSp    = getCachedApi("adminGetSponsorshipSettings");
+    const cPr    = getCachedApi("adminGetPricingRules");
+    if (cPromo && cPromo.ok) setPromo({ active: !!cPromo.active, pct: cPromo.pct || 50, label: cPromo.label || "Soft launch −50%" });
+    if (cPos && cPos.ok) setPosSettings({ memberDiscountPct: cPos.memberDiscountPct, memberDiscountDefault: cPos.memberDiscountDefault });
+    if (cGoals && cGoals.ok) setGoals(cGoals.goals);
+    if (cSp && cSp.ok) setSponsorSettings({ totalSlots: cSp.totalSlots, totalSlotsDefault: cSp.totalSlotsDefault });
+    if (cPr && cPr.ok) { setPricingRules(cPr.rules || []); setPricingDirty(false); setPricingWarnings([]); }
+    // If we hydrated everything from cache, drop the loading state immediately.
+    // The parallel fetches below will silently refresh the data in background.
+    const anyHydrated = (cPromo && cPromo.ok) && (cPos && cPos.ok) && (cGoals && cGoals.ok) && (cSp && cSp.ok) && (cPr && cPr.ok);
+    if (anyHydrated) setLoading(false);
+
+    // STEP 2 — fire all five fetches in PARALLEL, not sequentially.
+    // Was ~5 × round-trip; now bounded by the slowest single request.
+    const [r, ps, g, sp, pr] = await Promise.all([
+      api("adminGetPromo"),
+      api("adminGetPosSettings"),
+      api("adminGetGoals"),
+      api("adminGetSponsorshipSettings"),
+      api("adminGetPricingRules")
+    ]);
     if (r.ok) {
       setPromo({
         active: !!r.active,
@@ -18038,23 +18452,19 @@ function ScreenSettings() {
         label: r.label || "Soft launch −50%"
       });
     }
-    const ps = await api("adminGetPosSettings");
     if (ps.ok) {
       setPosSettings({
         memberDiscountPct: ps.memberDiscountPct,
         memberDiscountDefault: ps.memberDiscountDefault
       });
     }
-    const g = await api("adminGetGoals");
     if (g.ok) setGoals(g.goals);
-    const sp = await api("adminGetSponsorshipSettings");
     if (sp.ok) {
       setSponsorSettings({
         totalSlots: sp.totalSlots,
         totalSlotsDefault: sp.totalSlotsDefault
       });
     }
-    const pr = await api("adminGetPricingRules");
     if (pr.ok) {
       setPricingRules(pr.rules || []);
       setPricingDirty(false);
@@ -18566,6 +18976,36 @@ function ScreenSettings() {
         </div>
       </div>
 
+      <div className="settings-card">
+        <h3>Maintenance</h3>
+        <div className="desc">
+          One-time operations for sheet hygiene. Safe to run multiple times.
+        </div>
+        <div className="settings-row" style={{ alignItems: "flex-start" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>
+              Clear Availability data validation
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.7, lineHeight: 1.4 }}>
+              Removes the old dropdown restriction (free / booked / booked-walkin / booked-coach)
+              from the Availability sheet so tournaments and Open Play sessions can
+              write their marker IDs (TRN:*, OP:*) without rejection. Run once.
+            </div>
+          </div>
+          <button
+            className="btn"
+            onClick={async () => {
+              if (!confirm("Clear data validation on the Availability sheet? This is safe to run multiple times.")) return;
+              const r = await api("adminClearAvailabilityValidation");
+              if (r.ok) showToast("Cleared validation on " + r.rowsAffected + " rows × " + r.colsAffected + " cols", "success");
+              else showToast(r.error || "Failed", "error");
+            }}
+          >
+            Run
+          </button>
+        </div>
+      </div>
+
       <div className="settings-card" style={{ opacity: 0.6 }}>
         <h3>More settings</h3>
         <div className="desc">Pricing rules, operating hours, grace period, and birthday window will appear here in a future release. For now, these are configured in the Pricing sheet and Script Properties.</div>
@@ -18896,6 +19336,18 @@ function App() {
         api("adminListSponsorships").catch(() => {});
         api("adminFinancesMonth", { year: now.getFullYear(), month: now.getMonth() + 1 }).catch(() => {});
       }, 800);
+      // 1.5s in — warm Settings tab (5 endpoints) and Open Play list.
+      // Hides the lag when an admin clicks Settings shortly after login.
+      // These are all small payloads with stable data so they cache well.
+      setTimeout(() => {
+        api("adminGetPromo").catch(() => {});
+        api("adminGetPosSettings").catch(() => {});
+        api("adminGetGoals").catch(() => {});
+        api("adminGetSponsorshipSettings").catch(() => {});
+        api("adminGetPricingRules").catch(() => {});
+        api("adminListOpenPlaySessions").catch(() => {});
+        api("adminListTournaments").catch(() => {});
+      }, 1500);
       // Lower-priority tabs — warm cache 2s in (after main tabs ready)
       setTimeout(() => {
         api("adminListCustomers", { search: "", type: "" }).catch(() => {});
