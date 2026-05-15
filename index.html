@@ -1062,6 +1062,11 @@ a.ulink, button.ulink{
     padding: 0 16px 12px;
     font-family: "Manrope", system-ui, -apple-system, sans-serif;
   }
+  #yard-tournament-banner .ytb-track {
+    position: relative;
+    overflow: hidden;
+    border-radius: 8px;
+  }
   #yard-tournament-banner .ytb-inner {
     display: flex;
     align-items: center;
@@ -1072,8 +1077,8 @@ a.ulink, button.ulink{
     border-radius: 8px;
     box-shadow: 0 4px 14px rgba(26, 26, 26, 0.18);
     cursor: pointer;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
     text-decoration: none;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
   }
   #yard-tournament-banner .ytb-inner:hover {
     transform: translateY(-1px);
@@ -1119,27 +1124,59 @@ a.ulink, button.ulink{
     letter-spacing: 0.1em;
     text-transform: uppercase;
     opacity: 0.85;
-    padding-left: 8px;
-    border-left: 1px solid rgba(241, 234, 214, 0.18);
+    padding: 6px 10px;
+    border: 1px solid rgba(241, 234, 214, 0.35);
+    border-radius: 4px;
+    background: rgba(241, 234, 214, 0.08);
   }
   #yard-tournament-banner .ytb-cta::after { content: " →"; }
+  /* Carousel nav: dots row centered below the inner card */
+  #yard-tournament-banner .ytb-dots {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 8px;
+    height: 8px;
+  }
+  #yard-tournament-banner .ytb-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: rgba(26, 26, 26, 0.22);
+    border: none; padding: 0; cursor: pointer;
+    transition: background 0.15s, transform 0.15s;
+  }
+  #yard-tournament-banner .ytb-dot:hover { background: rgba(26, 26, 26, 0.45); }
+  #yard-tournament-banner .ytb-dot.active {
+    background: #1A1A1A;
+    transform: scale(1.4);
+  }
+  #yard-tournament-banner .ytb-dots.single { display: none; }
   @media (max-width: 540px) {
-    #yard-tournament-banner .ytb-inner { flex-wrap: wrap; gap: 10px; padding: 12px 14px; }
-    #yard-tournament-banner .ytb-cta { display: none; }
-    #yard-tournament-banner .ytb-title { font-size: 16px; }
+    #yard-tournament-banner .ytb-inner { padding: 12px 14px; gap: 10px; }
+    /* Keep cta visible on mobile but compact */
+    #yard-tournament-banner .ytb-cta {
+      padding: 4px 8px;
+      font-size: 9px;
+      letter-spacing: 0.08em;
+    }
+    #yard-tournament-banner .ytb-cta::after { content: ""; }
+    #yard-tournament-banner .ytb-title { font-size: 15px; }
     #yard-tournament-banner .ytb-meta { font-size: 10px; }
+    #yard-tournament-banner .ytb-badge { font-size: 8px; padding: 3px 8px; }
   }
 </style>
 
-<div id="yard-tournament-banner" role="region" aria-label="Upcoming tournament">
-  <a class="ytb-inner" id="yard-tournament-banner-link" href="#">
-    <span class="ytb-badge" id="yard-tournament-banner-badge">UPCOMING</span>
-    <div class="ytb-main">
-      <div class="ytb-title" id="yard-tournament-banner-title"></div>
-      <div class="ytb-meta" id="yard-tournament-banner-meta"></div>
-    </div>
-    <span class="ytb-cta">Details</span>
-  </a>
+<div id="yard-tournament-banner" role="region" aria-label="Upcoming tournaments">
+  <div class="ytb-track" id="yard-tournament-banner-track">
+    <a class="ytb-inner" id="yard-tournament-banner-link" href="#">
+      <span class="ytb-badge" id="yard-tournament-banner-badge">UPCOMING</span>
+      <div class="ytb-main">
+        <div class="ytb-title" id="yard-tournament-banner-title"></div>
+        <div class="ytb-meta" id="yard-tournament-banner-meta"></div>
+      </div>
+      <span class="ytb-cta">Details</span>
+    </a>
+  </div>
+  <div class="ytb-dots" id="yard-tournament-banner-dots"></div>
 </div>
 
 <script>
@@ -1148,13 +1185,19 @@ a.ulink, button.ulink{
   var API_URL = "https://script.google.com/macros/s/AKfycbySSk--iEFY8vTvldpARENCQ6KApJik0UHqASKa7PfJ1IkIJkmEAvOQPCsKR84MFtAY/exec";
 
   // localStorage cache so repeat visits show the banner instantly while Apps
-  // Script cold-starts in the background. On first visit (or after cache
-  // expiry) the banner appears only after the network round-trip completes.
-  var CACHE_KEY = "yard-tournament-banner-v1";
-  var CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;  // hard cap — never trust >24h old
+  // Script cold-starts in the background.
+  var CACHE_KEY = "yard-tournament-banner-v2";  // bumped because schema now stores array
+  var CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+  var ROTATE_MS = 6000;   // ms between auto-rotations
 
   var banner = document.getElementById("yard-tournament-banner");
   if (!banner) return;
+
+  // Carousel state
+  var tournaments = [];
+  var currentIdx = 0;
+  var rotateTimer = null;
+  var userInteracted = false;  // pause auto-rotate after user clicks a dot
 
   function fetchWithTimeout(url, timeoutMs) {
     return new Promise(function(resolve, reject) {
@@ -1180,7 +1223,6 @@ a.ulink, button.ulink{
       var parsed = JSON.parse(raw);
       if (!parsed || typeof parsed.savedAt !== "number") return null;
       if ((Date.now() - parsed.savedAt) > CACHE_MAX_AGE_MS) {
-        // Too stale to trust — treat as if no cache
         localStorage.removeItem(CACHE_KEY);
         return null;
       }
@@ -1188,19 +1230,15 @@ a.ulink, button.ulink{
     } catch (e) { return null; }
   }
 
-  function writeCache(tournament) {
+  function writeCache(arr) {
     try {
-      // tournament can be null (meaning: confirmed no public tournaments)
-      // so future visits don't flash a stale banner.
       localStorage.setItem(CACHE_KEY, JSON.stringify({
         savedAt: Date.now(),
-        tournament: tournament
+        tournaments: arr
       }));
-    } catch (e) { /* quota or disabled — fine */ }
+    } catch (e) {}
   }
 
-  // Build the meta line — kept as a separate function so both render() and
-  // the cache path produce identical output.
   function buildMeta(t) {
     var pieces = [];
     var isMultiDay = t.startDate && t.endDate && t.startDate !== t.endDate;
@@ -1215,7 +1253,12 @@ a.ulink, button.ulink{
     return pieces.join(" · ");
   }
 
-  function render(t) {
+  function renderAt(idx) {
+    if (!tournaments.length) { hide(); return; }
+    if (idx < 0) idx = 0;
+    if (idx >= tournaments.length) idx = tournaments.length - 1;
+    currentIdx = idx;
+    var t = tournaments[idx];
     var badgeEl = document.getElementById("yard-tournament-banner-badge");
     var titleEl = document.getElementById("yard-tournament-banner-title");
     var metaEl  = document.getElementById("yard-tournament-banner-meta");
@@ -1233,49 +1276,99 @@ a.ulink, button.ulink{
     metaEl.textContent = buildMeta(t);
     linkEl.href = "tournament.html?id=" + encodeURIComponent(t.id);
     banner.style.display = "block";
+    renderDots();
   }
 
-  function hide() {
-    banner.style.display = "none";
+  function renderDots() {
+    var dotsEl = document.getElementById("yard-tournament-banner-dots");
+    if (!dotsEl) return;
+    if (tournaments.length <= 1) {
+      dotsEl.className = "ytb-dots single";
+      dotsEl.innerHTML = "";
+      return;
+    }
+    dotsEl.className = "ytb-dots";
+    // Rebuild only if count changed
+    if (dotsEl.children.length !== tournaments.length) {
+      dotsEl.innerHTML = "";
+      for (var i = 0; i < tournaments.length; i++) {
+        var dot = document.createElement("button");
+        dot.className = "ytb-dot";
+        dot.setAttribute("type", "button");
+        dot.setAttribute("aria-label", "Go to tournament " + (i + 1) + " of " + tournaments.length);
+        (function(ii) {
+          dot.addEventListener("click", function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            userInteracted = true;       // pause auto-rotation
+            stopRotate();
+            renderAt(ii);
+          });
+        })(i);
+        dotsEl.appendChild(dot);
+      }
+    }
+    // Update active state
+    for (var j = 0; j < dotsEl.children.length; j++) {
+      dotsEl.children[j].className = "ytb-dot" + (j === currentIdx ? " active" : "");
+    }
   }
 
-  // STEP 1 — synchronously check cache. If we have a recent tournament, paint
-  // immediately. No 400ms delay; no waiting for DOMContentLoaded — the
-  // <div> markup is parsed by the time this <script> runs since it sits
-  // right above us.
+  function startRotate() {
+    stopRotate();
+    if (tournaments.length <= 1 || userInteracted) return;
+    rotateTimer = setInterval(function() {
+      renderAt((currentIdx + 1) % tournaments.length);
+    }, ROTATE_MS);
+  }
+  function stopRotate() {
+    if (rotateTimer) { clearInterval(rotateTimer); rotateTimer = null; }
+  }
+
+  function hide() { banner.style.display = "none"; stopRotate(); }
+
+  function setTournaments(arr) {
+    tournaments = Array.isArray(arr) ? arr.filter(Boolean) : [];
+    if (tournaments.length === 0) { hide(); return; }
+    currentIdx = 0;
+    renderAt(0);
+    startRotate();
+  }
+
+  // Pause rotation when tab not visible (saves battery, avoids skipping)
+  document.addEventListener("visibilitychange", function() {
+    if (document.hidden) stopRotate();
+    else if (tournaments.length > 1 && !userInteracted) startRotate();
+  });
+
+  // STEP 1 — synchronous cache check for instant paint
   var cached = readCache();
-  if (cached && cached.tournament) {
-    render(cached.tournament);
+  if (cached) {
+    // Support legacy single-tournament cache too
+    if (cached.tournaments && Array.isArray(cached.tournaments)) {
+      setTournaments(cached.tournaments);
+    } else if (cached.tournament) {
+      setTournaments([cached.tournament]);
+    }
   }
 
-  // STEP 2 — fire the fetch immediately, in parallel with the rest of the
-  // page loading. Don't block on DOMContentLoaded since the network call
-  // doesn't touch the DOM until results arrive.
+  // STEP 2 — refresh from network
   function refresh() {
     var url = API_URL + "?action=listPublicTournaments";
     fetchWithTimeout(url, 8000)
       .then(function(r) { return r.json(); })
       .then(function(data) {
-        if (!data || !data.ok) return;  // bad response — keep showing cache if any
-        var t = (data.tournaments && data.tournaments.length) ? data.tournaments[0] : null;
-        if (t) {
-          // Fresh tournament — render (covers both "cache was empty" and
-          // "cache had a different/outdated tournament")
-          render(t);
-          writeCache(t);
+        if (!data || !data.ok) return;
+        var arr = (data.tournaments && data.tournaments.length) ? data.tournaments : [];
+        if (arr.length > 0) {
+          setTournaments(arr);
+          writeCache(arr);
         } else {
-          // Server confirms no public tournaments. If we had been showing a
-          // cached one, hide it. Cache the empty state so the next visit
-          // doesn't flash a stale banner before the fetch completes.
           hide();
-          writeCache(null);
+          writeCache([]);
         }
       })
-      .catch(function() {
-        // Network failure — keep whatever cached state is visible (or
-        // nothing). Don't touch the cache so future visits still benefit
-        // from the last known good data.
-      });
+      .catch(function() { /* keep cache visible on network failure */ });
   }
 
   refresh();
@@ -3325,21 +3418,49 @@ function ScreenMembership({ state, setState, go, lang }) {
 
 /* ====================================================================
    OPEN PLAY / DROP-IN — public screen
-   Customers see upcoming drop-in sessions and can sign up with name + phone.
-   Payment is at the counter. Sessions show spots remaining, price, and
-   skill level so players self-select.
+   Shows upcoming sessions + the user's existing registrations.
+   Captures skill level + optional DUPR for matchmaking and gating.
+   Remembers the user's profile in localStorage for fast re-signup.
    ==================================================================== */
+
+const OP_PROFILE_KEY = "yard.op_profile";
+
+function getOpProfile() {
+  try {
+    const raw = localStorage.getItem(OP_PROFILE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) { return null; }
+}
+function saveOpProfile(p) {
+  try { localStorage.setItem(OP_PROFILE_KEY, JSON.stringify(p)); } catch (e) {}
+}
 
 function ScreenOpenPlay({ state, setState, go, lang, config }) {
   const [sessions, setSessions] = useState(null);
-  const [signupSession, setSignupSession] = useState(null);
+  const [myRegs, setMyRegs] = useState(null);
+  const [activeSession, setActiveSession] = useState(null);  // session modal
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [profile] = useState(() => getOpProfile() || {});
 
-  async function load() {
-    const r = await api("listOpenPlaySessions");
-    if (r.ok) setSessions(r.sessions || []);
-    else setSessions([]);
+  // Phone is the lookup key for "my registrations". Prefer the OP profile
+  // (which the user may have used recently), fall back to the signed-in
+  // phone if available.
+  const myPhone = (profile.phone || state.phone || "").trim();
+
+  async function loadAll() {
+    // Fire both fetches in parallel
+    const [sRes, mRes] = await Promise.all([
+      api("listOpenPlaySessions"),
+      myPhone ? api("myOpenPlayRegistrations", { phone: myPhone }) : Promise.resolve({ ok: true, registrations: [] })
+    ]);
+    setSessions(sRes.ok ? (sRes.sessions || []) : []);
+    setMyRegs(mRes.ok ? (mRes.registrations || []) : []);
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => { loadAll(); }, [refreshNonce, myPhone]);
+
+  // After any change (signup, cancel), force a fresh load
+  function refresh() { setRefreshNonce(n => n + 1); }
 
   function fmtSessionDate(s) {
     try {
@@ -3348,6 +3469,27 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
         { weekday: "short", month: "short", day: "numeric" });
     } catch (e) { return s; }
   }
+
+  // Build a Set of session IDs the user is already registered for —
+  // shown with a green checkmark in the list and clicking opens
+  // "your registration" view (with cancel option) instead of signup.
+  const myRegBySessionId = useMemo(() => {
+    const m = {};
+    if (myRegs) {
+      for (const r of myRegs) m[r.sessionId] = r;
+    }
+    return m;
+  }, [myRegs]);
+
+  // Loading state — show skeletons not just "loading…"
+  const isLoading = sessions === null || myRegs === null;
+
+  // Filter: only show upcoming (not past) sessions in the main list
+  const upcoming = sessions ? sessions.filter(s => !s._isPast) : [];
+
+  // Active (upcoming) personal registrations to highlight at top
+  const activeRegs = myRegs ? myRegs.filter(r => !r.isPast) : [];
+  const pastRegs = myRegs ? myRegs.filter(r => r.isPast) : [];
 
   return (
     <>
@@ -3361,11 +3503,54 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
           </p>
         </div>
 
-        {sessions === null && (
-          <div className="op-loading">Loading sessions…</div>
+        {/* User's existing registrations (upcoming) */}
+        {activeRegs.length > 0 && (
+          <div className="op-my-section">
+            <div className="op-section-label">YOUR DROP-INS</div>
+            {activeRegs.map(r => (
+              <div
+                key={r.registrationId}
+                className="op-my-card"
+                onClick={() => setActiveSession({ ...r, _myReg: r })}
+              >
+                <div className="op-my-check">✓</div>
+                <div className="op-my-main">
+                  <div className="op-my-title">{r.title}</div>
+                  <div className="op-my-meta">
+                    {fmtSessionDate(r.date)} · {r.startTime} · {r.durationHours}h
+                  </div>
+                </div>
+                <div className="op-my-side">
+                  <div className="op-my-status">
+                    {r.checkedIn ? "Checked in" : r.paid ? "Paid · ready" : "Reserved"}
+                  </div>
+                  <div className="op-my-action">Manage →</div>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
 
-        {sessions !== null && sessions.length === 0 && (
+        {/* Section header for the available sessions list */}
+        <div className="op-section-label" style={{ marginTop: activeRegs.length > 0 ? 24 : 0 }}>
+          {activeRegs.length > 0 ? "MORE SESSIONS" : "AVAILABLE SESSIONS"}
+        </div>
+
+        {/* Loading skeleton */}
+        {isLoading && (
+          <div className="op-list">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="op-card op-skeleton">
+                <div className="op-card-when"><div className="sk-line w-60" /><div className="sk-line w-40" /></div>
+                <div className="op-card-main"><div className="sk-line w-80" /><div className="sk-line w-50" /></div>
+                <div className="op-card-side"><div className="sk-line w-40" /><div className="sk-line w-50" /></div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Empty */}
+        {!isLoading && upcoming.length === 0 && (
           <div className="op-empty">
             <div className="op-empty-icon">◎</div>
             <div className="op-empty-title">No drop-in sessions scheduled</div>
@@ -3378,51 +3563,77 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
           </div>
         )}
 
-        {sessions !== null && sessions.length > 0 && (
+        {/* Available sessions list */}
+        {!isLoading && upcoming.length > 0 && (
           <div className="op-list">
-            {sessions.map(s => {
+            {upcoming.map(s => {
               const spots = s.spotsLeft;
               const isFull = spots === 0;
               const isLowSpots = spots !== null && spots > 0 && spots <= 3;
+              const myReg = myRegBySessionId[s.id];
+              const hasDuprRestriction = s.minDupr !== null || s.maxDupr !== null;
               return (
                 <div
                   key={s.id}
-                  className={"op-card" + (isFull ? " full" : "")}
-                  onClick={() => !isFull && setSignupSession(s)}
+                  className={"op-card" + (isFull && !myReg ? " full" : "") + (myReg ? " mine" : "")}
+                  onClick={() => {
+                    if (myReg) setActiveSession({ ...s, _myReg: myReg });
+                    else if (!isFull) setActiveSession(s);
+                  }}
                 >
                   <div className="op-card-when">
                     <div className="op-card-date">{fmtSessionDate(s.date)}</div>
-                    <div className="op-card-time">
-                      {s.startTime} · {s.durationHours}h
-                    </div>
+                    <div className="op-card-time">{s.startTime} · {s.durationHours}h</div>
                   </div>
                   <div className="op-card-main">
                     <div className="op-card-title">{s.title}</div>
                     <div className="op-card-meta">
                       {s.skillLevel || "All levels"} · Court{s.courts.indexOf(",") !== -1 ? "s" : ""} {s.courts}
                     </div>
-                    {s.notes && (
-                      <div className="op-card-notes">{s.notes}</div>
+                    {hasDuprRestriction && (
+                      <div className="op-card-dupr">
+                        DUPR {s.minDupr !== null ? s.minDupr.toFixed(1) : "any"}–
+                        {s.maxDupr !== null ? s.maxDupr.toFixed(1) : "any"} required
+                      </div>
                     )}
+                    {s.notes && <div className="op-card-notes">{s.notes}</div>}
                   </div>
                   <div className="op-card-side">
                     <div className="op-card-price">
                       {s.price > 0 ? "$" + s.price.toFixed(2) : "FREE"}
                     </div>
-                    <div className={"op-card-spots " + (isFull ? "full" : isLowSpots ? "low" : "")}>
-                      {isFull
-                        ? "Full"
-                        : spots === null
-                          ? s.registeredCount + " signed up"
-                          : isLowSpots
-                            ? spots + " spot" + (spots === 1 ? "" : "s") + " left"
-                            : s.registeredCount + "/" + s.playerCap}
-                    </div>
+                    {myReg ? (
+                      <div className="op-card-spots mine">✓ You're in</div>
+                    ) : (
+                      <div className={"op-card-spots " + (isFull ? "full" : isLowSpots ? "low" : "")}>
+                        {isFull
+                          ? "Full"
+                          : spots === null
+                            ? s.registeredCount + " signed up"
+                            : isLowSpots
+                              ? spots + " spot" + (spots === 1 ? "" : "s") + " left"
+                              : s.registeredCount + "/" + s.playerCap}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
+        )}
+
+        {/* Past history */}
+        {pastRegs.length > 0 && (
+          <details className="op-past-history">
+            <summary>Your recent sessions ({pastRegs.length})</summary>
+            {pastRegs.map(r => (
+              <div key={r.registrationId} className="op-past-row">
+                <span className="d">{fmtSessionDate(r.date)} · {r.startTime}</span>
+                <span className="t">{r.title}</span>
+                <span className="s">{r.paid ? "Paid" : "Not paid"}</span>
+              </div>
+            ))}
+          </details>
         )}
 
         <div className="op-footer">
@@ -3432,488 +3643,401 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
         </div>
       </div>
 
-      {signupSession && (
-        <OpenPlaySignupModal
-          session={signupSession}
+      {activeSession && (
+        <OpenPlaySessionModal
+          session={activeSession}
+          myReg={activeSession._myReg || null}
+          profile={profile}
           state={state}
-          onClose={() => setSignupSession(null)}
-          onSignedUp={() => {
-            setSignupSession(null);
-            load();
-          }}
+          onClose={() => setActiveSession(null)}
+          onChanged={() => { setActiveSession(null); refresh(); }}
         />
       )}
 
       <style>{`
-        .op-screen {
-          max-width: 720px;
-          margin: 0 auto;
-          padding: 24px 20px 80px;
-          font-family: "Manrope", system-ui, sans-serif;
-          color: #1A1A1A;
-        }
+        .op-screen { max-width: 720px; margin: 0 auto; padding: 24px 20px 80px; font-family: "Manrope", system-ui, sans-serif; color: #1A1A1A; }
         .op-hero { margin-bottom: 28px; text-align: center; }
-        .op-kicker {
-          font-family: "DM Mono", monospace;
-          font-size: 10px;
-          letter-spacing: 0.18em;
-          opacity: 0.7;
-          margin-bottom: 12px;
+        .op-kicker { font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.18em; opacity: 0.7; margin-bottom: 12px; }
+        .op-title { font-family: "Fraunces", "Georgia", serif; font-size: 44px; font-weight: 500; margin: 0 0 12px; letter-spacing: -0.02em; }
+        .op-lede { font-size: 15px; line-height: 1.5; opacity: 0.75; max-width: 460px; margin: 0 auto; }
+        .op-section-label { font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.18em; opacity: 0.7; margin-bottom: 12px; font-weight: 700; }
+
+        /* Your bookings */
+        .op-my-section { margin-bottom: 8px; }
+        .op-my-card {
+          display: grid; grid-template-columns: 32px 1fr 120px; gap: 12px;
+          padding: 14px 16px; background: #3D7A4F; color: #F1EAD6;
+          border-radius: 6px; cursor: pointer; margin-bottom: 8px;
+          transition: transform 0.15s, box-shadow 0.15s;
         }
-        .op-title {
-          font-family: "Fraunces", "Georgia", serif;
-          font-size: 44px;
-          font-weight: 500;
-          margin: 0 0 12px;
-          letter-spacing: -0.02em;
+        .op-my-card:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,0.18); }
+        .op-my-check {
+          align-self: center; font-size: 18px; font-weight: 700;
+          background: rgba(255,255,255,0.18); width: 28px; height: 28px;
+          border-radius: 50%; display: flex; align-items: center; justify-content: center;
         }
-        .op-lede {
-          font-size: 15px;
-          line-height: 1.5;
-          opacity: 0.75;
-          max-width: 460px;
-          margin: 0 auto;
-        }
-        .op-loading {
-          padding: 40px;
-          text-align: center;
-          font-family: "DM Mono", monospace;
-          font-size: 12px;
-          opacity: 0.5;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-        }
-        .op-empty {
-          padding: 60px 20px;
-          text-align: center;
-          border: 1px solid rgba(26,26,26,0.12);
-          border-radius: 6px;
-          background: rgba(26,26,26,0.02);
-        }
-        .op-empty-icon {
-          font-size: 48px;
-          opacity: 0.3;
-          margin-bottom: 14px;
-        }
-        .op-empty-title {
-          font-family: "Fraunces", serif;
-          font-size: 22px;
-          margin-bottom: 6px;
-        }
-        .op-empty-hint {
-          font-size: 14px;
-          opacity: 0.6;
-          margin-bottom: 18px;
-        }
-        .op-empty-cta {
-          background: transparent;
-          color: #C64F3A;
-          border: 1.5px solid #C64F3A;
-          padding: 10px 20px;
-          border-radius: 4px;
-          font-family: "DM Mono", monospace;
-          font-size: 11px;
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-          font-weight: 700;
-          cursor: pointer;
-        }
-        .op-list {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
+        .op-my-title { font-family: "Fraunces", serif; font-size: 17px; font-weight: 500; margin-bottom: 2px; }
+        .op-my-meta { font-family: "DM Mono", monospace; font-size: 10px; opacity: 0.85; }
+        .op-my-side { text-align: right; }
+        .op-my-status { font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.9; font-weight: 700; }
+        .op-my-action { font-family: "DM Mono", monospace; font-size: 9px; opacity: 0.7; margin-top: 3px; }
+
+        .op-loading { padding: 40px; text-align: center; font-family: "DM Mono", monospace; font-size: 12px; opacity: 0.5; letter-spacing: 0.1em; text-transform: uppercase; }
+        .op-empty { padding: 60px 20px; text-align: center; border: 1px solid rgba(26,26,26,0.12); border-radius: 6px; background: rgba(26,26,26,0.02); }
+        .op-empty-icon { font-size: 48px; opacity: 0.3; margin-bottom: 14px; }
+        .op-empty-title { font-family: "Fraunces", serif; font-size: 22px; margin-bottom: 6px; }
+        .op-empty-hint { font-size: 14px; opacity: 0.6; margin-bottom: 18px; }
+        .op-empty-cta { background: transparent; color: #C64F3A; border: 1.5px solid #C64F3A; padding: 10px 20px; border-radius: 4px; font-family: "DM Mono", monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; cursor: pointer; }
+
+        .op-list { display: flex; flex-direction: column; gap: 12px; }
         .op-card {
-          display: grid;
-          grid-template-columns: 110px 1fr 110px;
-          gap: 16px;
-          padding: 16px 18px;
-          background: #FFF;
+          display: grid; grid-template-columns: 110px 1fr 110px; gap: 16px;
+          padding: 16px 18px; background: #FFF;
           border: 1px solid rgba(26,26,26,0.12);
-          border-left: 4px solid #C64F3A;
-          border-radius: 6px;
+          border-left: 4px solid #C64F3A; border-radius: 6px;
           cursor: pointer;
           transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
         }
-        .op-card:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 4px 14px rgba(26,26,26,0.10);
-          border-left-color: #1A1A1A;
-        }
-        .op-card.full {
-          opacity: 0.55;
-          cursor: not-allowed;
-          border-left-color: rgba(26,26,26,0.3);
-        }
-        .op-card.full:hover {
-          transform: none;
-          box-shadow: none;
-        }
-        .op-card-date {
-          font-family: "DM Mono", monospace;
-          font-size: 13px;
-          font-weight: 700;
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-        }
-        .op-card-time {
-          font-family: "DM Mono", monospace;
-          font-size: 11px;
-          opacity: 0.65;
-          margin-top: 3px;
-        }
-        .op-card-title {
-          font-family: "Fraunces", serif;
-          font-size: 19px;
-          font-weight: 500;
-          margin-bottom: 4px;
-          letter-spacing: -0.005em;
-        }
-        .op-card-meta {
-          font-family: "DM Mono", monospace;
-          font-size: 11px;
-          opacity: 0.7;
-        }
-        .op-card-notes {
-          font-size: 12px;
-          opacity: 0.6;
-          margin-top: 6px;
-          font-style: italic;
-        }
-        .op-card-side {
-          text-align: right;
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          gap: 4px;
-        }
-        .op-card-price {
-          font-family: "Fraunces", serif;
-          font-size: 22px;
-          font-weight: 500;
-        }
-        .op-card-spots {
-          font-family: "DM Mono", monospace;
-          font-size: 10px;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-          opacity: 0.65;
-        }
+        .op-card:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(26,26,26,0.10); border-left-color: #1A1A1A; }
+        .op-card.full { opacity: 0.55; cursor: not-allowed; border-left-color: rgba(26,26,26,0.3); }
+        .op-card.full:hover { transform: none; box-shadow: none; }
+        .op-card.mine { border-left-color: #3D7A4F; background: rgba(61,122,79,0.04); }
+
+        .op-card-date { font-family: "DM Mono", monospace; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+        .op-card-time { font-family: "DM Mono", monospace; font-size: 11px; opacity: 0.65; margin-top: 3px; }
+        .op-card-title { font-family: "Fraunces", serif; font-size: 19px; font-weight: 500; margin-bottom: 4px; letter-spacing: -0.005em; }
+        .op-card-meta { font-family: "DM Mono", monospace; font-size: 11px; opacity: 0.7; }
+        .op-card-dupr { font-family: "DM Mono", monospace; font-size: 10px; color: #A8744A; margin-top: 4px; letter-spacing: 0.05em; }
+        .op-card-notes { font-size: 12px; opacity: 0.6; margin-top: 6px; font-style: italic; }
+        .op-card-side { text-align: right; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+        .op-card-price { font-family: "Fraunces", serif; font-size: 22px; font-weight: 500; }
+        .op-card-spots { font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.65; }
         .op-card-spots.low { color: #A8744A; opacity: 1; font-weight: 700; }
         .op-card-spots.full { color: #C64F3A; opacity: 1; font-weight: 700; }
-        .op-footer {
-          margin-top: 32px;
-          text-align: center;
+        .op-card-spots.mine { color: #3D7A4F; opacity: 1; font-weight: 700; }
+
+        /* Skeleton loading */
+        .op-skeleton { pointer-events: none; }
+        .op-skeleton .sk-line {
+          height: 12px; background: linear-gradient(90deg, rgba(0,0,0,0.06), rgba(0,0,0,0.12), rgba(0,0,0,0.06));
+          background-size: 200% 100%; border-radius: 3px; margin: 6px 0;
+          animation: skShimmer 1.5s ease-in-out infinite;
         }
-        .op-back {
-          background: transparent;
-          border: none;
-          color: #1A1A1A;
-          opacity: 0.6;
-          padding: 10px 16px;
-          font-family: "DM Mono", monospace;
-          font-size: 11px;
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-          cursor: pointer;
-        }
+        .op-skeleton .w-40 { width: 40%; } .op-skeleton .w-50 { width: 50%; }
+        .op-skeleton .w-60 { width: 60%; } .op-skeleton .w-80 { width: 80%; }
+        @keyframes skShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+        /* Past history */
+        .op-past-history { margin-top: 30px; padding: 14px 16px; background: rgba(26,26,26,0.03); border-radius: 6px; }
+        .op-past-history summary { font-family: "DM Mono", monospace; font-size: 11px; letter-spacing: 0.12em; opacity: 0.7; cursor: pointer; font-weight: 700; }
+        .op-past-row { display: grid; grid-template-columns: 130px 1fr 70px; gap: 10px; padding: 8px 0; border-top: 1px solid rgba(26,26,26,0.08); font-size: 12px; }
+        .op-past-row .d { font-family: "DM Mono", monospace; opacity: 0.7; }
+        .op-past-row .t { font-family: "Fraunces", serif; }
+        .op-past-row .s { font-family: "DM Mono", monospace; font-size: 10px; opacity: 0.6; text-align: right; }
+
+        .op-footer { margin-top: 32px; text-align: center; }
+        .op-back { background: transparent; border: none; color: #1A1A1A; opacity: 0.6; padding: 10px 16px; font-family: "DM Mono", monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; }
         .op-back:hover { opacity: 1; }
 
         @media (max-width: 540px) {
-          .op-card {
-            grid-template-columns: 88px 1fr;
-          }
-          .op-card-side {
-            grid-column: 1 / -1;
-            flex-direction: row;
-            justify-content: space-between;
-            align-items: center;
-            padding-top: 8px;
-            border-top: 1px solid rgba(26,26,26,0.08);
-            text-align: left;
-          }
+          .op-card { grid-template-columns: 88px 1fr; }
+          .op-card-side { grid-column: 1 / -1; flex-direction: row; justify-content: space-between; align-items: center; padding-top: 8px; border-top: 1px solid rgba(26,26,26,0.08); text-align: left; }
           .op-title { font-size: 34px; }
+          .op-my-card { grid-template-columns: 28px 1fr 90px; }
+          .op-past-row { grid-template-columns: 1fr; gap: 2px; }
         }
       `}</style>
     </>
   );
 }
 
-/* OpenPlaySignupModal — collects name + phone, hits registerForOpenPlay,
-   shows success state with payment instruction. */
-function OpenPlaySignupModal({ session, state, onClose, onSignedUp }) {
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState(state.phone || "");
+/* OpenPlaySessionModal — unified modal for signup OR managing existing reg.
+   If `myReg` is provided, shows the registration view with cancel option.
+   Otherwise shows the signup form with name/phone/skill/DUPR. */
+function OpenPlaySessionModal({ session, myReg, profile, state, onClose, onChanged }) {
+  // Mode: "signup" (no existing reg) | "view" (has reg) | "success" (just signed up) | "cancelled"
+  const [mode, setMode] = useState(myReg ? "view" : "signup");
+
+  // Form state — prefill from saved profile
+  const [name, setName] = useState(profile.name || "");
+  const [phone, setPhone] = useState(profile.phone || state.phone || "");
+  const [skillSelf, setSkillSelf] = useState(profile.skillSelf || "");
+  const [duprSelf, setDuprSelf] = useState(profile.duprSelf || "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState(null);
+  const [successResp, setSuccessResp] = useState(null);
 
-  async function submit() {
+  const hasDuprRestriction = session.minDupr !== null && session.minDupr !== undefined
+    || session.maxDupr !== null && session.maxDupr !== undefined;
+
+  async function submitSignup() {
     setError("");
     if (!name.trim()) { setError("Please enter your name"); return; }
     if (!phone.trim() || phone.replace(/\D/g, "").length < 8) {
       setError("Please enter a valid phone number");
       return;
     }
+    if (hasDuprRestriction && !duprSelf) {
+      setError("This session requires a DUPR rating");
+      return;
+    }
     setSubmitting(true);
     const r = await api("registerForOpenPlay", {
       sessionId: session.id,
       name: name.trim(),
-      phone: phone.trim()
+      phone: phone.trim(),
+      skillSelf: skillSelf || "",
+      duprSelf: duprSelf || ""
     });
     setSubmitting(false);
     if (r.ok) {
-      setSuccess(r);
+      // Persist profile for next time
+      saveOpProfile({
+        name: name.trim(),
+        phone: phone.trim(),
+        skillSelf: skillSelf || "",
+        duprSelf: duprSelf || ""
+      });
+      setSuccessResp(r);
+      setMode("success");
     } else {
       setError(r.error || "Failed to register");
+    }
+  }
+
+  async function submitCancel() {
+    if (!confirm("Cancel your spot in '" + (myReg.title || session.title) + "'? This frees up the spot for someone else.")) return;
+    setSubmitting(true);
+    const r = await api("cancelMyOpenPlayRegistration", {
+      registrationId: myReg.registrationId,
+      phone: myReg.phone || phone
+    });
+    setSubmitting(false);
+    if (r.ok) {
+      setMode("cancelled");
+    } else {
+      setError(r.error || "Failed to cancel");
     }
   }
 
   function fmtSessionDate(s) {
     try {
       const d = new Date(s + "T12:00:00");
-      return d.toLocaleDateString("en-US",
-        { weekday: "long", month: "long", day: "numeric" });
+      return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
     } catch (e) { return s; }
   }
+
+  // Header (shared)
+  const title = session.title || "Open Play";
+  const dateMeta = fmtSessionDate(session.date) + " · " + session.startTime + " · " + session.durationHours + "h";
+  const courtsMeta = "Court" + (String(session.courts || "").indexOf(",") !== -1 ? "s" : "") + " " + session.courts;
 
   return (
     <div className="op-modal-overlay" onClick={onClose}>
       <div className="op-modal" onClick={(e) => e.stopPropagation()}>
         <button className="op-modal-x" onClick={onClose} aria-label="Close">×</button>
 
-        {!success ? (
+        {mode === "view" && (
           <>
-            <div className="op-modal-kicker">SIGN UP · OPEN PLAY</div>
-            <h2 className="op-modal-title">{session.title}</h2>
+            <div className="op-modal-kicker" style={{ color: "#3D7A4F" }}>✓ YOU'RE REGISTERED</div>
+            <h2 className="op-modal-title">{title}</h2>
+            <div className="op-modal-meta">{dateMeta}</div>
             <div className="op-modal-meta">
-              {fmtSessionDate(session.date)} · {session.startTime} · {session.durationHours}h
-            </div>
-            <div className="op-modal-meta">
-              {session.skillLevel || "All levels"} · Court{session.courts.indexOf(",") !== -1 ? "s" : ""} {session.courts}
+              {session.skillLevel || "All levels"} · {courtsMeta}
               {session.price > 0 && <span style={{ marginLeft: 8 }}>· ${session.price.toFixed(2)}/player</span>}
             </div>
 
-            <div className="op-field">
-              <label>Your name</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Sophea Chan"
-                maxLength={80}
-                autoFocus
-              />
-            </div>
-
-            <div className="op-field">
-              <label>Phone number</label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="e.g. 012 345 678"
-                inputMode="numeric"
-              />
+            <div className="op-reg-status">
+              <div className="op-reg-row">
+                <span>Registration ID</span>
+                <span className="mono">{myReg.registrationId}</span>
+              </div>
+              <div className="op-reg-row">
+                <span>Status</span>
+                <span className={myReg.checkedIn ? "ok" : myReg.paid ? "warn" : ""}>
+                  {myReg.checkedIn ? "✓ Checked in" : myReg.paid ? "✓ Paid · pending check-in" : "Reserved · pay at counter"}
+                </span>
+              </div>
+              {session.price > 0 && (
+                <div className="op-reg-row">
+                  <span>Payment</span>
+                  <span>{myReg.paid ? "$" + (myReg.amountPaid || session.price).toFixed(2) + " paid" : "Pay at counter on arrival"}</span>
+                </div>
+              )}
             </div>
 
             {error && <div className="op-error">{error}</div>}
 
-            <button
-              className="op-submit"
-              onClick={submit}
-              disabled={submitting}
-            >
+            <button className="op-submit ghost" onClick={submitCancel} disabled={submitting}>
+              {submitting ? "Cancelling…" : "Cancel my spot"}
+            </button>
+            <button className="op-submit" onClick={onClose} style={{ marginTop: 8 }}>
+              Keep my spot · Close
+            </button>
+
+            <div className="op-fine">
+              {myReg.paid
+                ? "All set. Show up 10 min early. Bring water and a paddle if you have one."
+                : (session.price > 0
+                    ? "Pay $" + session.price.toFixed(2) + " in cash at the counter when you arrive."
+                    : "Show up 10 min early. Bring water and a paddle if you have one.")}
+            </div>
+          </>
+        )}
+
+        {mode === "signup" && (
+          <>
+            <div className="op-modal-kicker">SIGN UP · OPEN PLAY</div>
+            <h2 className="op-modal-title">{title}</h2>
+            <div className="op-modal-meta">{dateMeta}</div>
+            <div className="op-modal-meta">
+              {session.skillLevel || "All levels"} · {courtsMeta}
+              {session.price > 0 && <span style={{ marginLeft: 8 }}>· ${session.price.toFixed(2)}/player</span>}
+            </div>
+
+            {hasDuprRestriction && (
+              <div className="op-restriction">
+                Skill restriction: DUPR&nbsp;
+                {session.minDupr !== null && session.minDupr !== undefined ? session.minDupr.toFixed(1) : "any"}–
+                {session.maxDupr !== null && session.maxDupr !== undefined ? session.maxDupr.toFixed(1) : "any"}
+              </div>
+            )}
+
+            <div className="op-field">
+              <label>Your name</label>
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Sophea Chan" maxLength={80} autoFocus={!name} />
+            </div>
+
+            <div className="op-field">
+              <label>Phone number</label>
+              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="e.g. 012 345 678" inputMode="numeric" />
+            </div>
+
+            <div className="op-field">
+              <label>Skill level (for matchmaking)</label>
+              <div className="op-skill-grid">
+                {["Beginner", "Intermediate", "Advanced", "Pro"].map(s => (
+                  <button
+                    key={s} type="button"
+                    className={"op-skill-btn" + (skillSelf === s ? " active" : "")}
+                    onClick={() => setSkillSelf(skillSelf === s ? "" : s)}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="op-field">
+              <label>
+                DUPR rating {hasDuprRestriction ? <span style={{ color: "#C64F3A" }}>(required)</span> : <span style={{ opacity: 0.5 }}>(optional)</span>}
+              </label>
+              <input
+                type="number" step="0.1" min="2.0" max="8.0"
+                value={duprSelf} onChange={(e) => setDuprSelf(e.target.value)}
+                placeholder="e.g. 3.5"
+                inputMode="decimal"
+              />
+              <div className="op-hint">DUPR is a standardized pickleball rating from 2.0 to 8.0. Leave blank if you don't have one.</div>
+            </div>
+
+            {error && <div className="op-error">{error}</div>}
+
+            <button className="op-submit" onClick={submitSignup} disabled={submitting}>
               {submitting
                 ? "Signing up…"
                 : session.price > 0
-                  ? "Reserve my spot · $" + session.price.toFixed(2) + " at counter"
+                  ? "Reserve · $" + session.price.toFixed(2) + " at counter"
                   : "Reserve my spot"}
             </button>
 
             <div className="op-fine">
               {session.price > 0
-                ? "Pay $" + session.price.toFixed(2) + " in cash at the counter when you arrive. Show up 10 min early."
+                ? "Pay $" + session.price.toFixed(2) + " in cash at the counter when you arrive."
                 : "Show up 10 min early. Bring water and a paddle if you have one."}
             </div>
           </>
-        ) : (
+        )}
+
+        {mode === "success" && (
           <>
             <div className="op-success-icon">✓</div>
             <h2 className="op-modal-title" style={{ textAlign: "center" }}>
-              {success.alreadyRegistered ? "Already registered" : "You're in!"}
+              {successResp && successResp.alreadyRegistered ? "Already registered" : "You're in!"}
             </h2>
-            <div className="op-success-msg">{success.message}</div>
+            <div className="op-success-msg">{successResp && successResp.message}</div>
             <div className="op-success-detail">
-              <div><b>{session.title}</b></div>
+              <div><b>{title}</b></div>
               <div>{fmtSessionDate(session.date)} · {session.startTime}</div>
-              <div>Court{session.courts.indexOf(",") !== -1 ? "s" : ""} {session.courts}</div>
+              <div>{courtsMeta}</div>
             </div>
-            <button className="op-submit" onClick={onSignedUp}>
+            <button className="op-submit" onClick={onChanged}>
               Got it
+            </button>
+          </>
+        )}
+
+        {mode === "cancelled" && (
+          <>
+            <div className="op-success-icon" style={{ background: "#A8744A" }}>○</div>
+            <h2 className="op-modal-title" style={{ textAlign: "center" }}>Spot cancelled</h2>
+            <div className="op-success-msg">Thanks for letting us know — your spot is freed up.</div>
+            <button className="op-submit" onClick={onChanged}>
+              Done
             </button>
           </>
         )}
       </div>
 
       <style>{`
-        .op-modal-overlay {
-          position: fixed;
-          inset: 0;
-          background: rgba(26,26,26,0.55);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-          padding: 20px;
-          animation: opFadeIn 0.15s ease;
-        }
+        .op-modal-overlay { position: fixed; inset: 0; background: rgba(26,26,26,0.55); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; animation: opFadeIn 0.15s ease; }
         @keyframes opFadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .op-modal {
-          background: #F1EAD6;
-          border-radius: 8px;
-          padding: 28px 24px 24px;
-          max-width: 440px;
-          width: 100%;
-          position: relative;
-          box-shadow: 0 12px 40px rgba(26,26,26,0.3);
-          font-family: "Manrope", system-ui, sans-serif;
-          color: #1A1A1A;
-          max-height: 90vh;
-          overflow-y: auto;
-        }
-        .op-modal-x {
-          position: absolute;
-          top: 12px;
-          right: 14px;
-          background: transparent;
-          border: none;
-          font-size: 26px;
-          line-height: 1;
-          color: #1A1A1A;
-          opacity: 0.5;
-          cursor: pointer;
-          padding: 4px 8px;
-        }
+        .op-modal { background: #F1EAD6; border-radius: 8px; padding: 28px 24px 24px; max-width: 460px; width: 100%; position: relative; box-shadow: 0 12px 40px rgba(26,26,26,0.3); font-family: "Manrope", system-ui, sans-serif; color: #1A1A1A; max-height: 92vh; overflow-y: auto; }
+        .op-modal-x { position: absolute; top: 12px; right: 14px; background: transparent; border: none; font-size: 26px; line-height: 1; color: #1A1A1A; opacity: 0.5; cursor: pointer; padding: 4px 8px; }
         .op-modal-x:hover { opacity: 1; }
-        .op-modal-kicker {
-          font-family: "DM Mono", monospace;
-          font-size: 9px;
-          letter-spacing: 0.18em;
-          opacity: 0.6;
-          margin-bottom: 8px;
-        }
-        .op-modal-title {
-          font-family: "Fraunces", serif;
-          font-size: 24px;
-          font-weight: 500;
-          margin: 0 0 6px;
-          letter-spacing: -0.01em;
-        }
-        .op-modal-meta {
-          font-family: "DM Mono", monospace;
-          font-size: 11px;
-          opacity: 0.7;
-          margin-bottom: 4px;
-        }
-        .op-field {
-          margin-top: 16px;
-        }
-        .op-field label {
-          display: block;
-          font-family: "DM Mono", monospace;
-          font-size: 10px;
-          letter-spacing: 0.14em;
-          text-transform: uppercase;
-          opacity: 0.7;
-          margin-bottom: 6px;
-          font-weight: 600;
-        }
-        .op-field input {
-          width: 100%;
-          padding: 10px 12px;
-          font-size: 15px;
-          font-family: inherit;
-          border: 1.5px solid rgba(26,26,26,0.15);
-          background: #FFF;
-          border-radius: 4px;
-          box-sizing: border-box;
-          color: #1A1A1A;
-        }
-        .op-field input:focus {
-          outline: none;
-          border-color: #1A1A1A;
-        }
-        .op-error {
-          margin-top: 14px;
-          padding: 10px 12px;
-          background: rgba(198,79,58,0.12);
-          color: #C64F3A;
-          border-radius: 4px;
-          font-size: 13px;
-          font-weight: 600;
-        }
-        .op-submit {
-          width: 100%;
-          margin-top: 18px;
-          padding: 14px 16px;
-          background: #1A1A1A;
-          color: #F1EAD6;
-          border: none;
-          border-radius: 4px;
-          font-family: "DM Mono", monospace;
-          font-size: 12px;
-          letter-spacing: 0.1em;
-          text-transform: uppercase;
-          font-weight: 700;
-          cursor: pointer;
-        }
+        .op-modal-kicker { font-family: "DM Mono", monospace; font-size: 9px; letter-spacing: 0.18em; opacity: 0.6; margin-bottom: 8px; font-weight: 700; }
+        .op-modal-title { font-family: "Fraunces", serif; font-size: 24px; font-weight: 500; margin: 0 0 6px; letter-spacing: -0.01em; }
+        .op-modal-meta { font-family: "DM Mono", monospace; font-size: 11px; opacity: 0.7; margin-bottom: 4px; }
+
+        .op-restriction { margin-top: 14px; padding: 10px 12px; background: rgba(168,116,74,0.12); color: #A8744A; border-radius: 4px; font-family: "DM Mono", monospace; font-size: 11px; letter-spacing: 0.06em; font-weight: 700; }
+
+        .op-reg-status { margin-top: 18px; padding: 14px; background: rgba(61,122,79,0.08); border-radius: 4px; border-left: 3px solid #3D7A4F; }
+        .op-reg-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px; }
+        .op-reg-row > span:first-child { opacity: 0.7; font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+        .op-reg-row > span:last-child { font-weight: 600; }
+        .op-reg-row .ok { color: #3D7A4F; }
+        .op-reg-row .warn { color: #A8744A; }
+        .op-reg-row .mono { font-family: "DM Mono", monospace; font-size: 11px; }
+
+        .op-field { margin-top: 16px; }
+        .op-field label { display: block; font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.7; margin-bottom: 6px; font-weight: 600; }
+        .op-field input { width: 100%; padding: 10px 12px; font-size: 15px; font-family: inherit; border: 1.5px solid rgba(26,26,26,0.15); background: #FFF; border-radius: 4px; box-sizing: border-box; color: #1A1A1A; }
+        .op-field input:focus { outline: none; border-color: #1A1A1A; }
+        .op-hint { font-size: 11px; opacity: 0.55; margin-top: 5px; line-height: 1.4; }
+
+        .op-skill-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+        .op-skill-btn { padding: 9px 4px; border: 1.5px solid rgba(26,26,26,0.18); background: #FFF; border-radius: 4px; font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.06em; font-weight: 700; cursor: pointer; color: #1A1A1A; text-transform: uppercase; transition: all 0.1s; }
+        .op-skill-btn:hover { border-color: #1A1A1A; }
+        .op-skill-btn.active { background: #1A1A1A; color: #F1EAD6; border-color: #1A1A1A; }
+
+        .op-error { margin-top: 14px; padding: 10px 12px; background: rgba(198,79,58,0.12); color: #C64F3A; border-radius: 4px; font-size: 13px; font-weight: 600; }
+        .op-submit { width: 100%; margin-top: 18px; padding: 14px 16px; background: #1A1A1A; color: #F1EAD6; border: none; border-radius: 4px; font-family: "DM Mono", monospace; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700; cursor: pointer; }
         .op-submit:hover { background: #2A2520; }
         .op-submit:disabled { opacity: 0.6; cursor: not-allowed; }
-        .op-fine {
-          margin-top: 12px;
-          font-size: 12px;
-          opacity: 0.65;
-          line-height: 1.45;
-          text-align: center;
-        }
-        .op-success-icon {
-          width: 56px;
-          height: 56px;
-          margin: 8px auto 14px;
-          border-radius: 50%;
-          background: #3D7A4F;
-          color: #F1EAD6;
-          font-size: 32px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-        .op-success-msg {
-          text-align: center;
-          font-size: 15px;
-          margin: 4px 0 18px;
-          opacity: 0.85;
-        }
-        .op-success-detail {
-          padding: 14px;
-          background: rgba(26,26,26,0.04);
-          border-radius: 4px;
-          font-family: "DM Mono", monospace;
-          font-size: 12px;
-          margin-bottom: 16px;
-          text-align: center;
-        }
-        .op-success-detail b {
-          font-family: "Fraunces", serif;
-          font-size: 16px;
-          font-weight: 500;
-        }
+        .op-submit.ghost { background: transparent; color: #C64F3A; border: 1.5px solid #C64F3A; }
+        .op-submit.ghost:hover { background: #C64F3A; color: #F1EAD6; }
+        .op-fine { margin-top: 12px; font-size: 12px; opacity: 0.65; line-height: 1.45; text-align: center; }
+
+        .op-success-icon { width: 56px; height: 56px; margin: 8px auto 14px; border-radius: 50%; background: #3D7A4F; color: #F1EAD6; font-size: 32px; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+        .op-success-msg { text-align: center; font-size: 15px; margin: 4px 0 18px; opacity: 0.85; }
+        .op-success-detail { padding: 14px; background: rgba(26,26,26,0.04); border-radius: 4px; font-family: "DM Mono", monospace; font-size: 12px; margin-bottom: 16px; text-align: center; }
+        .op-success-detail b { font-family: "Fraunces", serif; font-size: 16px; font-weight: 500; }
         .op-success-detail > div { margin: 4px 0; }
       `}</style>
     </div>
   );
 }
+
 
 
 /* ====================================================================
