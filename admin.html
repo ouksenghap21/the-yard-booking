@@ -5894,6 +5894,9 @@ function OperationalKpiPanel({ data }) {
 function ActionQueuePanel({ data, onMarkPaid }) {
   const aq = data.actionQueue || {};
   const payments = aq.paymentsToCollect || [];
+  const overdue = aq.overdue || [];
+  const overdueTotal = aq.overdueTotal || 0;
+  const coachingShareOwed = aq.coachingShareOwed || 0;
   const atRisk = aq.atRisk || [];
   const lowStock = aq.lowStock || [];
   const birthdayWeek = aq.birthdayThisWeek || [];
@@ -5902,9 +5905,16 @@ function ActionQueuePanel({ data, onMarkPaid }) {
   // immediately so the action feels instant; the API call runs in the background
   // and reconciles when onMarkPaid() refreshes the data.
   const [optimisticPaid, setOptimisticPaid] = useState(new Set());
+  // How many overdue items to show by default (rest collapsed)
+  const [showAllOverdue, setShowAllOverdue] = useState(false);
+
+  // Compose a unique id for overdue items (id alone collides across types)
+  const overdueKey = (o) => o.entryType + ":" + o.id;
+  const visibleOverdue = overdue.filter(o => !optimisticPaid.has(overdueKey(o)));
 
   const total =
     payments.filter(p => !optimisticPaid.has(p.bookingId)).length +
+    visibleOverdue.length +
     atRisk.length +
     lowStock.length +
     birthdayWeek.filter(m => !m.alreadyUsed).length;
@@ -5929,6 +5939,29 @@ function ActionQueuePanel({ data, onMarkPaid }) {
     }
   }
 
+  // Mark an overdue item paid — dispatches by entryType to the right endpoint.
+  async function markOverduePaid(o) {
+    const key = overdueKey(o);
+    setOptimisticPaid(prev => new Set([...prev, key]));
+    let r;
+    if (o.entryType === "booking") {
+      r = await api("adminMarkPaid", { bookingId: o.id });
+    } else if (o.entryType === "walkin") {
+      r = await api("adminMarkWalkInPlayerPaid", { playerId: o.id });
+    } else if (o.entryType === "coaching") {
+      r = await api("adminMarkCoachingSessionsPaid", { sessionIds: [o.id] });
+    } else {
+      r = { ok: false, error: "Unknown entry type: " + o.entryType };
+    }
+    if (r && r.ok) {
+      showToast("Marked paid · " + fmtMoney(o.amount) + " collected", "success");
+      onMarkPaid && onMarkPaid();
+    } else {
+      setOptimisticPaid(prev => { const n = new Set(prev); n.delete(key); return n; });
+      showToast((r && r.error) || "Failed — try again", "error");
+    }
+  }
+
   async function noShowRelease(bookingId) {
     if (!confirm("Release the court and notify the customer? This sends an SMS.")) return;
     const r = await api("adminNoShowAndRelease", { bookingId: bookingId });
@@ -5949,10 +5982,70 @@ function ActionQueuePanel({ data, onMarkPaid }) {
         </span>
       </div>
 
-      {/* Payments to collect */}
+      {/* Overdue · >24h — receivables across bookings, walk-ins, coaching.
+          Mirrors the Finance "Overdue" list. These are real losses if not chased. */}
       <div className="section-group">
         <div className="head">
-          <span>Payments to Collect</span>
+          <span>
+            Overdue · &gt;24h
+            {coachingShareOwed > 0 && (
+              <span className="meta" style={{ marginLeft: 8, fontSize: 11, opacity: 0.7 }}>
+                · {fmtMoney(coachingShareOwed)} from coaches
+              </span>
+            )}
+          </span>
+          <span className={"count" + (visibleOverdue.length === 0 ? " zero" : " urgent")}>
+            {visibleOverdue.length === 0
+              ? 0
+              : visibleOverdue.length + " · " + fmtMoney(overdueTotal)}
+          </span>
+        </div>
+        {visibleOverdue.length === 0 ? (
+          <div className="empty-mini">Nothing overdue · all caught up</div>
+        ) : (
+          <>
+            {(showAllOverdue ? visibleOverdue : visibleOverdue.slice(0, 5)).map(o => {
+              const ageLbl = o.ageHours >= 48
+                ? Math.floor(o.ageHours / 24) + "d ago"
+                : Math.floor(o.ageHours) + "h ago";
+              const typeIcon = o.entryType === "coaching" ? "★"
+                : o.entryType === "walkin" ? "◉" : "■";
+              return (
+                <div className="action-item" key={overdueKey(o)}>
+                  <span className="badge urgent">{ageLbl}</span>
+                  <div className="body">
+                    <div className="title">
+                      <span style={{ opacity: 0.6, marginRight: 6 }}>{typeIcon}</span>
+                      {o.name || "(no name)"}
+                    </div>
+                    <div className="meta">
+                      {o.date} · {o.time}
+                      {o.courts ? " · C·" + o.courts : ""}
+                      {o.phone ? " · " + o.phone : ""}
+                      {" · "}{fmtMoney(o.amount)}
+                    </div>
+                  </div>
+                  <button className="btn-sm primary" onClick={() => markOverduePaid(o)}>Mark paid</button>
+                </div>
+              );
+            })}
+            {visibleOverdue.length > 5 && (
+              <button
+                className="btn-sm"
+                style={{ marginTop: 8, width: "100%" }}
+                onClick={() => setShowAllOverdue(s => !s)}>
+                {showAllOverdue ? "Show fewer" : "Show all " + visibleOverdue.length + " overdue"}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Payments to collect — today, customers about to leave the counter.
+          (Older unpaid items live in the Overdue section above.) */}
+      <div className="section-group">
+        <div className="head">
+          <span>Collect at Counter <span className="meta" style={{ marginLeft: 8, fontSize: 11, opacity: 0.7 }}>· today</span></span>
           <span className={"count" + (payments.filter(p => !optimisticPaid.has(p.bookingId)).length === 0 ? " zero" : " urgent")}>
             {payments.filter(p => !optimisticPaid.has(p.bookingId)).length}
           </span>
