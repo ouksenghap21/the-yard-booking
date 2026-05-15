@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#1A1A1A" />
+  <title>Tournament · The Yard</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..700&family=Manrope:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" />
+
+  <style>
+    :root {
+      --cream: #F1EAD6;
+      --ink: #1A1A1A;
+      --green: #3D7A4F;
+      --clay: #D9785C;
+      --wood: #A8744A;
+      --concrete-2: #B5B0A4;
+      --serif: "Fraunces", serif;
+      --sans: "Manrope", system-ui, sans-serif;
+      --mono: "DM Mono", monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      background: var(--cream);
+      color: var(--ink);
+      font-family: var(--sans);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    body {
+      padding: 24px 18px 80px;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    /* Header */
+    .brand {
+      text-align: center;
+      padding: 20px 0 36px;
+      border-bottom: 1px solid rgba(26,26,26,0.15);
+      margin-bottom: 32px;
+    }
+    .brand-mark {
+      font-family: var(--serif);
+      font-size: 32px;
+      font-weight: 500;
+      letter-spacing: -0.5px;
+    }
+    .brand-sub {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      opacity: 0.6;
+      margin-top: 4px;
+    }
+
+    /* Tournament info */
+    .kicker {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      opacity: 0.7;
+      margin-bottom: 8px;
+    }
+    h1.tournament-name {
+      font-family: var(--serif);
+      font-size: 42px;
+      font-weight: 500;
+      line-height: 1.1;
+      margin-bottom: 16px;
+      letter-spacing: -1px;
+    }
+    .when {
+      font-family: var(--mono);
+      font-size: 13px;
+      margin-bottom: 32px;
+      opacity: 0.85;
+    }
+    .when .date-block { display: block; margin-bottom: 4px; }
+    .when .time-block { opacity: 0.7; }
+
+    /* Status banner */
+    .status-pill {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      padding: 6px 14px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      margin-bottom: 24px;
+    }
+    .status-pill.live { background: var(--green); color: var(--cream); }
+    .status-pill.upcoming { background: var(--wood); color: var(--cream); }
+    .status-pill.completed { background: var(--ink); color: var(--cream); opacity: 0.7; }
+    .status-pill.cancelled { background: var(--clay); color: var(--cream); }
+
+    /* Detail rows */
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+      margin-bottom: 32px;
+      padding: 24px;
+      background: rgba(26,26,26,0.04);
+      border-radius: 8px;
+      border-left: 4px solid var(--green);
+    }
+    .detail-grid .item .label {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      opacity: 0.6;
+      margin-bottom: 6px;
+    }
+    .detail-grid .item .value {
+      font-family: var(--serif);
+      font-size: 19px;
+      font-weight: 500;
+    }
+    .detail-grid .item.span2 { grid-column: 1 / -1; }
+
+    /* Sign-up call */
+    .signup-card {
+      background: var(--ink);
+      color: var(--cream);
+      padding: 28px 26px;
+      border-radius: 8px;
+      margin-bottom: 28px;
+      text-align: center;
+    }
+    .signup-card .label {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      opacity: 0.7;
+      margin-bottom: 12px;
+    }
+    .signup-card .contact {
+      font-family: var(--serif);
+      font-size: 22px;
+      line-height: 1.4;
+      margin-bottom: 16px;
+    }
+    .signup-card .contact a {
+      color: var(--cream);
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 4px;
+    }
+    .signup-card .note {
+      font-family: var(--mono);
+      font-size: 11px;
+      opacity: 0.65;
+      line-height: 1.5;
+    }
+
+    /* Spots remaining indicator */
+    .spots {
+      font-family: var(--mono);
+      font-size: 12px;
+      padding: 14px 18px;
+      background: rgba(61,122,79,0.1);
+      border-left: 3px solid var(--green);
+      border-radius: 4px;
+      margin-bottom: 18px;
+    }
+    .spots.full {
+      background: rgba(217,120,92,0.1);
+      border-left-color: var(--clay);
+      color: var(--clay);
+      font-weight: 700;
+    }
+
+    .sponsors {
+      margin-bottom: 24px;
+    }
+    .sponsors .label {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      opacity: 0.6;
+      margin-bottom: 8px;
+    }
+    .sponsors .names {
+      font-family: var(--serif);
+      font-size: 18px;
+    }
+
+    .bracket-link {
+      display: inline-block;
+      margin-top: 12px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--clay);
+      text-decoration: none;
+      border-bottom: 1px solid var(--clay);
+      padding-bottom: 2px;
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 50px;
+      padding-top: 22px;
+      border-top: 1px solid rgba(26,26,26,0.12);
+      font-family: var(--mono);
+      font-size: 11px;
+      opacity: 0.55;
+      line-height: 1.6;
+    }
+
+    .loading, .error {
+      text-align: center;
+      padding: 60px 20px;
+      font-family: var(--mono);
+      font-size: 13px;
+      opacity: 0.65;
+    }
+    .error { color: var(--clay); }
+
+    @media (max-width: 540px) {
+      h1.tournament-name { font-size: 32px; }
+      .detail-grid { grid-template-columns: 1fr; gap: 16px; padding: 20px; }
+      .signup-card .contact { font-size: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="brand">
+    <div class="brand-mark">The Yard</div>
+    <div class="brand-sub">Pickleball · Toul Kork</div>
+  </div>
+
+  <div id="content" class="loading">Loading tournament info…</div>
+
+  <div class="footer">
+    <div>The Yard · Toul Kork, Phnom Penh</div>
+    <div style="margin-top:4px">8 indoor courts · Open 6am – 10pm daily</div>
+  </div>
+
+  <script>
+    // Replace with your deployed Apps Script Web App URL (same as admin.html)
+    var API_URL = "https://script.google.com/macros/s/AKfycbySSk--iEFY8vTvldpARENCQ6KApJik0UHqASKa7PfJ1IkIJkmEAvOQPCsKR84MFtAY/exec";
+
+    function getQueryParam(name) {
+      var match = window.location.search.match(new RegExp("[?&]" + name + "=([^&]*)"));
+      return match ? decodeURIComponent(match[1]) : "";
+    }
+
+    function escapeHtml(s) {
+      return String(s || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function formatDate(s) {
+      if (!s) return "—";
+      try {
+        var d = new Date(s + "T12:00:00");
+        return d.toLocaleDateString("en-US", {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+          year: "numeric"
+        });
+      } catch (e) { return s; }
+    }
+
+    function buildContactLink(contact) {
+      if (!contact) return "";
+      var c = contact.trim();
+      // Telegram handles
+      var tgMatch = c.match(/^@(\w+)/);
+      if (tgMatch) {
+        return '<a href="https://t.me/' + tgMatch[1] + '" target="_blank" rel="noopener">' + escapeHtml(c) + '</a>';
+      }
+      // Telegram URL
+      if (/t\.me\//i.test(c)) {
+        return '<a href="' + escapeHtml(c) + '" target="_blank" rel="noopener">' + escapeHtml(c) + '</a>';
+      }
+      // Phone
+      var phoneMatch = c.match(/(\+?\d[\d\s()-]{6,})/);
+      if (phoneMatch) {
+        var cleaned = phoneMatch[1].replace(/[^\d+]/g, "");
+        return '<a href="tel:' + cleaned + '">' + escapeHtml(c) + '</a>';
+      }
+      // Email
+      if (/^[^\s@]+@[^\s@]+\.\w+$/.test(c)) {
+        return '<a href="mailto:' + escapeHtml(c) + '">' + escapeHtml(c) + '</a>';
+      }
+      return escapeHtml(c);
+    }
+
+    async function loadTournament() {
+      var id = getQueryParam("id");
+      var content = document.getElementById("content");
+      if (!id) {
+        content.className = "error";
+        content.textContent = "No tournament specified.";
+        return;
+      }
+
+      // Use form-encoded POST to bypass CORS preflight (matches admin app pattern)
+      try {
+        var formData = new URLSearchParams();
+        formData.append("action", "tournamentPublicInfo");
+        formData.append("tournamentId", id);
+        var r = await fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: formData.toString()
+        });
+        var data = await r.json();
+        if (!data.ok) {
+          content.className = "error";
+          content.textContent = data.error || "Tournament not available.";
+          return;
+        }
+        renderTournament(data.tournament);
+      } catch (e) {
+        content.className = "error";
+        content.innerHTML = "Couldn't load tournament info.<br>Please try again or contact The Yard directly.";
+      }
+    }
+
+    function renderTournament(t) {
+      var content = document.getElementById("content");
+      content.className = "";
+
+      var isMultiDay = t.startDate !== t.endDate;
+      var todayStr = new Date().toISOString().substring(0, 10);
+      var when = t.status === "cancelled" ? "cancelled"
+        : (t.endDate < todayStr ? "completed"
+          : (t.startDate > todayStr ? "upcoming" : "live"));
+      var statusLabels = { live: "Live now", upcoming: "Upcoming", completed: "Completed", cancelled: "Cancelled" };
+
+      var html = '';
+      html += '<div class="kicker">Tournament · ' + escapeHtml(t.id) + '</div>';
+      html += '<h1 class="tournament-name">' + escapeHtml(t.name) + '</h1>';
+      html += '<div class="status-pill ' + when + '">' + statusLabels[when] + '</div>';
+      html += '<div class="when">';
+      if (isMultiDay) {
+        html += '<span class="date-block">' + formatDate(t.startDate) + ' → ' + formatDate(t.endDate) + '</span>';
+      } else {
+        html += '<span class="date-block">' + formatDate(t.startDate) + '</span>';
+      }
+      html += '<span class="time-block">' + escapeHtml(t.startTime) + ' – ' + escapeHtml(t.endTime) + ' · The Yard, Toul Kork</span>';
+      html += '</div>';
+
+      html += '<div class="detail-grid">';
+      if (t.format) {
+        html += '<div class="item span2"><div class="label">Format</div><div class="value">' + escapeHtml(t.format) + '</div></div>';
+      }
+      html += '<div class="item"><div class="label">Entry fee</div><div class="value">' + (t.entryFee > 0 ? '$' + t.entryFee.toFixed(2) + ' / player' : 'Free') + '</div></div>';
+      if (t.playerCap > 0) {
+        html += '<div class="item"><div class="label">Field</div><div class="value">' + escapeHtml(String(t.registeredPlayers)) + ' / ' + escapeHtml(String(t.playerCap)) + ' players</div></div>';
+      } else {
+        html += '<div class="item"><div class="label">Field</div><div class="value">' + escapeHtml(String(t.registeredPlayers)) + ' registered</div></div>';
+      }
+      html += '</div>';
+
+      // Spots remaining indicator
+      if (t.playerCap > 0 && when !== "completed" && when !== "cancelled") {
+        var spots = t.playerCap - t.registeredPlayers;
+        if (spots <= 0) {
+          html += '<div class="spots full">★ Tournament is full — message us to join the waitlist</div>';
+        } else if (spots <= 4) {
+          html += '<div class="spots" style="background:rgba(217,120,92,0.08);border-left-color:var(--clay)">Only ' + spots + ' spot' + (spots === 1 ? '' : 's') + ' left</div>';
+        } else {
+          html += '<div class="spots">' + spots + ' spot' + (spots === 1 ? '' : 's') + ' still available</div>';
+        }
+      }
+
+      // Sponsors
+      if (t.sponsorNames) {
+        html += '<div class="sponsors">';
+        html += '<div class="label">Sponsored by</div>';
+        html += '<div class="names">' + escapeHtml(t.sponsorNames) + '</div>';
+        html += '</div>';
+      }
+
+      // External bracket
+      if (t.bracketUrl) {
+        html += '<a class="bracket-link" href="' + escapeHtml(t.bracketUrl) + '" target="_blank" rel="noopener">View bracket / live results ↗</a>';
+      }
+
+      // Sign-up CTA
+      if (t.contactMethod && when !== "completed" && when !== "cancelled") {
+        html += '<div class="signup-card">';
+        html += '<div class="label">To sign up · contact</div>';
+        html += '<div class="contact">' + buildContactLink(t.contactMethod) + '</div>';
+        html += '<div class="note">Registration is handled directly with The Yard. Please share player name, partner (for doubles), and skill level when reaching out.</div>';
+        html += '</div>';
+      }
+
+      content.innerHTML = html;
+    }
+
+    loadTournament();
+  </script>
+</body>
+</html>
