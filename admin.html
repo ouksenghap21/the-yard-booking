@@ -6041,11 +6041,12 @@ function ActionQueuePanel({ data, onMarkPaid }) {
         )}
       </div>
 
-      {/* Payments to collect — today, customers about to leave the counter.
-          (Older unpaid items live in the Overdue section above.) */}
+      {/* Ending Soon · Unpaid — today's bookings in their last 30 min that
+          haven't been paid yet. Staff should chase the customer before they
+          leave the counter. Anything still unpaid 24h later moves to Overdue. */}
       <div className="section-group">
         <div className="head">
-          <span>Collect at Counter <span className="meta" style={{ marginLeft: 8, fontSize: 11, opacity: 0.7 }}>· today</span></span>
+          <span>Ending Soon · Unpaid</span>
           <span className={"count" + (payments.filter(p => !optimisticPaid.has(p.bookingId)).length === 0 ? " zero" : " urgent")}>
             {payments.filter(p => !optimisticPaid.has(p.bookingId)).length}
           </span>
@@ -14277,6 +14278,14 @@ function FinancesView({ data, onChanged, opOnly }) {
       {/* Outstanding — split by AGE: pending (informational) vs overdue (real receivables) */}
       <OutstandingPanel outstanding={data.outstanding} headline={h} onChanged={onChanged} />
 
+      {/* Aging buckets + per-customer rollup — only show if there's anything outstanding */}
+      {(data.outstandingByCustomer && data.outstandingByCustomer.length > 0) && (
+        <>
+          <AgingBucketsPanel buckets={data.agingBuckets} />
+          <OutstandingByCustomerPanel rollup={data.outstandingByCustomer} />
+        </>
+      )}
+
       {/* Daily trend chart */}
       <div className="section-label">
         <span><span className="num">01</span><span className="name">Daily Revenue Trend</span></span>
@@ -14724,6 +14733,252 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
         </div>
       )}
     </>
+  );
+}
+
+/* ====================================================================
+ * AgingBucketsPanel — shows the 5-bucket aging breakdown of all unpaid
+ * items as a horizontal stacked bar with a legend. Gives a quick read
+ * on "is the overdue stale or fresh?" without scrolling through items.
+ * Buckets: 0-24h (green), 1-3d (yellow), 3-7d (orange), 1-4w (red),
+ *          1+mo (deep red).
+ * ==================================================================== */
+function AgingBucketsPanel({ buckets }) {
+  if (!buckets) return null;
+  const order = ["0-24h", "1-3d", "3-7d", "1-4 weeks", "1+ month"];
+  const colors = {
+    "0-24h":     "var(--green)",
+    "1-3d":      "var(--wood)",     // tan / warning yellow
+    "3-7d":      "var(--peach,#D9785C)",
+    "1-4 weeks": "var(--clay)",
+    "1+ month":  "#5C1F1A"           // deep red — really stale
+  };
+  const labels = {
+    "0-24h":     "Today",
+    "1-3d":      "1–3 days",
+    "3-7d":      "3–7 days",
+    "1-4 weeks": "1–4 weeks",
+    "1+ month":  "1+ month"
+  };
+  const grandTotal = order.reduce((s, k) => s + ((buckets[k] && buckets[k].total) || 0), 0);
+  const grandCount = order.reduce((s, k) => s + ((buckets[k] && buckets[k].count) || 0), 0);
+  if (grandTotal === 0) return null;
+
+  return (
+    <div style={{ marginTop: 24, marginBottom: 24 }}>
+      <div className="section-label">
+        <span><span className="num">·</span><span className="name">Aging of outstanding</span></span>
+        <span className="right">{grandCount} item{grandCount === 1 ? "" : "s"} · {fmtMoney(grandTotal)}</span>
+      </div>
+
+      {/* Stacked bar */}
+      <div style={{
+        display: "flex",
+        height: 28,
+        borderRadius: 4,
+        overflow: "hidden",
+        background: "var(--concrete)",
+        marginTop: 8
+      }}>
+        {order.map(k => {
+          const b = buckets[k] || { count: 0, total: 0 };
+          if (b.total === 0) return null;
+          const pct = (b.total / grandTotal) * 100;
+          return (
+            <div
+              key={k}
+              title={labels[k] + ": " + b.count + " items · " + fmtMoney(b.total)}
+              style={{
+                width: pct + "%",
+                background: colors[k],
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--cream)",
+                fontFamily: "var(--mono)",
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.04em",
+                minWidth: pct < 4 ? 0 : "auto",
+                overflow: "hidden",
+                whiteSpace: "nowrap"
+              }}
+            >
+              {pct >= 8 ? Math.round(pct) + "%" : ""}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Legend / per-bucket detail */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(5, 1fr)",
+        gap: 10,
+        marginTop: 10
+      }}>
+        {order.map(k => {
+          const b = buckets[k] || { count: 0, total: 0 };
+          const dim = b.total === 0;
+          return (
+            <div key={k} style={{
+              padding: "8px 10px",
+              border: "1px solid var(--concrete)",
+              borderRadius: 4,
+              opacity: dim ? 0.4 : 1,
+              borderLeft: "4px solid " + colors[k]
+            }}>
+              <div style={{
+                fontFamily: "var(--mono)",
+                fontSize: 9,
+                letterSpacing: "0.16em",
+                textTransform: "uppercase",
+                opacity: 0.6,
+                marginBottom: 2
+              }}>{labels[k]}</div>
+              <div style={{
+                fontFamily: "var(--serif, Fraunces, Georgia, serif)",
+                fontSize: 18,
+                fontWeight: 500
+              }}>{fmtMoneyWhole(b.total)}</div>
+              <div style={{ fontSize: 11, opacity: 0.7 }}>
+                {b.count} item{b.count === 1 ? "" : "s"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ====================================================================
+ * OutstandingByCustomerPanel — groups all unpaid items by customer (or
+ * coach for coaching share). Sorted biggest balance first. Helps spot
+ * repeat offenders — "these 3 customers account for 60% of overdue".
+ * ==================================================================== */
+function OutstandingByCustomerPanel({ rollup }) {
+  const [showAll, setShowAll] = useState(false);
+  if (!rollup || rollup.length === 0) return null;
+
+  const visible = showAll ? rollup : rollup.slice(0, 8);
+  const grandTotal = rollup.reduce((s, c) => s + c.total, 0);
+  const top3Total = rollup.slice(0, 3).reduce((s, c) => s + c.total, 0);
+  const top3Pct = grandTotal > 0 ? Math.round((top3Total / grandTotal) * 100) : 0;
+
+  function ageLabel(h) {
+    if (h < 24) return "<24h";
+    if (h < 48) return Math.floor(h) + "h";
+    return Math.floor(h / 24) + "d";
+  }
+
+  return (
+    <div style={{ marginTop: 24, marginBottom: 24 }}>
+      <div className="section-label">
+        <span><span className="num">·</span><span className="name">Outstanding by customer</span></span>
+        <span className="right">
+          {rollup.length} debtor{rollup.length === 1 ? "" : "s"}
+          {rollup.length >= 3 && (
+            <span style={{ marginLeft: 10, opacity: 0.7 }}>
+              · top 3 = {top3Pct}% of total
+            </span>
+          )}
+        </span>
+      </div>
+
+      <div style={{
+        border: "1px solid var(--concrete)",
+        borderRadius: 4,
+        overflow: "hidden",
+        marginTop: 8
+      }}>
+        {/* Header row */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 100px 80px 90px 110px",
+          gap: 12,
+          padding: "10px 14px",
+          background: "var(--ink)",
+          color: "var(--cream)",
+          fontFamily: "var(--mono)",
+          fontSize: 10,
+          letterSpacing: "0.14em",
+          textTransform: "uppercase",
+          fontWeight: 700
+        }}>
+          <span>Customer</span>
+          <span style={{ textAlign: "right" }}>Phone</span>
+          <span style={{ textAlign: "right" }}>Items</span>
+          <span style={{ textAlign: "right" }}>Oldest</span>
+          <span style={{ textAlign: "right" }}>Owed</span>
+        </div>
+
+        {visible.map((c, idx) => {
+          const isCoach = c.kind === "coach";
+          // Build a "types" sub-line: BK · WI · CO with non-zero amounts
+          const typeParts = [];
+          if (c.byType.booking > 0) typeParts.push("Court " + fmtMoneyWhole(c.byType.booking));
+          if (c.byType.walkin > 0)  typeParts.push("Walk-in " + fmtMoneyWhole(c.byType.walkin));
+          if (c.byType.coaching > 0) typeParts.push((isCoach ? "Facility share " : "Coaching ") + fmtMoneyWhole(c.byType.coaching));
+
+          return (
+            <div key={c.key} style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 100px 80px 90px 110px",
+              gap: 12,
+              padding: "12px 14px",
+              borderTop: idx === 0 ? "none" : "1px solid var(--concrete)",
+              alignItems: "center",
+              fontSize: 13
+            }}>
+              <div>
+                <div style={{ fontWeight: 600 }}>
+                  {isCoach && <span style={{ color: "var(--wood)", marginRight: 6 }}>★</span>}
+                  {c.name || "(no name)"}
+                </div>
+                {typeParts.length > 0 && (
+                  <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2, fontFamily: "var(--mono)" }}>
+                    {typeParts.join(" · ")}
+                  </div>
+                )}
+              </div>
+              <span style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 12, opacity: 0.75 }}>
+                {c.phone || "—"}
+              </span>
+              <span style={{ textAlign: "right", fontFamily: "var(--mono)" }}>{c.items}</span>
+              <span style={{
+                textAlign: "right",
+                fontFamily: "var(--mono)",
+                fontSize: 12,
+                color: c.oldestAgeHours >= 168 ? "var(--clay)"
+                     : c.oldestAgeHours >= 72  ? "var(--peach,#D9785C)"
+                     : "var(--ink)",
+                opacity: c.oldestAgeHours >= 24 ? 1 : 0.6
+              }}>
+                {ageLabel(c.oldestAgeHours)}
+              </span>
+              <span style={{
+                textAlign: "right",
+                fontFamily: "var(--mono)",
+                fontWeight: 700,
+                fontSize: 14
+              }}>
+                {fmtMoney(c.total)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {rollup.length > 8 && (
+        <button
+          className="btn-sm"
+          style={{ marginTop: 10, width: "100%" }}
+          onClick={() => setShowAll(s => !s)}>
+          {showAll ? "Show top 8 only" : "Show all " + rollup.length + " debtors"}
+        </button>
+      )}
+    </div>
   );
 }
 
