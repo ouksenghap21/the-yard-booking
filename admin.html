@@ -4078,6 +4078,8 @@ const _PERSIST_ENDPOINTS = new Set([
   "adminGetPosSettings",
   "adminGetGoals",
   "adminGetSponsorshipSettings",
+  "adminGetPricingRules",
+  "adminListTournaments",
   "tabListOpen",
   "adminListWalkInBlocks"
 ]);
@@ -4851,6 +4853,117 @@ function RowSkeleton() {
   );
 }
 
+/* DashboardSkeleton — mirrors the real Dashboard layout so the page doesn't
+ * jump when content loads. Operational header band, 4 KPI stat cards, then
+ * a 2-column layout for Needs Attention + Today's Pulse. Sized to match the
+ * actual content's footprint within ~10% so layout shift is minimal. */
+function DashboardSkeleton() {
+  return (
+    <div style={{ padding: "20px 0" }}>
+      {/* Page header */}
+      <div style={{ marginBottom: 24 }}>
+        <Skeleton w={180} h={11} style={{ marginBottom: 10 }} />
+        <Skeleton w={320} h={32} />
+      </div>
+
+      {/* Operational Health — 4 KPI cards */}
+      <Skeleton w={300} h={20} style={{ marginBottom: 14 }} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 28 }}>
+        {[0, 1, 2, 3].map(i => <StatCardSkeleton key={i} />)}
+      </div>
+
+      {/* Two-column: Needs Attention | Today's Pulse */}
+      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20 }}>
+        <div style={{
+          border: "1px solid var(--concrete)",
+          borderRadius: 4,
+          padding: 20,
+          minHeight: 400
+        }}>
+          <Skeleton w={200} h={20} style={{ marginBottom: 18 }} />
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} style={{ marginBottom: 14 }}>
+              <Skeleton w="35%" h={11} style={{ marginBottom: 8 }} />
+              <Skeleton w="80%" h={14} />
+            </div>
+          ))}
+        </div>
+        <div style={{
+          border: "1px solid var(--concrete)",
+          borderRadius: 4,
+          padding: 20,
+          minHeight: 400
+        }}>
+          <Skeleton w={140} h={20} style={{ marginBottom: 18 }} />
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} style={{ marginBottom: 16 }}>
+              <Skeleton w="50%" h={10} style={{ marginBottom: 6 }} />
+              <Skeleton w="35%" h={28} style={{ marginBottom: 6 }} />
+              <Skeleton w="100%" h={6} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* FinancesPageSkeleton — mirrors the real FinancesView: hero revenue row,
+ * receivables cards, then the outstanding ledger area. */
+function FinancesPageSkeleton() {
+  return (
+    <div style={{ padding: "20px 0" }}>
+      <div style={{ marginBottom: 24 }}>
+        <Skeleton w={120} h={11} style={{ marginBottom: 10 }} />
+        <Skeleton w={240} h={32} />
+      </div>
+
+      {/* Hero revenue cards — wide first card + 5 smaller */}
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr", gap: 12, marginBottom: 18 }}>
+        <div className="stat-card" style={{ background: "rgba(26,26,26,0.05)" }}>
+          <Skeleton w="60%" h={10} style={{ marginBottom: 14 }} />
+          <Skeleton w="80%" h={44} style={{ marginBottom: 10 }} />
+          <Skeleton w="50%" h={10} />
+        </div>
+        {[0, 1, 2, 3, 4].map(i => <StatCardSkeleton key={i} />)}
+      </div>
+
+      {/* Outstanding receivables row */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
+        {[0, 1, 2, 3].map(i => <StatCardSkeleton key={i} />)}
+      </div>
+
+      {/* Outstanding ledger */}
+      <Skeleton w={220} h={18} style={{ marginBottom: 14 }} />
+      {[0, 1, 2, 3, 4].map(i => <RowSkeleton key={i} />)}
+    </div>
+  );
+}
+
+/* BookingsPageSkeleton — top toolbar + table of rows. */
+function BookingsPageSkeleton() {
+  return (
+    <div style={{ padding: "20px 0" }}>
+      <div style={{ marginBottom: 24 }}>
+        <Skeleton w={100} h={11} style={{ marginBottom: 10 }} />
+        <Skeleton w={200} h={32} />
+      </div>
+      {/* Toolbar */}
+      <div style={{
+        display: "flex", gap: 12, marginBottom: 18, padding: 14,
+        border: "1px solid var(--concrete)", borderRadius: 4
+      }}>
+        <Skeleton w={140} h={30} />
+        <Skeleton w={140} h={30} />
+        <div style={{ flex: 1 }} />
+        <Skeleton w={100} h={30} />
+      </div>
+      {/* Rows */}
+      {[0, 1, 2, 3, 4, 5, 6, 7].map(i => <RowSkeleton key={i} />)}
+    </div>
+  );
+}
+
 /* EmptyState — pair every empty result with a clear next action.
  * Replaces the bare "No X" text that left users wondering what to do.
  *   icon:     decorative emoji/symbol shown big
@@ -4921,6 +5034,15 @@ function ScreenLogin({ onAuth }) {
 
   useEffect(() => {
     setTimeout(() => { if (inputRef.current) inputRef.current.focus(); }, 50);
+    // SPEED WIN: Pre-warm the Apps Script runtime the moment the login screen
+    // mounts. By the time the staff member finishes typing their 6-digit PIN
+    // (~3-5 seconds), the cold-start cost (often 2-8s) is already absorbed.
+    // The first dashboard fetch then feels nearly instant instead of the
+    // user waiting a beat after PIN entry.
+    //
+    // We fire-and-forget — failure here doesn't matter, the real auth call
+    // still runs when they submit the PIN.
+    fetch(API_URL + "?action=adminPing", { method: "GET" }).catch(() => {});
   }, []);
 
   async function tryAuth(pin) {
@@ -5389,11 +5511,7 @@ function ScreenDashboard() {
   }, []);
 
   if (!data) {
-    return (
-      <div style={{ padding: 60, display: "flex", justifyContent: "center" }}>
-        <BouncingBall size="md" />
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   const today = todayISO();
@@ -6530,8 +6648,8 @@ function ScreenBookings() {
           </div>
 
           {entries === null ? (
-            <div style={{ padding: 40, display: "flex", justifyContent: "center" }}>
-              <BouncingBall size="md" />
+            <div style={{ padding: "12px 0" }}>
+              {[0, 1, 2, 3, 4, 5].map(i => <RowSkeleton key={i} />)}
             </div>
           ) : (
             <>
@@ -15057,6 +15175,750 @@ const EXPENSE_CATEGORIES = [
   { value: "other", label: "Other" }
 ];
 
+/* ====================================================================
+   OPEN PLAY / DROP-IN SESSIONS
+   ==================================================================== */
+
+/* ScreenOpenPlay — admin view for creating and managing open play sessions.
+   Three states:
+     - List view (default) with filters: upcoming | today | past | cancelled
+     - Create modal
+     - Detail modal (sees the roster, check players in, mark paid, cancel) */
+function ScreenOpenPlay() {
+  const [data, setData] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [detailId, setDetailId] = useState(null);
+  const [filter, setFilter] = useState("upcoming");
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  // FAB integration — listen for "yard:open-create" with target="openplay"
+  useEffect(() => {
+    function onCreate(e) {
+      if (e.detail && e.detail.target === "openplay") setShowCreate(true);
+    }
+    window.addEventListener("yard:open-create", onCreate);
+    return () => window.removeEventListener("yard:open-create", onCreate);
+  }, []);
+
+  async function load() {
+    const cached = getCachedApi("adminListOpenPlaySessions");
+    if (cached && cached.ok) {
+      setData(cached);
+      setLastUpdated(Date.now());
+    }
+    const r = await api("adminListOpenPlaySessions");
+    if (r.ok) {
+      setData(r);
+      setLastUpdated(Date.now());
+    }
+  }
+  useEffect(() => { load(); }, []);
+
+  if (!data) {
+    return (
+      <div className="main">
+        <BookingsPageSkeleton />
+      </div>
+    );
+  }
+
+  const sessions = data.sessions || [];
+  const counts = {
+    upcoming: sessions.filter(s => s.when === "upcoming" || s.when === "today").length,
+    past: sessions.filter(s => s.when === "past").length,
+    cancelled: sessions.filter(s => s.when === "cancelled").length,
+    all: sessions.length
+  };
+  const visible = sessions.filter(s => {
+    if (filter === "all") return true;
+    if (filter === "upcoming") return s.when === "upcoming" || s.when === "today";
+    return s.when === filter;
+  });
+
+  return (
+    <div className="main">
+      <div className="page-header">
+        <div>
+          <div className="title">Drop-in Sessions</div>
+          <h1>Open Play</h1>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <LastUpdated ts={lastUpdated} />
+          <button className="btn primary" onClick={() => setShowCreate(true)}>
+            + New session
+          </button>
+        </div>
+      </div>
+
+      <div style={{
+        display: "flex", gap: 8, marginBottom: 18,
+        borderBottom: "1px solid var(--concrete)", paddingBottom: 14
+      }}>
+        {[
+          ["upcoming", "Upcoming", counts.upcoming],
+          ["past", "Past", counts.past],
+          ["cancelled", "Cancelled", counts.cancelled],
+          ["all", "All", counts.all]
+        ].map(([k, lbl, n]) => (
+          <button
+            key={k}
+            className={"chip" + (filter === k ? " active" : "")}
+            onClick={() => setFilter(k)}
+          >
+            {lbl} <span style={{ opacity: 0.6, marginLeft: 4 }}>{n}</span>
+          </button>
+        ))}
+      </div>
+
+      {visible.length === 0 ? (
+        <EmptyState
+          icon="◉"
+          title={filter === "upcoming" ? "No upcoming sessions" : "No sessions"}
+          hint={
+            filter === "upcoming"
+              ? "Create a session to fill off-peak hours. Players sign up directly from the booking site."
+              : ""
+          }
+          action={filter === "upcoming" ? { label: "+ Create first session", onClick: () => setShowCreate(true), primary: true } : null}
+        />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {visible.map(s => (
+            <OpenPlayRow key={s.id} session={s} onOpen={() => setDetailId(s.id)} />
+          ))}
+        </div>
+      )}
+
+      {showCreate && (
+        <OpenPlayCreateModal
+          onClose={() => setShowCreate(false)}
+          onCreated={() => { setShowCreate(false); invalidateApiCache("adminListOpenPlaySessions"); load(); }}
+        />
+      )}
+      {detailId && (
+        <OpenPlayDetailModal
+          sessionId={detailId}
+          onClose={() => setDetailId(null)}
+          onChanged={() => { invalidateApiCache("adminListOpenPlaySessions"); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* OpenPlayRow — a single session in the admin list. Shows date/time, title,
+   registration progress (5/8), revenue collected vs expected, status pill. */
+function OpenPlayRow({ session, onOpen }) {
+  const cap = session.playerCap || 0;
+  const filled = session.registeredCount || 0;
+  const pct = cap > 0 ? Math.min(100, (filled / cap) * 100) : 0;
+  const isFull = cap > 0 && filled >= cap;
+  const isPast = session.when === "past";
+  const isCancelled = session.when === "cancelled";
+  const isToday = session.when === "today";
+
+  let badgeBg = "var(--concrete)";
+  let badgeColor = "var(--ink)";
+  let badgeText = "Upcoming";
+  if (isCancelled) { badgeBg = "var(--clay)"; badgeColor = "var(--cream)"; badgeText = "Cancelled"; }
+  else if (isPast) { badgeBg = "var(--concrete)"; badgeColor = "var(--ink)"; badgeText = "Past"; }
+  else if (isToday) { badgeBg = "var(--green)"; badgeColor = "var(--cream)"; badgeText = "Today"; }
+  else if (isFull) { badgeBg = "var(--wood)"; badgeColor = "var(--cream)"; badgeText = "Full · waitlist"; }
+
+  return (
+    <div
+      onClick={onOpen}
+      style={{
+        border: "1px solid var(--concrete)",
+        borderLeft: "4px solid " + (isCancelled ? "var(--clay)" : isToday ? "var(--green)" : isPast ? "rgba(26,26,26,0.2)" : "var(--peach,#D9785C)"),
+        borderRadius: 4,
+        padding: "14px 16px",
+        cursor: "pointer",
+        display: "grid",
+        gridTemplateColumns: "130px 1fr 180px 140px 90px",
+        gap: 16,
+        alignItems: "center",
+        opacity: (isPast || isCancelled) ? 0.65 : 1,
+        background: "var(--cream)"
+      }}
+    >
+      {/* Date + time */}
+      <div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700 }}>
+          {session.date}
+        </div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.7, marginTop: 2 }}>
+          {session.startTime} · {session.durationHours}h
+        </div>
+      </div>
+
+      {/* Title + skill level + courts */}
+      <div>
+        <div style={{ fontWeight: 600, marginBottom: 3 }}>
+          {session.title || "(no title)"}
+        </div>
+        <div style={{ fontSize: 11, opacity: 0.7, fontFamily: "var(--mono)" }}>
+          {session.skillLevel || "All levels"} · Courts {session.courts}
+        </div>
+      </div>
+
+      {/* Registration progress */}
+      <div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 4 }}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 15, fontWeight: 700 }}>
+            {filled}{cap > 0 ? "/" + cap : ""}
+          </span>
+          <span style={{ fontSize: 11, opacity: 0.6 }}>
+            {cap > 0 ? "players" : "unlimited"}
+          </span>
+        </div>
+        {cap > 0 && (
+          <div style={{ height: 4, background: "var(--concrete)", borderRadius: 2, overflow: "hidden" }}>
+            <div style={{
+              width: pct + "%",
+              height: "100%",
+              background: isFull ? "var(--wood)" : "var(--green)",
+              transition: "width 0.3s ease"
+            }} />
+          </div>
+        )}
+      </div>
+
+      {/* Revenue */}
+      <div style={{ textAlign: "right" }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 15, fontWeight: 600 }}>
+          {fmtMoney(session.collectedRevenue || 0)}
+        </div>
+        <div style={{ fontSize: 10, opacity: 0.6, fontFamily: "var(--mono)" }}>
+          of {fmtMoney(session.expectedRevenue || 0)} expected
+        </div>
+      </div>
+
+      {/* Status badge */}
+      <div style={{ textAlign: "right" }}>
+        <span style={{
+          background: badgeBg,
+          color: badgeColor,
+          padding: "4px 10px",
+          borderRadius: 999,
+          fontSize: 9,
+          fontFamily: "var(--mono)",
+          fontWeight: 700,
+          letterSpacing: "0.14em",
+          textTransform: "uppercase",
+          whiteSpace: "nowrap"
+        }}>
+          {badgeText}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* OpenPlayCreateModal — admin creates a new session.
+   Date, time, duration, courts, title, skill level, player cap, price.
+   Validates client-side before submit so errors are instant. */
+function OpenPlayCreateModal({ onClose, onCreated }) {
+  // Default to today + 1, weekday off-peak (good for filling slow hours)
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const defaultDate = tomorrow.toISOString().substring(0, 10);
+
+  const [form, setForm] = useState({
+    date: defaultDate,
+    startTime: "10:00",
+    durationHours: 2,
+    courts: [1, 2],
+    title: "",
+    skillLevel: "All",
+    playerCap: 8,
+    price: 5,
+    notes: ""
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function toggleCourt(n) {
+    setForm(f => {
+      const has = f.courts.indexOf(n) !== -1;
+      return { ...f, courts: has ? f.courts.filter(c => c !== n) : [...f.courts, n].sort((a, b) => a - b) };
+    });
+  }
+
+  async function save() {
+    setError("");
+    if (!form.title.trim()) { setError("Title is required"); return; }
+    if (form.courts.length === 0) { setError("Pick at least one court"); return; }
+    if (form.durationHours <= 0) { setError("Duration must be > 0"); return; }
+    if (form.playerCap < 0) { setError("Cap can't be negative"); return; }
+    if (form.price < 0) { setError("Price can't be negative"); return; }
+    setSaving(true);
+    const r = await api("adminCreateOpenPlaySession", {
+      date: form.date,
+      startTime: form.startTime,
+      durationHours: form.durationHours,
+      courts: form.courts.join(","),
+      title: form.title.trim(),
+      skillLevel: form.skillLevel,
+      playerCap: form.playerCap,
+      price: form.price,
+      notes: form.notes
+    });
+    setSaving(false);
+    if (r.ok) {
+      showToast("Session created · " + r.slotsReserved + " slots reserved", "success");
+      onCreated();
+    } else {
+      setError(r.error || "Failed to create");
+    }
+  }
+
+  // Build the courts array (1..COURTS_COUNT)
+  const courtNums = Array.from({ length: COURTS_COUNT }, (_, i) => i + 1);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 720 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">Drop-in Session</div>
+            <h2>New Open Play</h2>
+          </div>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
+        {/* Title — most prominent */}
+        <div>
+          <label style={{ display: "block", marginBottom: 6, fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>
+            Title
+          </label>
+          <input
+            type="text"
+            value={form.title}
+            onChange={(e) => setForm({ ...form, title: e.target.value })}
+            placeholder="e.g. 'Beginner Drop-In', '3.5+ Open Play'"
+            style={{ width: "100%", fontSize: 16, fontWeight: 600 }}
+            maxLength={80}
+            autoFocus
+          />
+        </div>
+
+        {/* Date / time / duration row */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+          <div>
+            <label style={{ display: "block", marginBottom: 6, fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>Date</label>
+            <input
+              type="date"
+              value={form.date}
+              onChange={(e) => setForm({ ...form, date: e.target.value })}
+              min={new Date().toISOString().substring(0, 10)}
+              style={{ width: "100%" }}
+            />
+          </div>
+          <div>
+            <label style={{ display: "block", marginBottom: 6, fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>Start</label>
+            <input
+              type="time"
+              value={form.startTime}
+              onChange={(e) => setForm({ ...form, startTime: e.target.value })}
+              step="1800"
+              style={{ width: "100%" }}
+            />
+          </div>
+          <div>
+            <label style={{ display: "block", marginBottom: 6, fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>Duration</label>
+            <select
+              value={form.durationHours}
+              onChange={(e) => setForm({ ...form, durationHours: parseFloat(e.target.value) })}
+              style={{ width: "100%" }}
+            >
+              {[1, 1.5, 2, 2.5, 3, 4].map(h => (
+                <option key={h} value={h}>{h} hour{h === 1 ? "" : "s"}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Courts */}
+        <div>
+          <label style={{ display: "block", marginBottom: 8, fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>
+            Courts {form.courts.length > 0 ? "(" + form.courts.length + " selected)" : ""}
+          </label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {courtNums.map(n => {
+              const on = form.courts.indexOf(n) !== -1;
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => toggleCourt(n)}
+                  style={{
+                    width: 44, height: 44,
+                    border: "1.5px solid " + (on ? "var(--ink)" : "var(--concrete)"),
+                    background: on ? "var(--ink)" : "transparent",
+                    color: on ? "var(--cream)" : "var(--ink)",
+                    borderRadius: 4,
+                    fontFamily: "var(--mono)",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    cursor: "pointer"
+                  }}
+                >
+                  {n}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Skill / cap / price row */}
+        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 12 }}>
+          <div>
+            <label style={{ display: "block", marginBottom: 6, fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>Skill level</label>
+            <select
+              value={form.skillLevel}
+              onChange={(e) => setForm({ ...form, skillLevel: e.target.value })}
+              style={{ width: "100%" }}
+            >
+              <option value="All">All levels</option>
+              <option value="Beginner">Beginner (2.0-2.5)</option>
+              <option value="Intermediate">Intermediate (3.0-3.5)</option>
+              <option value="Advanced">Advanced (4.0+)</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ display: "block", marginBottom: 6, fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>Player cap</label>
+            <input
+              type="number"
+              min="0"
+              max="64"
+              value={form.playerCap}
+              onChange={(e) => setForm({ ...form, playerCap: parseInt(e.target.value) || 0 })}
+              style={{ width: "100%" }}
+            />
+            <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4 }}>0 = unlimited</div>
+          </div>
+          <div>
+            <label style={{ display: "block", marginBottom: 6, fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>Price / player</label>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ fontFamily: "var(--mono)", fontSize: 14, opacity: 0.7 }}>$</span>
+              <input
+                type="number"
+                min="0"
+                max="200"
+                step="0.5"
+                value={form.price}
+                onChange={(e) => setForm({ ...form, price: parseFloat(e.target.value) || 0 })}
+                style={{ flex: 1 }}
+              />
+            </div>
+            <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4 }}>0 = free</div>
+          </div>
+        </div>
+
+        {/* Notes */}
+        <div>
+          <label style={{ display: "block", marginBottom: 6, fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>
+            Notes <span style={{ opacity: 0.6 }}>(visible to players)</span>
+          </label>
+          <textarea
+            value={form.notes}
+            onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            placeholder="Anything players should know — e.g. 'Bring your own paddle, balls provided'"
+            rows={2}
+            style={{ width: "100%", fontFamily: "inherit" }}
+          />
+        </div>
+
+        {/* Expected revenue preview */}
+        {form.playerCap > 0 && form.price > 0 && (
+          <div style={{
+            padding: 10, background: "var(--concrete)", borderRadius: 4,
+            fontFamily: "var(--mono)", fontSize: 12
+          }}>
+            Max potential revenue: {fmtMoney(form.playerCap * form.price)} ({form.playerCap} × {fmtMoney(form.price)})
+          </div>
+        )}
+
+        {error && (
+          <div className="settings-warning">{error}</div>
+        )}
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          <button className="btn" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn primary" onClick={save} disabled={saving}>
+            {saving ? "Creating…" : "Create session"}
+          </button>
+        </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* OpenPlayDetailModal — admin view of a session's full roster.
+   Check players in, mark them paid, cancel registrations, cancel the
+   whole session. */
+function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [acting, setActing] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    const r = await api("adminGetOpenPlaySession", { sessionId: sessionId }, { bypassCache: true });
+    if (r.ok) setData(r);
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, [sessionId]);
+
+  async function toggleCheckedIn(p) {
+    setActing(true);
+    const r = await api("adminUpdateOpenPlayPlayer", {
+      registrationId: p.id,
+      checkedIn: !p.checkedIn
+    });
+    setActing(false);
+    if (r.ok) { load(); onChanged(); }
+    else showToast(r.error || "Failed", "error");
+  }
+
+  async function togglePaid(p) {
+    setActing(true);
+    const r = await api("adminUpdateOpenPlayPlayer", {
+      registrationId: p.id,
+      paid: !p.paid,
+      amountPaid: !p.paid ? (data && data.session.price) : 0,
+      paymentMethod: !p.paid ? "Cash" : ""
+    });
+    setActing(false);
+    if (r.ok) { load(); onChanged(); }
+    else showToast(r.error || "Failed", "error");
+  }
+
+  async function removePlayer(p) {
+    if (!confirm("Remove " + p.name + " from this session?")) return;
+    setActing(true);
+    const r = await api("adminRemoveOpenPlayPlayer", { registrationId: p.id });
+    setActing(false);
+    if (r.ok) { showToast("Player removed", "success"); load(); onChanged(); }
+    else showToast(r.error || "Failed", "error");
+  }
+
+  async function cancelSession() {
+    if (!confirm("Cancel this whole session? Court slots will be freed back to the booking grid. Players keep their record but the session won't run.")) return;
+    setActing(true);
+    const r = await api("adminCancelOpenPlaySession", { sessionId: sessionId });
+    setActing(false);
+    if (r.ok) {
+      showToast("Session cancelled · " + r.slotsFreed + " slots freed", "success");
+      onChanged();
+      onClose();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  if (loading || !data) {
+    return (
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal" style={{ maxWidth: 800 }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-head">
+            <div>
+              <div className="kicker">Open Play</div>
+              <h2>Loading…</h2>
+            </div>
+            <button className="x" onClick={onClose} aria-label="Close">×</button>
+          </div>
+          <div style={{ padding: 40, display: "flex", justifyContent: "center" }}>
+            <BouncingBall />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const s = data.session;
+  const activePlayers = data.players.filter(p => !p.cancelledAt);
+  const cancelledPlayers = data.players.filter(p => p.cancelledAt);
+  const isCancelled = s.status === "cancelled";
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 800 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">{s.id} · Open Play</div>
+            <h2>{s.title || "Open Play session"}</h2>
+          </div>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div style={{ padding: 20 }}>
+      {/* Session info card */}
+      <div style={{
+        padding: 14,
+        background: "var(--concrete)",
+        borderRadius: 4,
+        marginBottom: 18,
+        display: "grid",
+        gridTemplateColumns: "repeat(4, 1fr)",
+        gap: 14
+      }}>
+        <div>
+          <div style={{ fontSize: 10, opacity: 0.6, fontFamily: "var(--mono)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>When</div>
+          <div style={{ fontWeight: 600 }}>{s.date}</div>
+          <div style={{ fontSize: 12, opacity: 0.7, fontFamily: "var(--mono)" }}>
+            {s.startTime} · {s.durationHours}h
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, opacity: 0.6, fontFamily: "var(--mono)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Courts</div>
+          <div style={{ fontWeight: 600 }}>{s.courts}</div>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>{s.skillLevel}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, opacity: 0.6, fontFamily: "var(--mono)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Registered</div>
+          <div style={{ fontWeight: 600, fontSize: 18 }}>
+            {activePlayers.length}{s.playerCap > 0 ? " / " + s.playerCap : ""}
+          </div>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>
+            {activePlayers.filter(p => p.paid).length} paid
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, opacity: 0.6, fontFamily: "var(--mono)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>Price / player</div>
+          <div style={{ fontWeight: 600, fontSize: 18 }}>{fmtMoney(s.price)}</div>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>
+            {fmtMoney(activePlayers.filter(p => p.paid).length * s.price)} collected
+          </div>
+        </div>
+      </div>
+
+      {s.notes && (
+        <div style={{
+          padding: "10px 14px",
+          borderLeft: "3px solid var(--wood)",
+          marginBottom: 18,
+          fontSize: 13,
+          fontStyle: "italic"
+        }}>
+          {s.notes}
+        </div>
+      )}
+
+      {isCancelled && (
+        <div className="settings-warning" style={{ marginBottom: 14 }}>
+          This session has been cancelled.
+        </div>
+      )}
+
+      {/* Players list */}
+      <div style={{ marginBottom: 18 }}>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700, marginBottom: 10 }}>
+          Roster ({activePlayers.length})
+        </div>
+        {activePlayers.length === 0 ? (
+          <div style={{ padding: 30, textAlign: "center", opacity: 0.5, fontStyle: "italic" }}>
+            No players have signed up yet
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {activePlayers.map(p => (
+              <div key={p.id} style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 120px 90px 90px 40px",
+                gap: 10,
+                padding: "10px 12px",
+                border: "1px solid var(--concrete)",
+                borderRadius: 4,
+                alignItems: "center"
+              }}>
+                <div>
+                  <div style={{ fontWeight: 600 }}>{p.name}</div>
+                  <div style={{ fontSize: 11, opacity: 0.6, fontFamily: "var(--mono)" }}>{p.phone}</div>
+                </div>
+                <button
+                  className="btn-sm"
+                  onClick={() => toggleCheckedIn(p)}
+                  disabled={acting || isCancelled}
+                  style={{
+                    background: p.checkedIn ? "var(--green)" : "transparent",
+                    color: p.checkedIn ? "var(--cream)" : "var(--ink)",
+                    border: "1px solid " + (p.checkedIn ? "var(--green)" : "var(--concrete)")
+                  }}
+                >
+                  {p.checkedIn ? "✓ Checked in" : "Check in"}
+                </button>
+                <button
+                  className="btn-sm"
+                  onClick={() => togglePaid(p)}
+                  disabled={acting || isCancelled || s.price <= 0}
+                  style={{
+                    background: p.paid ? "var(--ink)" : "transparent",
+                    color: p.paid ? "var(--cream)" : "var(--ink)",
+                    border: "1px solid " + (p.paid ? "var(--ink)" : "var(--concrete)"),
+                    opacity: s.price <= 0 ? 0.4 : 1
+                  }}
+                >
+                  {s.price <= 0 ? "Free" : p.paid ? "✓ Paid" : "Mark paid"}
+                </button>
+                <div style={{ fontSize: 11, opacity: 0.6, fontFamily: "var(--mono)", textAlign: "right" }}>
+                  {p.amountPaid > 0 ? fmtMoney(p.amountPaid) : "—"}
+                </div>
+                <button
+                  onClick={() => removePlayer(p)}
+                  disabled={acting || isCancelled}
+                  title="Remove from session"
+                  style={{
+                    background: "transparent", border: "none", cursor: "pointer",
+                    color: "var(--clay)", fontSize: 16, padding: 4
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {cancelledPlayers.length > 0 && (
+        <details style={{ marginBottom: 18 }}>
+          <summary style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700, opacity: 0.6, cursor: "pointer" }}>
+            Cancelled registrations ({cancelledPlayers.length})
+          </summary>
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
+            {cancelledPlayers.map(p => (
+              <div key={p.id} style={{ fontSize: 12, opacity: 0.6, padding: 6 }}>
+                <s>{p.name}</s> · {p.phone}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+        <div>
+          {!isCancelled && (
+            <button
+              className="btn"
+              onClick={cancelSession}
+              disabled={acting}
+              style={{ color: "var(--clay)", borderColor: "var(--clay)" }}
+            >
+              Cancel session
+            </button>
+          )}
+        </div>
+        <button className="btn" onClick={onClose}>Close</button>
+      </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function tournamentTypeLabel(type) {
   const t = TOURNAMENT_TYPES.find(x => x.value === type);
   return t ? t.label : (type || "—");
@@ -17863,6 +18725,7 @@ function QuickCreateFab({ go, screen }) {
     { id: "pos",          icon: "$", label: "New POS sale",        hint: "Ring up drinks/products" },
     { id: "members",      icon: "★", label: "New member",          hint: "Sign up Founding or Standard" },
     { id: "tournaments",  icon: "🏆", label: "New tournament",      hint: "Block courts, set fees, track players" },
+    { id: "openplay",     icon: "◎", label: "New open play",       hint: "Scheduled drop-in, players sign up online" },
     { id: "sponsorships", icon: "⬛", label: "New sponsor banner",  hint: "Sell ad space" },
   ];
 
@@ -17961,14 +18824,42 @@ function App() {
   // Validate the stored PIN on boot, then prefetch common tabs so navigation feels instant
   useEffect(() => {
     if (!authed) return;
-    // Single batched call: dashboard + members + coaches + products in one
-    // round trip. This amortises the Apps Script cold-start cost (2-8s on
-    // first call) across four pieces of data instead of paying it per call.
+    // SPEED: Fire BOTH bootstrap calls in parallel.
+    //   - adminBootstrap: dashboard only (above-the-fold, blocks first paint)
+    //   - adminBootstrapSecondary: members/coaches/products (background prefetch)
+    //
+    // Dashboard ships in ~half the time it would if these were batched
+    // together, because the secondary read no longer holds up rendering.
     //
     // Each section has its own ok flag — partial failures are handled
     // gracefully and fall through to the per-screen endpoints later.
     // Falls back to a plain dashboard call if adminBootstrap isn't deployed
     // yet on the backend (graceful degrade during rollout).
+    const hydrateSections = (sections, t) => {
+      try {
+        const cacheKey = (a, p) => _apiCacheKey(a, p || {});
+        const hydrate = (action, payload) => {
+          if (!payload) return;
+          const key = cacheKey(action, {});
+          _apiCache.set(key, { data: payload, time: t });
+          try { _persistCacheEntry(key, payload, t); } catch (e) {}
+        };
+        if (sections.dashboard && sections.dashboard.ok) hydrate("adminDashboard", sections.dashboard.data);
+        if (sections.members   && sections.members.ok)   hydrate("adminListMembers", sections.members.data);
+        if (sections.coaches   && sections.coaches.ok)   hydrate("adminListCoaches", sections.coaches.data);
+        if (sections.products  && sections.products.ok)  hydrate("posListProducts", sections.products.data);
+      } catch (e) {
+        // Hydration is best-effort; failures aren't fatal
+      }
+    };
+
+    // Fire secondary IN PARALLEL — don't await, don't gate on primary
+    api("adminBootstrapSecondary").then(r2 => {
+      if (r2 && r2.sections) {
+        hydrateSections(r2.sections, Date.now());
+      }
+    }).catch(() => { /* secondary failures are silent; per-screen fallback covers it */ });
+
     api("adminBootstrap").then(r => {
       // Bad PIN — clear and bounce back to login
       if (r && r.error && /unauthor/i.test(r.error)) {
@@ -17990,22 +18881,7 @@ function App() {
         // Hydrate cache directly so subsequent screen visits skip the network.
         // Also persist to localStorage so a tab reload doesn't re-pay the
         // cold-start cost.
-        try {
-          const t = Date.now();
-          const cacheKey = (a, p) => _apiCacheKey(a, p || {});
-          const hydrate = (action, payload) => {
-            if (!payload) return;
-            const key = cacheKey(action, {});
-            _apiCache.set(key, { data: payload, time: t });
-            try { _persistCacheEntry(key, payload, t); } catch (e) {}
-          };
-          if (r.sections.dashboard && r.sections.dashboard.ok) hydrate("adminDashboard", r.sections.dashboard.data);
-          if (r.sections.members   && r.sections.members.ok)   hydrate("adminListMembers", r.sections.members.data);
-          if (r.sections.coaches   && r.sections.coaches.ok)   hydrate("adminListCoaches", r.sections.coaches.data);
-          if (r.sections.products  && r.sections.products.ok)  hydrate("posListProducts", r.sections.products.data);
-        } catch (e) {
-          // Hydration is best-effort; failures aren't fatal
-        }
+        hydrateSections(r.sections, Date.now());
       }
       // Continue with secondary prefetch of less critical screens
       const today = todayISO();
@@ -18154,6 +19030,7 @@ function App() {
     { id: "customers", label: "Customers", ready: true },
     { id: "finances",  label: "Finances",  ready: true },
     { id: "tournaments", label: "Tournaments", ready: true },
+    { id: "openplay",  label: "Open Play",  ready: true },
     { id: "sponsorships", label: "Sponsorships", ready: true },
     { id: "sms",       label: "SMS Log",   ready: true },
     { id: "settings",  label: "Settings",  ready: true }
@@ -18253,6 +19130,7 @@ function App() {
     case "finances":  body = <ScreenFinances />; break;
     case "sponsorships": body = <ScreenSponsorships />; break;
     case "tournaments": body = <ScreenTournaments />; break;
+    case "openplay":  body = <ScreenOpenPlay />; break;
     case "sms":       body = <ScreenSmsLog />; break;
     default:          body = <ScreenDashboard />;
   }
