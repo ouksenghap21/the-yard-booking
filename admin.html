@@ -15832,6 +15832,89 @@ function App() {
     setAuthed(false);
   }
 
+  // ALL hooks MUST be declared before any conditional early return.
+  // Previously useRef + keyboard-shortcut hooks lived after the
+  // `if (!authed) return` line — that caused a hooks-order mismatch between
+  // the pre-login render (where the early return skipped them) and the
+  // post-login render (where they ran for the first time). React detected
+  // the mismatch and silently unmounted the whole tree, producing the
+  // blank-beige-screen-until-refresh bug. Keeping them all up here makes
+  // the order stable across renders.
+  const prefetchTimer = useRef(null);
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const gPrefixRef = useRef(0);  // timestamp of last "g" press for "g X" combos
+
+  // Keyboard shortcuts effect — must be declared at top level alongside other hooks
+  useEffect(() => {
+    const SHORTCUT_KEYS = {
+      d: "dashboard", b: "bookings", m: "members", c: "coaching",
+      p: "pos", u: "customers", f: "finances", s: "sponsorships",
+      l: "sms", x: "settings"
+    };
+
+    function isTypingTarget(el) {
+      if (!el) return false;
+      const tag = el.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+      if (el.isContentEditable) return true;
+      return false;
+    }
+
+    function onKey(e) {
+      if (!authed) return;  // ignore shortcuts on login screen
+      // Ignore if user is typing
+      if (isTypingTarget(e.target)) return;
+      // Ignore if modifier keys (let Cmd-K etc work as native)
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const key = e.key.toLowerCase();
+      const now = Date.now();
+
+      // "g X" — go-to navigation (2-key combo within 1 second)
+      if (key === "g") {
+        gPrefixRef.current = now;
+        return;
+      }
+      if (gPrefixRef.current && (now - gPrefixRef.current) < 1000 && SHORTCUT_KEYS[key]) {
+        gPrefixRef.current = 0;
+        e.preventDefault();
+        go(SHORTCUT_KEYS[key]);
+        return;
+      }
+      gPrefixRef.current = 0;
+
+      // Single-key shortcuts
+      if (key === "/") {
+        // Focus first search input on current screen
+        const search = document.querySelector('input[type="search"], input[placeholder*="earch" i]');
+        if (search) {
+          e.preventDefault();
+          search.focus();
+        }
+        return;
+      }
+      if (key === "n") {
+        const fab = document.querySelector('[aria-label="Quick create"]');
+        if (fab) {
+          e.preventDefault();
+          fab.click();
+        }
+        return;
+      }
+      if (key === "?" || (e.shiftKey && key === "/")) {
+        e.preventDefault();
+        setShowShortcutHelp(s => !s);
+        return;
+      }
+      if (key === "escape") {
+        setShowShortcutHelp(false);
+      }
+    }
+
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [authed]);
+
   if (!authed) {
     return <ScreenLogin onAuth={() => setAuthed(true)} />;
   }
@@ -15850,17 +15933,7 @@ function App() {
     { id: "settings",  label: "Settings",  ready: true }
   ];
 
-  // Prefetch data for a tab when the user hovers (before they actually click)
-  // Hover-prefetch with safety rails. Without these, a user sweeping their
-  // mouse across every sidebar item would fire dozens of fetches at once
-  // and overload Apps Script. Three protections:
-  //   1. Debounce: must hover for at least 120ms before firing. Filters
-  //      out drive-by mouseenter events.
-  //   2. Cache check: skip if the action's cache entry is fresh (less than
-  //      75% of its TTL). No need to re-fetch what we just fetched.
-  //   3. Throttle: cancel any pending prefetch when a new tab is hovered,
-  //      so we never have more than one in flight from hover.
-  const prefetchTimer = useRef(null);
+  // Hover-prefetch helpers — safe to declare here because they're not hooks.
   const isPrefetchFresh = (action, params) => {
     try {
       const key = _apiCacheKey(action, params || {});
@@ -15868,8 +15941,6 @@ function App() {
       if (!entry) return false;
       const ttl = API_CACHE_TTL[action] || 0;
       if (ttl <= 0) return false;
-      // Consider "fresh" if we're well within the TTL — don't waste a
-      // prefetch on data the user is about to read anyway.
       return (Date.now() - entry.time) < ttl * 0.75;
     } catch (e) { return false; }
   };
@@ -15879,12 +15950,10 @@ function App() {
   };
 
   function prefetchForTab(id) {
-    // Cancel any pending hover-prefetch from another tab
     if (prefetchTimer.current) {
       clearTimeout(prefetchTimer.current);
       prefetchTimer.current = null;
     }
-    // Debounce: only fire if the hover persists for 120ms
     prefetchTimer.current = setTimeout(() => {
       prefetchTimer.current = null;
       const today = todayISO();
@@ -15921,6 +15990,9 @@ function App() {
           safePrefetch("adminFinancesRange", { granularity: "weekly", periodOffset: 0 });
           break;
         }
+        case "tournaments":
+          safePrefetch("adminListTournaments");
+          break;
         case "sponsorships":
           safePrefetch("adminListSponsorships");
           break;
@@ -15942,82 +16014,6 @@ function App() {
     if (!t || !t.ready) return;
     setScreen(id);
   }
-
-  // ============================================================
-  // KEYBOARD SHORTCUTS — power-user navigation
-  //   /         focus the first search input on the current screen
-  //   n         open quick-create menu (FAB)
-  //   ?         show shortcut help
-  //   g <key>   navigate (g d = dashboard, g b = bookings, etc.)
-  //   Esc       close shortcut help / FAB
-  // Shortcuts are disabled while user is typing in inputs.
-  // ============================================================
-  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
-  const gPrefixRef = useRef(0);  // timestamp of last "g" press
-
-  useEffect(() => {
-    const SHORTCUT_KEYS = {
-      d: "dashboard", b: "bookings", m: "members", c: "coaching",
-      p: "pos", u: "customers", f: "finances", s: "sponsorships",
-      l: "sms", x: "settings"
-    };
-
-    function isTypingTarget(el) {
-      if (!el) return false;
-      const tag = el.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
-      if (el.isContentEditable) return true;
-      return false;
-    }
-
-    function onKey(e) {
-      // Ignore if user is typing
-      if (isTypingTarget(e.target)) return;
-      // Ignore if modifier keys (let Cmd-K etc work as native)
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-
-      const key = e.key.toLowerCase();
-      const now = Date.now();
-
-      // "g X" — go-to navigation (2-key combo within 1 second)
-      if (key === "g") {
-        gPrefixRef.current = now;
-        return;
-      }
-      if (gPrefixRef.current && (now - gPrefixRef.current) < 1000 && SHORTCUT_KEYS[key]) {
-        gPrefixRef.current = 0;
-        e.preventDefault();
-        go(SHORTCUT_KEYS[key]);
-        return;
-      }
-      gPrefixRef.current = 0;
-
-      // Single-key shortcuts
-      if (key === "/") {
-        // Focus first search input on the page
-        const input = document.querySelector('input[type="search"], input.search-input, input[placeholder*="Search" i]');
-        if (input) {
-          e.preventDefault();
-          input.focus();
-          input.select && input.select();
-        }
-      } else if (key === "?") {
-        e.preventDefault();
-        setShowShortcutHelp(true);
-      } else if (key === "n") {
-        // Trigger the FAB by simulating a click — keeps logic in one place
-        const fab = document.querySelector('[aria-label="Quick create"]');
-        if (fab) {
-          e.preventDefault();
-          fab.click();
-        }
-      } else if (key === "escape") {
-        setShowShortcutHelp(false);
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
 
   let body;
   switch (screen) {
