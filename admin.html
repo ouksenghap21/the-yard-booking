@@ -15736,29 +15736,63 @@ function App() {
   // Validate the stored PIN on boot, then prefetch common tabs so navigation feels instant
   useEffect(() => {
     if (!authed) return;
-    api("adminDashboard").then(r => {
-      if (!r.ok) {
+    // Single batched call: dashboard + members + coaches + products in one
+    // round trip. This amortises the Apps Script cold-start cost (2-8s on
+    // first call) across four pieces of data instead of paying it per call.
+    //
+    // Each section has its own ok flag — partial failures are handled
+    // gracefully and fall through to the per-screen endpoints later.
+    // Falls back to a plain dashboard call if adminBootstrap isn't deployed
+    // yet on the backend (graceful degrade during rollout).
+    api("adminBootstrap").then(r => {
+      // Bad PIN — clear and bounce back to login
+      if (r && r.error && /unauthor/i.test(r.error)) {
         setStoredPin("");
         invalidateApiCache("");
         setAuthed(false);
         return;
       }
-      // Warm-up: kick off background fetches for the most-used tabs so cache
-      // is hot by the time the user clicks them. Failures are silently ignored
-      // (these will be retried on first real visit).
+      // Bootstrap unavailable (old backend) — fall back to legacy path
+      if (!r || !r.sections) {
+        api("adminDashboard").then(dashRes => {
+          if (!dashRes.ok) {
+            setStoredPin("");
+            invalidateApiCache("");
+            setAuthed(false);
+          }
+        });
+      } else {
+        // Hydrate cache directly so subsequent screen visits skip the network.
+        // Also persist to localStorage so a tab reload doesn't re-pay the
+        // cold-start cost.
+        try {
+          const t = Date.now();
+          const cacheKey = (a, p) => _apiCacheKey(a, p || {});
+          const hydrate = (action, payload) => {
+            if (!payload) return;
+            const key = cacheKey(action, {});
+            _apiCache.set(key, { data: payload, time: t });
+            try { _persistCacheEntry(key, payload, t); } catch (e) {}
+          };
+          if (r.sections.dashboard && r.sections.dashboard.ok) hydrate("adminDashboard", r.sections.dashboard.data);
+          if (r.sections.members   && r.sections.members.ok)   hydrate("adminListMembers", r.sections.members.data);
+          if (r.sections.coaches   && r.sections.coaches.ok)   hydrate("adminListCoaches", r.sections.coaches.data);
+          if (r.sections.products  && r.sections.products.ok)  hydrate("posListProducts", r.sections.products.data);
+        } catch (e) {
+          // Hydration is best-effort; failures aren't fatal
+        }
+      }
+      // Continue with secondary prefetch of less critical screens
       const today = todayISO();
       const now = new Date();
       setTimeout(() => {
         api("adminListTimelineEntries", { dateFrom: today, dateTo: today }).catch(() => {});
-        api("posListProducts").catch(() => {});
-        api("adminListMembers").catch(() => {});
         api("tabListOpen").catch(() => {});
-      }, 200);  // small delay so dashboard loads first
+      }, 200);
       setTimeout(() => {
         api("adminDashboardKpi").catch(() => {});
         api("adminOperationalKpi").catch(() => {});
         api("adminListSponsorships").catch(() => {});
-        api("adminListCoaches").catch(() => {});
         api("adminFinancesMonth", { year: now.getFullYear(), month: now.getMonth() + 1 }).catch(() => {});
       }, 800);
       // Lower-priority tabs — warm cache 2s in (after main tabs ready)
@@ -15767,8 +15801,30 @@ function App() {
         api("adminListSmsLog", { type: "", status: "", limit: 200 }).catch(() => {});
         api("posListSales").catch(() => {});
       }, 2000);
+    }).catch(() => {
+      // Network failure — leave auth state alone; user can retry by clicking around
     });
   }, []);
+
+  // Keep Apps Script warm: ping every 4 minutes (well under the ~6-minute
+  // idle timeout) and immediately when the tab refocuses. This hides
+  // cold-start latency after the admin has briefly walked away from the
+  // screen — a very common pattern at the counter.
+  useEffect(() => {
+    if (!authed) return;
+    const ping = () => {
+      api("adminPing", {}, { bypassCache: true }).catch(() => {});
+    };
+    const intervalId = setInterval(ping, 4 * 60 * 1000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") ping();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [authed]);
 
   function signOut() {
     setStoredPin("");
@@ -15795,55 +15851,90 @@ function App() {
   ];
 
   // Prefetch data for a tab when the user hovers (before they actually click)
+  // Hover-prefetch with safety rails. Without these, a user sweeping their
+  // mouse across every sidebar item would fire dozens of fetches at once
+  // and overload Apps Script. Three protections:
+  //   1. Debounce: must hover for at least 120ms before firing. Filters
+  //      out drive-by mouseenter events.
+  //   2. Cache check: skip if the action's cache entry is fresh (less than
+  //      75% of its TTL). No need to re-fetch what we just fetched.
+  //   3. Throttle: cancel any pending prefetch when a new tab is hovered,
+  //      so we never have more than one in flight from hover.
+  const prefetchTimer = useRef(null);
+  const isPrefetchFresh = (action, params) => {
+    try {
+      const key = _apiCacheKey(action, params || {});
+      const entry = _apiCache.get(key);
+      if (!entry) return false;
+      const ttl = API_CACHE_TTL[action] || 0;
+      if (ttl <= 0) return false;
+      // Consider "fresh" if we're well within the TTL — don't waste a
+      // prefetch on data the user is about to read anyway.
+      return (Date.now() - entry.time) < ttl * 0.75;
+    } catch (e) { return false; }
+  };
+  const safePrefetch = (action, params) => {
+    if (isPrefetchFresh(action, params)) return;
+    api(action, params || {}).catch(() => {});
+  };
+
   function prefetchForTab(id) {
-    const today = todayISO();
-    switch (id) {
-      case "dashboard":
-        api("adminDashboard").catch(() => {});
-        api("adminListTimelineEntries", { dateFrom: today, dateTo: today }).catch(() => {});
-        api("adminDashboardKpi").catch(() => {});
-        api("adminOperationalKpi").catch(() => {});
-        break;
-      case "bookings":
-        api("adminListTimelineEntries", { dateFrom: today, dateTo: today }).catch(() => {});
-        break;
-      case "pos":
-        api("posListProducts").catch(() => {});
-        api("tabListOpen").catch(() => {});
-        api("posListSales").catch(() => {});
-        break;
-      case "members":
-        api("adminListMembers").catch(() => {});
-        break;
-      case "coaching":
-        api("adminListCoaches").catch(() => {});
-        api("adminListCoachingSessions", { dateFrom: today, dateTo: today }).catch(() => {});
-        api("adminListCoachPayments").catch(() => {});
-        break;
-      case "customers":
-        api("adminListCustomers", { search: "", type: "" }).catch(() => {});
-        break;
-      case "finances": {
-        const now = new Date();
-        // Prefetch all three granularities (current period) so any tab switch is instant
-        api("adminFinancesMonth", { year: now.getFullYear(), month: now.getMonth() + 1 }).catch(() => {});
-        api("adminFinancesRange", { granularity: "daily", periodOffset: 0 }).catch(() => {});
-        api("adminFinancesRange", { granularity: "weekly", periodOffset: 0 }).catch(() => {});
-        break;
-      }
-      case "sponsorships":
-        api("adminListSponsorships").catch(() => {});
-        break;
-      case "sms":
-        api("adminListSmsLog", { type: "", status: "", limit: 200 }).catch(() => {});
-        break;
-      case "settings":
-        api("adminGetPromo").catch(() => {});
-        api("adminGetPosSettings").catch(() => {});
-        api("adminGetGoals").catch(() => {});
-        api("adminGetSponsorshipSettings").catch(() => {});
-        break;
+    // Cancel any pending hover-prefetch from another tab
+    if (prefetchTimer.current) {
+      clearTimeout(prefetchTimer.current);
+      prefetchTimer.current = null;
     }
+    // Debounce: only fire if the hover persists for 120ms
+    prefetchTimer.current = setTimeout(() => {
+      prefetchTimer.current = null;
+      const today = todayISO();
+      switch (id) {
+        case "dashboard":
+          safePrefetch("adminDashboard");
+          safePrefetch("adminListTimelineEntries", { dateFrom: today, dateTo: today });
+          safePrefetch("adminDashboardKpi");
+          safePrefetch("adminOperationalKpi");
+          break;
+        case "bookings":
+          safePrefetch("adminListTimelineEntries", { dateFrom: today, dateTo: today });
+          break;
+        case "pos":
+          safePrefetch("posListProducts");
+          safePrefetch("tabListOpen");
+          safePrefetch("posListSales");
+          break;
+        case "members":
+          safePrefetch("adminListMembers");
+          break;
+        case "coaching":
+          safePrefetch("adminListCoaches");
+          safePrefetch("adminListCoachingSessions", { dateFrom: today, dateTo: today });
+          safePrefetch("adminListCoachPayments");
+          break;
+        case "customers":
+          safePrefetch("adminListCustomers", { search: "", type: "" });
+          break;
+        case "finances": {
+          const now = new Date();
+          safePrefetch("adminFinancesMonth", { year: now.getFullYear(), month: now.getMonth() + 1 });
+          safePrefetch("adminFinancesRange", { granularity: "daily", periodOffset: 0 });
+          safePrefetch("adminFinancesRange", { granularity: "weekly", periodOffset: 0 });
+          break;
+        }
+        case "sponsorships":
+          safePrefetch("adminListSponsorships");
+          break;
+        case "sms":
+          safePrefetch("adminListSmsLog", { type: "", status: "", limit: 200 });
+          break;
+        case "settings":
+          safePrefetch("adminGetPromo");
+          safePrefetch("adminGetPosSettings");
+          safePrefetch("adminGetGoals");
+          safePrefetch("adminGetSponsorshipSettings");
+          break;
+      }
+    }, 120);
   }
 
   function go(id) {
@@ -15974,7 +16065,20 @@ function App() {
               className={(screen === t.id ? "active " : "") + (!t.ready ? "soon" : "")}
               onClick={() => go(t.id)}
               onMouseEnter={() => t.ready && prefetchForTab(t.id)}
+              onMouseLeave={() => {
+                // Mouse moved off before debounce elapsed — cancel the pending fetch
+                if (prefetchTimer.current) {
+                  clearTimeout(prefetchTimer.current);
+                  prefetchTimer.current = null;
+                }
+              }}
               onFocus={() => t.ready && prefetchForTab(t.id)}
+              onPointerDown={(e) => {
+                // Touch / pen — fire prefetch immediately because there's no
+                // hover gesture. Click follows ~80ms later, so this still
+                // gives the network a head start.
+                if (t.ready && e.pointerType !== "mouse") prefetchForTab(t.id);
+              }}
             >
               <span className="label">{t.label}</span>
               {!t.ready && <span className="soon-tag">Soon</span>}
