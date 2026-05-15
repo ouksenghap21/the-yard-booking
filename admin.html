@@ -16982,6 +16982,169 @@ function ScreenSmsLog() {
 /* ====================================================================
    SETTINGS
    ==================================================================== */
+
+/* PricingRuleRow — one editable row in the Pricing & Hours table.
+   Compact, inline editing. Day-of-week toggles render as small pills.
+   Hours use number inputs (0-24, 24-hour format). */
+function PricingRuleRow({ rule, idx, isFirst, isLast, onUpdate, onToggleDay, onRemove, onMoveUp, onMoveDown }) {
+  const DAYS = [
+    { code: "mon", label: "M" },
+    { code: "tue", label: "T" },
+    { code: "wed", label: "W" },
+    { code: "thu", label: "T" },
+    { code: "fri", label: "F" },
+    { code: "sat", label: "S" },
+    { code: "sun", label: "S" }
+  ];
+  const hourStr = (h) => String(h).padStart(2, "0") + ":00";
+  const isWeekendOnly = rule.days.length === 2 &&
+    rule.days.indexOf("sat") !== -1 && rule.days.indexOf("sun") !== -1;
+  const isWeekdayOnly = rule.days.length === 5 && !isWeekendOnly &&
+    ["mon","tue","wed","thu","fri"].every(d => rule.days.indexOf(d) !== -1);
+  const isEveryDay = rule.days.length === 7;
+  const dayPreset = isEveryDay ? "Every day" : isWeekdayOnly ? "Weekdays" : isWeekendOnly ? "Weekends" : "Custom";
+
+  return (
+    <div style={{
+      border: "1px solid var(--concrete)",
+      borderRadius: 4,
+      padding: 12,
+      background: "var(--cream)",
+      display: "grid",
+      gridTemplateColumns: "180px 1fr 130px 80px",
+      gap: 12,
+      alignItems: "center"
+    }}>
+      {/* Column 1: name */}
+      <div>
+        <input
+          type="text"
+          value={rule.name}
+          onChange={(e) => onUpdate({ name: e.target.value })}
+          placeholder="Rule name (e.g. Peak)"
+          style={{ width: "100%", fontWeight: 600 }}
+          maxLength={60}
+        />
+        <div style={{
+          fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, marginTop: 4,
+          letterSpacing: "0.06em", textTransform: "uppercase"
+        }}>
+          {dayPreset} · {hourStr(rule.hourStart)}–{hourStr(rule.hourEnd)}
+        </div>
+      </div>
+
+      {/* Column 2: days + hours */}
+      <div>
+        <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+          {DAYS.map(d => {
+            const on = rule.days.indexOf(d.code) !== -1;
+            return (
+              <button
+                key={d.code}
+                type="button"
+                onClick={() => onToggleDay(d.code)}
+                title={d.code}
+                style={{
+                  width: 30, height: 30,
+                  border: "1.5px solid " + (on ? "var(--ink)" : "var(--concrete)"),
+                  background: on ? "var(--ink)" : "transparent",
+                  color: on ? "var(--cream)" : "var(--ink)",
+                  borderRadius: 4,
+                  fontFamily: "var(--mono)",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  padding: 0
+                }}
+              >
+                {d.label}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input
+            type="number"
+            min="0"
+            max="24"
+            value={rule.hourStart}
+            onChange={(e) => onUpdate({ hourStart: parseInt(e.target.value) || 0 })}
+            style={{ width: 60 }}
+          />
+          <span style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.6 }}>:00 to</span>
+          <input
+            type="number"
+            min="0"
+            max="24"
+            value={rule.hourEnd}
+            onChange={(e) => onUpdate({ hourEnd: parseInt(e.target.value) || 0 })}
+            style={{ width: 60 }}
+          />
+          <span style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.6 }}>:00</span>
+        </div>
+      </div>
+
+      {/* Column 3: rate */}
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 14, opacity: 0.7 }}>$</span>
+          <input
+            type="number"
+            min="0"
+            step="0.5"
+            value={rule.rate}
+            onChange={(e) => onUpdate({ rate: parseFloat(e.target.value) || 0 })}
+            style={{ width: 70, fontFamily: "var(--mono)", fontSize: 15, fontWeight: 600 }}
+          />
+        </div>
+        <div style={{
+          fontFamily: "var(--mono)", fontSize: 9, opacity: 0.55, marginTop: 4,
+          letterSpacing: "0.06em", textTransform: "uppercase"
+        }}>
+          per court · per hour
+        </div>
+      </div>
+
+      {/* Column 4: actions */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "stretch" }}>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button
+            type="button"
+            onClick={onMoveUp}
+            disabled={isFirst}
+            title="Move up"
+            style={{
+              flex: 1, padding: "4px 0", fontSize: 11, cursor: isFirst ? "not-allowed" : "pointer",
+              opacity: isFirst ? 0.3 : 1, border: "1px solid var(--concrete)",
+              background: "transparent", borderRadius: 3
+            }}
+          >▲</button>
+          <button
+            type="button"
+            onClick={onMoveDown}
+            disabled={isLast}
+            title="Move down"
+            style={{
+              flex: 1, padding: "4px 0", fontSize: 11, cursor: isLast ? "not-allowed" : "pointer",
+              opacity: isLast ? 0.3 : 1, border: "1px solid var(--concrete)",
+              background: "transparent", borderRadius: 3
+            }}
+          >▼</button>
+        </div>
+        <button
+          type="button"
+          onClick={onRemove}
+          style={{
+            padding: "4px 0", fontSize: 11, cursor: "pointer",
+            border: "1px solid var(--clay)", color: "var(--clay)",
+            background: "transparent", borderRadius: 3
+          }}
+        >Remove</button>
+      </div>
+    </div>
+  );
+}
+
 function ScreenSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -16995,6 +17158,13 @@ function ScreenSettings() {
   const [savingGoals, setSavingGoals] = useState(false);
   const [sponsorSettings, setSponsorSettings] = useState({ totalSlots: 12, totalSlotsDefault: 12 });
   const [savingSponsor, setSavingSponsor] = useState(false);
+
+  // Pricing & Hours — array of rules. Each rule:
+  // { name, days: [...], hourStart, hourEnd, rate, notes }
+  const [pricingRules, setPricingRules] = useState([]);
+  const [pricingDirty, setPricingDirty] = useState(false);
+  const [savingPricing, setSavingPricing] = useState(false);
+  const [pricingWarnings, setPricingWarnings] = useState([]);
 
   async function load() {
     setLoading(true);
@@ -17021,6 +17191,12 @@ function ScreenSettings() {
         totalSlots: sp.totalSlots,
         totalSlotsDefault: sp.totalSlotsDefault
       });
+    }
+    const pr = await api("adminGetPricingRules");
+    if (pr.ok) {
+      setPricingRules(pr.rules || []);
+      setPricingDirty(false);
+      setPricingWarnings([]);
     }
     setLoading(false);
   }
@@ -17059,6 +17235,80 @@ function ScreenSettings() {
         memberDiscountPct: r.memberDiscountPct,
         memberDiscountDefault: r.memberDiscountDefault
       });
+    } else {
+      showToast(r.error || "Save failed", "error");
+    }
+  }
+
+  // ============ PRICING RULES ============
+  // Mutators always set pricingDirty=true so the Save button is enabled
+  // only when there are real changes.
+  function updateRule(idx, patch) {
+    setPricingRules(rules => rules.map((r, i) => i === idx ? { ...r, ...patch } : r));
+    setPricingDirty(true);
+  }
+  function toggleRuleDay(idx, day) {
+    setPricingRules(rules => rules.map((r, i) => {
+      if (i !== idx) return r;
+      const has = r.days.indexOf(day) !== -1;
+      return { ...r, days: has ? r.days.filter(d => d !== day) : [...r.days, day] };
+    }));
+    setPricingDirty(true);
+  }
+  function removeRule(idx) {
+    if (!confirm("Remove pricing rule '" + (pricingRules[idx]?.name || "this row") + "'?")) return;
+    setPricingRules(rules => rules.filter((_, i) => i !== idx));
+    setPricingDirty(true);
+  }
+  function addRule() {
+    setPricingRules(rules => [...rules, {
+      name: "New rule",
+      days: ["mon", "tue", "wed", "thu", "fri"],
+      hourStart: 6,
+      hourEnd: 17,
+      rate: 12,
+      notes: ""
+    }]);
+    setPricingDirty(true);
+  }
+  function moveRule(idx, dir) {
+    setPricingRules(rules => {
+      const next = [...rules];
+      const target = idx + dir;
+      if (target < 0 || target >= next.length) return rules;
+      [next[idx], next[target]] = [next[target], next[idx]];
+      return next;
+    });
+    setPricingDirty(true);
+  }
+
+  async function savePricing() {
+    // Quick client-side sanity check before sending
+    for (const r of pricingRules) {
+      if (!r.name || !r.name.trim()) {
+        showToast("Every rule needs a name", "error"); return;
+      }
+      if (!r.days || r.days.length === 0) {
+        showToast("Rule '" + r.name + "' has no days selected", "error"); return;
+      }
+      if (r.hourStart >= r.hourEnd) {
+        showToast("Rule '" + r.name + "': start hour must be before end hour", "error"); return;
+      }
+    }
+    setSavingPricing(true);
+    const r = await api("adminSetPricingRules", { rules: JSON.stringify(pricingRules) });
+    setSavingPricing(false);
+    if (r.ok) {
+      setPricingDirty(false);
+      setPricingWarnings(r.warnings || []);
+      showToast(
+        "Saved " + r.count + " pricing rule" + (r.count === 1 ? "" : "s") +
+        (r.warnings && r.warnings.length ? " · with " + r.warnings.length + " warning" + (r.warnings.length === 1 ? "" : "s") : ""),
+        r.warnings && r.warnings.length ? "info" : "success"
+      );
+      // Invalidate booking-related caches so the customer-facing site re-fetches prices
+      try { invalidateApiCache("getAvailability"); } catch (e) {}
+      try { invalidateApiCache("calculatePrice"); } catch (e) {}
     } else {
       showToast(r.error || "Save failed", "error");
     }
@@ -17129,6 +17379,82 @@ function ScreenSettings() {
           <div className="title">Configuration</div>
           <h1>Settings</h1>
         </div>
+      </div>
+
+      <div className="settings-card">
+        <h3>Pricing & Hours</h3>
+        <div className="desc">
+          Set your hourly rates by day and time. The first matching row wins, so put higher-priority rules (like specific peak windows) above broader rules.
+          <br />
+          <b>Format:</b> 24-hour times. Days are sun/mon/tue/wed/thu/fri/sat. Rate is per court per hour.
+        </div>
+
+        {pricingRules.length === 0 ? (
+          <div style={{
+            padding: "24px 16px",
+            textAlign: "center",
+            color: "var(--ink)",
+            opacity: 0.6,
+            fontFamily: "var(--mono)",
+            fontSize: 12,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase"
+          }}>
+            No pricing rules — fallback rate $15/hr applies to everything
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+            {pricingRules.map((r, idx) => (
+              <PricingRuleRow
+                key={idx}
+                rule={r}
+                idx={idx}
+                isFirst={idx === 0}
+                isLast={idx === pricingRules.length - 1}
+                onUpdate={(patch) => updateRule(idx, patch)}
+                onToggleDay={(day) => toggleRuleDay(idx, day)}
+                onRemove={() => removeRule(idx)}
+                onMoveUp={() => moveRule(idx, -1)}
+                onMoveDown={() => moveRule(idx, 1)}
+              />
+            ))}
+          </div>
+        )}
+
+        <div className="settings-row" style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <button className="btn-sm" onClick={addRule}>+ Add pricing rule</button>
+          <div style={{ flex: 1 }} />
+          {pricingDirty && (
+            <span style={{
+              fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.12em",
+              textTransform: "uppercase", color: "var(--clay)", marginRight: 8
+            }}>
+              · unsaved changes
+            </span>
+          )}
+          <button
+            className="btn primary"
+            onClick={savePricing}
+            disabled={savingPricing || !pricingDirty}
+          >
+            {savingPricing ? "Saving…" : "Save pricing"}
+          </button>
+        </div>
+
+        {pricingWarnings.length > 0 && (
+          <div className="settings-warning" style={{ background: "var(--concrete)", marginTop: 12 }}>
+            <b>HEADS-UP — overlapping rules detected:</b>
+            <ul style={{ margin: "8px 0 0 20px", padding: 0 }}>
+              {pricingWarnings.map((w, i) => (
+                <li key={i} style={{ marginBottom: 4 }}>{w}</li>
+              ))}
+            </ul>
+            <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
+              The first matching rule (top of list) wins for overlapping times.
+              Reorder rows with ▲/▼ if needed.
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="settings-card">
