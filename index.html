@@ -1147,6 +1147,12 @@ a.ulink, button.ulink{
   // Apps Script Web App URL — same one used by the rest of this page
   var API_URL = "https://script.google.com/macros/s/AKfycbySSk--iEFY8vTvldpARENCQ6KApJik0UHqASKa7PfJ1IkIJkmEAvOQPCsKR84MFtAY/exec";
 
+  // localStorage cache so repeat visits show the banner instantly while Apps
+  // Script cold-starts in the background. On first visit (or after cache
+  // expiry) the banner appears only after the network round-trip completes.
+  var CACHE_KEY = "yard-tournament-banner-v1";
+  var CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;  // hard cap — never trust >24h old
+
   var banner = document.getElementById("yard-tournament-banner");
   if (!banner) return;
 
@@ -1167,7 +1173,49 @@ a.ulink, button.ulink{
     } catch (e) { return s; }
   }
 
-  function show(t) {
+  function readCache() {
+    try {
+      var raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed.savedAt !== "number") return null;
+      if ((Date.now() - parsed.savedAt) > CACHE_MAX_AGE_MS) {
+        // Too stale to trust — treat as if no cache
+        localStorage.removeItem(CACHE_KEY);
+        return null;
+      }
+      return parsed;
+    } catch (e) { return null; }
+  }
+
+  function writeCache(tournament) {
+    try {
+      // tournament can be null (meaning: confirmed no public tournaments)
+      // so future visits don't flash a stale banner.
+      localStorage.setItem(CACHE_KEY, JSON.stringify({
+        savedAt: Date.now(),
+        tournament: tournament
+      }));
+    } catch (e) { /* quota or disabled — fine */ }
+  }
+
+  // Build the meta line — kept as a separate function so both render() and
+  // the cache path produce identical output.
+  function buildMeta(t) {
+    var pieces = [];
+    var isMultiDay = t.startDate && t.endDate && t.startDate !== t.endDate;
+    if (isMultiDay) pieces.push(formatDate(t.startDate) + " → " + formatDate(t.endDate));
+    else if (t.startDate) pieces.push(formatDate(t.startDate));
+    if (t.format) pieces.push(t.format);
+    if (t.playerCap > 0 && t.when !== "live") {
+      var spots = t.playerCap - t.registeredPlayers;
+      if (spots > 0 && spots <= 4) pieces.push(spots + " spot" + (spots === 1 ? "" : "s") + " left");
+      else if (spots <= 0) pieces.push("Field full · waitlist open");
+    }
+    return pieces.join(" · ");
+  }
+
+  function render(t) {
     var badgeEl = document.getElementById("yard-tournament-banner-badge");
     var titleEl = document.getElementById("yard-tournament-banner-title");
     var metaEl  = document.getElementById("yard-tournament-banner-meta");
@@ -1182,43 +1230,55 @@ a.ulink, button.ulink{
       badgeEl.className = "ytb-badge upcoming";
     }
     titleEl.textContent = t.name;
-
-    var metaPieces = [];
-    var isMultiDay = t.startDate && t.endDate && t.startDate !== t.endDate;
-    if (isMultiDay) metaPieces.push(formatDate(t.startDate) + " → " + formatDate(t.endDate));
-    else if (t.startDate) metaPieces.push(formatDate(t.startDate));
-    if (t.format) metaPieces.push(t.format);
-    if (t.playerCap > 0 && t.when !== "live") {
-      var spots = t.playerCap - t.registeredPlayers;
-      if (spots > 0 && spots <= 4) metaPieces.push(spots + " spot" + (spots === 1 ? "" : "s") + " left");
-      else if (spots <= 0) metaPieces.push("Field full · waitlist open");
-    }
-    metaEl.textContent = metaPieces.join(" · ");
-
+    metaEl.textContent = buildMeta(t);
     linkEl.href = "tournament.html?id=" + encodeURIComponent(t.id);
     banner.style.display = "block";
   }
 
-  function load() {
-    // GET request — same pattern as the rest of this booking site.
-    // Avoids CORS preflight issues that POST + form-encoded can trigger.
-    var url = API_URL + "?action=listPublicTournaments";
-    fetchWithTimeout(url, 6000)
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (!data || !data.ok) return;
-        var t = (data.tournaments && data.tournaments.length) ? data.tournaments[0] : null;
-        if (t) show(t);
-      })
-      .catch(function() { /* fail silently — booking page unaffected */ });
+  function hide() {
+    banner.style.display = "none";
   }
 
-  // Defer slightly so the booking calendar renders first
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", function() { setTimeout(load, 400); });
-  } else {
-    setTimeout(load, 400);
+  // STEP 1 — synchronously check cache. If we have a recent tournament, paint
+  // immediately. No 400ms delay; no waiting for DOMContentLoaded — the
+  // <div> markup is parsed by the time this <script> runs since it sits
+  // right above us.
+  var cached = readCache();
+  if (cached && cached.tournament) {
+    render(cached.tournament);
   }
+
+  // STEP 2 — fire the fetch immediately, in parallel with the rest of the
+  // page loading. Don't block on DOMContentLoaded since the network call
+  // doesn't touch the DOM until results arrive.
+  function refresh() {
+    var url = API_URL + "?action=listPublicTournaments";
+    fetchWithTimeout(url, 8000)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data || !data.ok) return;  // bad response — keep showing cache if any
+        var t = (data.tournaments && data.tournaments.length) ? data.tournaments[0] : null;
+        if (t) {
+          // Fresh tournament — render (covers both "cache was empty" and
+          // "cache had a different/outdated tournament")
+          render(t);
+          writeCache(t);
+        } else {
+          // Server confirms no public tournaments. If we had been showing a
+          // cached one, hide it. Cache the empty state so the next visit
+          // doesn't flash a stale banner before the fetch completes.
+          hide();
+          writeCache(null);
+        }
+      })
+      .catch(function() {
+        // Network failure — keep whatever cached state is visible (or
+        // nothing). Don't touch the cache so future visits still benefit
+        // from the last known good data.
+      });
+  }
+
+  refresh();
 })();
 </script>
 <!-- END TOURNAMENT BANNER -->
