@@ -471,6 +471,186 @@ h1.tournament-name{
   position:relative; z-index:1;
 }
 
+/* ───── Signup form (interactive registration) ───── */
+.signup-form{
+  margin-top:30px;
+  padding:24px 22px;
+  background:var(--paper);
+  border:1px solid var(--rule-strong);
+  border-radius:8px;
+  box-shadow:var(--lift-1);
+  text-align:left;
+}
+.signup-form .form-kicker{
+  font-family:var(--mono); font-weight:700;
+  font-size:10px; letter-spacing:0.18em;
+  color:var(--clay);
+  margin-bottom:6px;
+}
+.signup-form .form-title{
+  font-family:var(--serif);
+  font-size:22px; font-weight:500;
+  letter-spacing:-0.01em;
+  margin-bottom:18px;
+  line-height:1.15;
+}
+.signup-form .field{ margin-bottom:14px; }
+.signup-form .field-row{
+  display:grid; grid-template-columns:1fr 1fr; gap:12px;
+  margin-bottom:14px;
+}
+.signup-form .field-row .field{ margin-bottom:0; }
+.signup-form label{
+  display:block;
+  font-family:var(--mono); font-weight:700;
+  font-size:10px; letter-spacing:0.12em;
+  text-transform:uppercase;
+  opacity:0.75;
+  margin-bottom:5px;
+}
+.signup-form label .opt{
+  opacity:0.5; text-transform:none; letter-spacing:0; font-weight:500;
+}
+.signup-form input[type="text"],
+.signup-form input[type="tel"],
+.signup-form input[type="email"],
+.signup-form input[type="number"]{
+  width:100%; box-sizing:border-box;
+  padding:11px 13px;
+  border:1.5px solid var(--rule-strong);
+  border-radius:5px;
+  background:#FFF;
+  color:var(--ink);
+  font-family:var(--sans); font-size:15px;
+  outline:none;
+  transition:border-color 0.15s;
+}
+.signup-form input:focus{ border-color:var(--ink); }
+.signup-form .hint{
+  font-size:11px; opacity:0.55; margin-top:4px;
+  font-family:var(--mono); letter-spacing:0.02em;
+}
+.signup-form .skill-row{
+  display:grid; grid-template-columns:repeat(4, 1fr); gap:6px;
+}
+.signup-form .skill-btn{
+  padding:10px 6px;
+  background:#FFF;
+  border:1.5px solid var(--rule-strong);
+  border-radius:5px;
+  font-family:var(--mono); font-weight:700;
+  font-size:10px; letter-spacing:0.06em;
+  text-transform:uppercase;
+  color:var(--ink);
+  cursor:pointer;
+  transition:all 0.1s;
+}
+.signup-form .skill-btn:hover{ border-color:var(--ink); }
+.signup-form .skill-btn.on{
+  background:var(--ink); color:var(--cream); border-color:var(--ink);
+}
+.signup-form .err,
+.signup-card .err{
+  margin-top:14px; padding:10px 12px;
+  background:rgba(198,79,58,0.10);
+  color:var(--clay);
+  border-radius:5px;
+  font-size:13px; font-weight:600;
+  min-height:0;
+}
+.signup-form .err:empty,
+.signup-card .err:empty{ display:none; }
+.signup-form .submit-btn,
+.signup-card .ghost-btn{
+  width:100%; margin-top:18px;
+  padding:14px 16px;
+  border:none; border-radius:5px;
+  font-family:var(--mono); font-weight:700;
+  font-size:12px; letter-spacing:0.1em; text-transform:uppercase;
+  cursor:pointer;
+  transition:background 0.15s;
+}
+.signup-form .submit-btn{
+  background:var(--ink); color:var(--cream);
+}
+.signup-form .submit-btn:hover{ background:var(--ink-soft); }
+.signup-form .submit-btn:disabled{ opacity:0.6; cursor:not-allowed; }
+.signup-card .ghost-btn{
+  background:transparent; color:var(--clay);
+  border:1.5px solid var(--clay);
+}
+.signup-card .ghost-btn:hover{ background:var(--clay); color:var(--cream); }
+.signup-card .ghost-btn:disabled{ opacity:0.6; cursor:not-allowed; }
+.signup-form .fine{
+  margin-top:10px;
+  font-size:11px; opacity:0.6;
+  font-family:var(--mono); line-height:1.5;
+  text-align:center;
+}
+/* Manage view variant */
+.signup-card.managing{
+  text-align:left;
+  background:var(--paper);
+  border:1px solid var(--rule-strong);
+}
+.signup-card.managing .manage-rows{
+  margin:16px 0;
+  padding:14px;
+  background:rgba(61,122,79,0.06);
+  border-radius:5px;
+  border-left:3px solid var(--green);
+}
+.signup-card.managing .row{
+  display:flex; justify-content:space-between;
+  padding:5px 0;
+  font-size:13px;
+}
+.signup-card.managing .row > span:first-child{
+  font-family:var(--mono); font-size:10px;
+  text-transform:uppercase; letter-spacing:0.08em;
+  opacity:0.65; font-weight:700;
+}
+.signup-card.managing .row > span:last-child{ font-weight:600; }
+.signup-card.managing .row .mono{ font-family:var(--mono); font-size:11px; }
+/* Success state */
+.signup-card.success{
+  text-align:center;
+  background:var(--paper);
+  border:1px solid var(--rule-strong);
+}
+.signup-card .success-icon{
+  width:54px; height:54px; margin:0 auto 14px;
+  border-radius:50%;
+  background:var(--green); color:var(--cream);
+  font-size:30px; font-weight:700;
+  display:flex; align-items:center; justify-content:center;
+}
+.signup-card .success-title{
+  font-family:var(--serif); font-size:22px; font-weight:500;
+  margin-bottom:6px;
+}
+.signup-card .success-msg{
+  font-size:14px; opacity:0.85;
+  margin-bottom:14px;
+}
+.signup-card .success-detail{
+  padding:12px;
+  background:rgba(26,26,26,0.04);
+  border-radius:5px;
+  font-family:var(--mono); font-size:12px;
+  margin-bottom:14px;
+}
+.signup-card .success-detail b{
+  font-family:var(--serif); font-size:15px; font-weight:500;
+}
+.signup-card .success-detail > div{ margin:3px 0; }
+@media (max-width:540px){
+  .signup-form{ padding:18px 16px; }
+  .signup-form .field-row{ grid-template-columns:1fr; gap:12px; }
+  .signup-form .form-title{ font-size:19px; }
+  .signup-form .skill-row{ grid-template-columns:repeat(2, 1fr); }
+}
+
 /* ───── Footer ───── */
 .footer{
   text-align:center;
@@ -763,16 +943,310 @@ h1.tournament-name{
       html += '<a class="bracket-link" href="' + escapeHtml(t.bracketUrl) + '" target="_blank" rel="noopener">View bracket / live results →</a>';
     }
 
-    // Sign-up CTA
-    if (t.contactMethod && when !== "completed" && when !== "cancelled") {
+    // SIGN-UP — interactive registration. Skipped for completed/cancelled.
+    // We render an empty container here; the form is built by renderSignupArea()
+    // which also handles the "already registered" view.
+    if (when !== "completed" && when !== "cancelled") {
+      html += '<div id="signup-area" data-tid="' + escapeHtml(t.id) + '" ';
+      html += 'data-name="' + escapeHtml(t.name || "") + '" ';
+      html += 'data-fee="' + (parseFloat(t.entryFee) || 0) + '" ';
+      html += 'data-cap="' + (parseInt(t.playerCap) || 0) + '" ';
+      html += 'data-registered="' + (parseInt(t.registeredPlayers) || 0) + '"></div>';
+    }
+
+    // Fallback contact card (only if contactMethod present and no signup possible)
+    if (t.contactMethod && (when === "completed" || when === "cancelled")) {
       html += '<div class="signup-card">';
-      html += '<div class="label">TO SIGN UP · CONTACT</div>';
+      html += '<div class="label">QUESTIONS · CONTACT</div>';
       html += '<div class="contact">' + buildContactLink(t.contactMethod) + '</div>';
-      html += '<div class="note">Registration is handled directly with The Yard. Please share player name, partner (for doubles), and skill level when reaching out.</div>';
       html += '</div>';
     }
 
     content.innerHTML = html;
+    if (when !== "completed" && when !== "cancelled") {
+      renderSignupArea(t);
+    }
+  }
+
+  /* ─────────────────────────────────────────────────────────
+     SIGNUP UI — collect player info & submit to backend.
+     Three states:
+       form        — initial: name/phone/partner/skill/dupr/email
+       success     — just registered
+       managing    — phone-lookup found an existing registration
+     The whole thing is rendered into #signup-area which already exists
+     in the DOM (rendered by renderTournament).
+     ───────────────────────────────────────────────────────── */
+
+  // localStorage key — shared with index.html so prefill works across pages
+  var OP_PROFILE_KEY = "yard.op_profile";
+  function readProfile() {
+    try {
+      var raw = localStorage.getItem(OP_PROFILE_KEY);
+      if (!raw) return {};
+      return JSON.parse(raw) || {};
+    } catch (e) { return {}; }
+  }
+  function saveProfile(p) {
+    try {
+      var existing = readProfile();
+      localStorage.setItem(OP_PROFILE_KEY, JSON.stringify(Object.assign({}, existing, p)));
+    } catch (e) {}
+  }
+
+  function renderSignupArea(t) {
+    var area = document.getElementById("signup-area");
+    if (!area) return;
+
+    var profile = readProfile();
+    var isFull = t.playerCap > 0 && (t.registeredPlayers >= t.playerCap);
+
+    if (isFull) {
+      area.innerHTML =
+        '<div class="signup-card">' +
+          '<div class="label" style="color:var(--clay)">TOURNAMENT IS FULL</div>' +
+          '<div class="note">All ' + t.playerCap + ' spots are taken. You can still sign up below — we\'ll add you to the waitlist and contact you if a spot opens.</div>' +
+        '</div>';
+    }
+
+    renderSignupForm(t, profile);
+
+    // If the user has a phone in localStorage, check if they're already
+    // registered for this tournament so we can show "manage" view instead.
+    if (profile.phone) {
+      checkExistingRegistration(t.id, profile.phone);
+    }
+  }
+
+  function renderSignupForm(t, prefill) {
+    var area = document.getElementById("signup-area");
+    if (!area) return;
+    prefill = prefill || {};
+    var feeTxt = t.entryFee > 0 ? '$' + Number(t.entryFee).toFixed(2) : 'FREE';
+    var ctaLabel = t.entryFee > 0
+      ? 'Reserve my spot · ' + feeTxt + ' at counter'
+      : 'Reserve my spot';
+
+    area.innerHTML =
+      '<form class="signup-form" id="signup-form" novalidate>' +
+        '<div class="form-kicker">REGISTER · ' + feeTxt + '</div>' +
+        '<div class="form-title">Join ' + escapeHtml(t.name) + '</div>' +
+
+        '<div class="field"><label>Your name *</label>' +
+          '<input type="text" id="f-name" required maxlength="80" autocomplete="name" placeholder="e.g. Sophea Chan" value="' + escapeHtml(prefill.name || "") + '" />' +
+        '</div>' +
+
+        '<div class="field"><label>Phone number *</label>' +
+          '<input type="tel" id="f-phone" required inputmode="numeric" autocomplete="tel" placeholder="e.g. 012 345 678" value="' + escapeHtml(prefill.phone || "") + '" />' +
+          '<div class="hint">We text you confirmation + bracket updates. We never share this.</div>' +
+        '</div>' +
+
+        '<div class="field"><label>Partner name <span class="opt">(for doubles, optional)</span></label>' +
+          '<input type="text" id="f-partner" maxlength="80" placeholder="If signing up as a doubles team" />' +
+        '</div>' +
+
+        '<div class="field"><label>Skill level</label>' +
+          '<div class="skill-row" id="f-skill-row">' +
+            ['Beginner','Intermediate','Advanced','Pro'].map(function(s){
+              var on = (prefill.skillSelf === s);
+              return '<button type="button" class="skill-btn' + (on ? ' on' : '') + '" data-val="' + s + '">' + s + '</button>';
+            }).join('') +
+          '</div>' +
+          '<input type="hidden" id="f-skill" value="' + escapeHtml(prefill.skillSelf || "") + '" />' +
+        '</div>' +
+
+        '<div class="field-row">' +
+          '<div class="field"><label>DUPR <span class="opt">(optional)</span></label>' +
+            '<input type="number" id="f-dupr" min="2.0" max="8.0" step="0.1" inputmode="decimal" placeholder="e.g. 3.5" value="' + (prefill.duprSelf != null && prefill.duprSelf !== "" ? prefill.duprSelf : "") + '" />' +
+          '</div>' +
+          '<div class="field"><label>Email <span class="opt">(optional)</span></label>' +
+            '<input type="email" id="f-email" maxlength="120" placeholder="for digital receipt" value="' + escapeHtml(prefill.email || "") + '" />' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="err" id="signup-err"></div>' +
+
+        '<button type="submit" class="submit-btn" id="signup-submit">' + escapeHtml(ctaLabel) + '</button>' +
+        '<div class="fine">' +
+          (t.entryFee > 0
+            ? 'Pay $' + Number(t.entryFee).toFixed(2) + ' entry fee in cash at the counter when you arrive.'
+            : 'Show up 10 min before your first match. We\'ll text reminders.') +
+        '</div>' +
+      '</form>';
+
+    // Wire skill-row toggle
+    var skillBtns = area.querySelectorAll(".skill-btn");
+    var skillInput = document.getElementById("f-skill");
+    Array.prototype.forEach.call(skillBtns, function(b) {
+      b.addEventListener("click", function() {
+        var val = b.getAttribute("data-val");
+        if (skillInput.value === val) {
+          skillInput.value = "";
+          b.classList.remove("on");
+        } else {
+          Array.prototype.forEach.call(skillBtns, function(x) { x.classList.remove("on"); });
+          b.classList.add("on");
+          skillInput.value = val;
+        }
+      });
+    });
+
+    var form = document.getElementById("signup-form");
+    form.addEventListener("submit", function(e) {
+      e.preventDefault();
+      submitSignup(t);
+    });
+  }
+
+  function submitSignup(t) {
+    var btn = document.getElementById("signup-submit");
+    var errEl = document.getElementById("signup-err");
+    errEl.textContent = "";
+
+    var name = (document.getElementById("f-name").value || "").trim();
+    var phone = (document.getElementById("f-phone").value || "").trim();
+    var partner = (document.getElementById("f-partner").value || "").trim();
+    var skill = document.getElementById("f-skill").value || "";
+    var dupr = (document.getElementById("f-dupr").value || "").trim();
+    var email = (document.getElementById("f-email").value || "").trim();
+
+    if (!name) { errEl.textContent = "Please enter your name"; return; }
+    var digits = phone.replace(/\D/g, "");
+    if (digits.length < 8) { errEl.textContent = "Please enter a valid phone number"; return; }
+
+    btn.disabled = true;
+    btn.textContent = "Reserving…";
+
+    var params = new URLSearchParams({
+      action: "registerForTournament",
+      tournamentId: t.id,
+      name: name,
+      phone: phone,
+      partnerName: partner,
+      skillLevel: skill,
+      dupr: dupr,
+      email: email
+    });
+
+    fetch(API_URL + "?" + params.toString(), { method: "GET" })
+      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (r.ok) {
+          saveProfile({
+            name: name,
+            phone: phone,
+            skillSelf: skill,
+            duprSelf: dupr,
+            email: email
+          });
+          renderSuccess(t, r);
+        } else {
+          errEl.textContent = r.error || "Registration failed";
+          btn.disabled = false;
+          btn.textContent = t.entryFee > 0
+            ? 'Reserve my spot · $' + Number(t.entryFee).toFixed(2) + ' at counter'
+            : 'Reserve my spot';
+        }
+      })
+      .catch(function(e) {
+        errEl.textContent = "Network error — please try again";
+        btn.disabled = false;
+        btn.textContent = "Try again";
+      });
+  }
+
+  function renderSuccess(t, resp) {
+    var area = document.getElementById("signup-area");
+    if (!area) return;
+    var feeTxt = t.entryFee > 0 ? '$' + Number(t.entryFee).toFixed(2) : 'FREE';
+    area.innerHTML =
+      '<div class="signup-card success">' +
+        '<div class="success-icon">✓</div>' +
+        '<div class="success-title">' + (resp.alreadyRegistered ? "You\'re already in!" : "You\'re in!") + '</div>' +
+        '<div class="success-msg">' + escapeHtml(resp.message || "") + '</div>' +
+        '<div class="success-detail">' +
+          '<div><b>' + escapeHtml(t.name) + '</b></div>' +
+          '<div>Ref · ' + escapeHtml(resp.registrationId) + '</div>' +
+          '<div>' + feeTxt + (t.entryFee > 0 ? ' · pay at counter' : '') + '</div>' +
+        '</div>' +
+        '<div class="note">A confirmation text was sent to your phone. To cancel later, visit the booking site → Manage tab.</div>' +
+      '</div>';
+  }
+
+  function checkExistingRegistration(tid, phone) {
+    var params = new URLSearchParams({
+      action: "myTournamentRegistrations",
+      phone: phone
+    });
+    fetch(API_URL + "?" + params.toString(), { method: "GET" })
+      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (!r.ok || !r.registrations) return;
+        var existing = null;
+        for (var i = 0; i < r.registrations.length; i++) {
+          if (r.registrations[i].tournamentId === tid) {
+            existing = r.registrations[i];
+            break;
+          }
+        }
+        if (existing) renderManageView(existing);
+      })
+      .catch(function() { /* silent */ });
+  }
+
+  function renderManageView(reg) {
+    var area = document.getElementById("signup-area");
+    if (!area) return;
+    area.innerHTML =
+      '<div class="signup-card managing">' +
+        '<div class="form-kicker" style="color:var(--green)">✓ YOU\'RE REGISTERED</div>' +
+        '<div class="form-title">' + escapeHtml(reg.tournamentName) + '</div>' +
+        '<div class="manage-rows">' +
+          '<div class="row"><span>Name</span><span>' + escapeHtml(reg.name) + '</span></div>' +
+          (reg.partnerName ? '<div class="row"><span>Partner</span><span>' + escapeHtml(reg.partnerName) + '</span></div>' : '') +
+          (reg.skillLevel ? '<div class="row"><span>Skill</span><span>' + escapeHtml(reg.skillLevel) + (reg.dupr != null ? ' · DUPR ' + reg.dupr.toFixed(1) : '') + '</span></div>' : '') +
+          '<div class="row"><span>Entry fee</span><span>' + (reg.entryFee > 0 ? '$' + reg.entryFee.toFixed(2) + (reg.paid ? ' · PAID' : ' · pay at counter') : 'FREE') + '</span></div>' +
+          '<div class="row"><span>Ref</span><span class="mono">' + escapeHtml(reg.registrationId) + '</span></div>' +
+        '</div>' +
+        '<div class="err" id="cancel-err"></div>' +
+        '<button type="button" class="ghost-btn" id="cancel-btn">Cancel my spot</button>' +
+        '<div class="fine">Need to change something? Cancel and re-register, or contact The Yard.</div>' +
+      '</div>';
+
+    document.getElementById("cancel-btn").addEventListener("click", function() {
+      if (!confirm("Cancel your spot in '" + reg.tournamentName + "'? This frees the spot for someone else.")) return;
+      var btn = document.getElementById("cancel-btn");
+      btn.disabled = true; btn.textContent = "Cancelling…";
+      var errEl = document.getElementById("cancel-err");
+      errEl.textContent = "";
+
+      var params = new URLSearchParams({
+        action: "cancelMyTournamentRegistration",
+        registrationId: reg.registrationId,
+        phone: readProfile().phone || ""
+      });
+      fetch(API_URL + "?" + params.toString(), { method: "GET" })
+        .then(function(r) { return r.json(); })
+        .then(function(r) {
+          if (r.ok) {
+            var area = document.getElementById("signup-area");
+            area.innerHTML =
+              '<div class="signup-card">' +
+                '<div class="success-icon" style="background:var(--wood)">○</div>' +
+                '<div class="success-title">Spot cancelled</div>' +
+                '<div class="note">Thanks for letting us know — your spot is freed up. A confirmation text was sent.</div>' +
+                '<button type="button" class="ghost-btn" onclick="location.reload()">Sign up again</button>' +
+              '</div>';
+          } else {
+            errEl.textContent = r.error || "Cancel failed";
+            btn.disabled = false; btn.textContent = "Cancel my spot";
+          }
+        })
+        .catch(function() {
+          errEl.textContent = "Network error";
+          btn.disabled = false; btn.textContent = "Cancel my spot";
+        });
+    });
   }
 
   loadTournament();
