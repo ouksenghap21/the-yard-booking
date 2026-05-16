@@ -669,11 +669,16 @@ button { font-family: inherit; cursor: pointer; }
 .booking-block.type-coaching { background: var(--wood); color: var(--cream); border-color: var(--wood); }
 .booking-block.type-walkin   { background: var(--peach,#D9785C); color: var(--cream); border-color: var(--peach,#D9785C); }
 .booking-block.type-openplay { background: #5B6BA8; color: var(--cream); border-color: #5B6BA8; }
+/* Tournaments — gold/clay color sets them apart from the other types
+   while still feeling earthy. They typically span hours and multiple
+   courts, so the visual block is the "headline" event of the day. */
+.booking-block.type-tournament { background: var(--clay); color: var(--cream); border-color: var(--clay); }
 
 /* Type icon prefix in the name */
 .booking-block.type-coaching .name::before { content: "★ "; opacity: 0.85; }
 .booking-block.type-walkin   .name::before { content: "◉ "; opacity: 0.85; }
 .booking-block.type-openplay .name::before { content: "◎ "; opacity: 0.85; }
+.booking-block.type-tournament .name::before { content: "🏆 "; opacity: 0.85; }
 
 /* STATE modifiers — applied via a ::before overlay so the text stays
    full-opacity and remains readable on small blocks. The block itself
@@ -787,9 +792,11 @@ button { font-family: inherit; cursor: pointer; }
   display: inline-block;
 }
 /* Type swatches */
-.timeline-legend .sw-booking  { background: var(--green); border-color: var(--green); }
-.timeline-legend .sw-coaching { background: var(--wood); border-color: var(--wood); }
-.timeline-legend .sw-walkin   { background: var(--peach,#D9785C); border-color: var(--peach,#D9785C); }
+.timeline-legend .sw-booking    { background: var(--green); border-color: var(--green); }
+.timeline-legend .sw-coaching   { background: var(--wood); border-color: var(--wood); }
+.timeline-legend .sw-walkin     { background: var(--peach,#D9785C); border-color: var(--peach,#D9785C); }
+.timeline-legend .sw-openplay   { background: #5B6BA8; border-color: #5B6BA8; }
+.timeline-legend .sw-tournament { background: var(--clay); border-color: var(--clay); }
 /* State swatches — neutral gray with the pattern overlay so they're type-agnostic */
 .timeline-legend .sw-state-awaiting {
   background: var(--ink);
@@ -5518,9 +5525,10 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
       const isCoaching = b.entryType === "coaching";
       const isWalkIn = b.entryType === "walkin";
       const isOpenPlay = b.entryType === "openplay";
+      const isTournament = b.entryType === "tournament";
 
       // Determine the TYPE (color axis) and STATE (texture/opacity axis)
-      // Type: booking | coaching | walkin | openplay
+      // Type: booking | coaching | walkin | openplay | tournament
       // State: awaiting | at_risk | paid | no_show_freed | no_show_kept | completed
       let type, state;
       if (isCoaching) {
@@ -5543,6 +5551,14 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
         const collected = b.total || 0;
         const expected = count * price;
         state = count === 0 ? "awaiting" : (expected > 0 && collected >= expected ? "paid" : "awaiting");
+      } else if (isTournament) {
+        type = "tournament";
+        // Tournament state derived from paid players vs registered
+        const count = b.playerCount || 0;
+        const price = b.price || 0;
+        const collected = b.total || 0;
+        const expected = count * price;
+        state = count === 0 ? "awaiting" : (expected > 0 && collected >= expected ? "paid" : "awaiting");
       } else {
         type = "booking";
         state = derived;
@@ -5559,6 +5575,8 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
             ? "Open Play · " + (b.playerCount || 0) + "/" + (b.playerCap || 15)
             : isOpenPlay
             ? (b.title || "Drop-in") + " · " + (b.playerCount || 0) + (b.playerCap ? "/" + b.playerCap : "")
+            : isTournament
+            ? "🏆 " + (b.title || "Tournament") + " · " + (b.playerCount || 0) + (b.playerCap ? "/" + b.playerCap : "")
             : (b.name || "—"),
           subtext: isCoaching
             ? (b.studentName ? b.studentName : (b.sessionType || ""))
@@ -5566,17 +5584,20 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
             ? "$" + (b.rate || 0) + "/player"
             : isOpenPlay
             ? (b.skillLevel || "All") + " · $" + (b.price || 0) + "/player"
+            : isTournament
+            ? "$" + (b.price || 0) + " entry"
             : b.time + "–" + b.timeEnd,
           time: b.time + "–" + b.timeEnd,
           total: b.total || 0,
           type: type,
           state: state,
           // legacy `status` kept for any old CSS that still references it
-          status: isCoaching ? "coaching" : isWalkIn ? "walkin" : isOpenPlay ? "openplay" : derived,
+          status: isCoaching ? "coaching" : isWalkIn ? "walkin" : isOpenPlay ? "openplay" : isTournament ? "tournament" : derived,
           isMember: !!(b.memberTier && b.memberTier.length > 0),
           memberTier: String(b.memberTier || "").toLowerCase(),  // "founding" | "standard" | ""
           isCoaching: isCoaching,
           isWalkIn: isWalkIn,
+          isTournament: isTournament,
           bookingId: b.bookingId,
           sourceEntry: b
         });
@@ -5745,7 +5766,9 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
           <span className="legend-label">Type</span>
           <span className="swatch"><i className="sw-booking" /> Court booking</span>
           <span className="swatch"><i className="sw-coaching" /> ★ Coaching</span>
-          <span className="swatch"><i className="sw-walkin" /> ◉ Open Play</span>
+          <span className="swatch"><i className="sw-walkin" /> ◉ Walk-in</span>
+          <span className="swatch"><i className="sw-openplay" /> ◎ Drop-in</span>
+          <span className="swatch"><i className="sw-tournament" /> 🏆 Tournament</span>
         </div>
         <div className="legend-group">
           <span className="legend-label">State</span>
@@ -5779,6 +5802,7 @@ function ScreenDashboard() {
   const [walkInBlock, setWalkInBlock] = useState(null);
   const [coachingInfo, setCoachingInfo] = useState(null);
   const [openPlayDetailId, setOpenPlayDetailId] = useState(null);
+  const [tournamentDetailId, setTournamentDetailId] = useState(null);
 
   async function handleBlockClick(entry) {
     if (!entry) return;
@@ -5810,6 +5834,8 @@ function ScreenDashboard() {
       setCoachingInfo(entry);
     } else if (entry.entryType === "openplay") {
       setOpenPlayDetailId(entry.sessionId || entry.bookingId);
+    } else if (entry.entryType === "tournament") {
+      setTournamentDetailId(entry.tournamentId || entry.bookingId);
     } else {
       setDetailBooking(entry);
     }
@@ -6094,6 +6120,14 @@ function ScreenDashboard() {
           sessionId={openPlayDetailId}
           onClose={() => setOpenPlayDetailId(null)}
           onChanged={() => { invalidateApiCache("adminListOpenPlaySessions"); invalidateApiCache("adminListTimelineEntries"); refresh(); }}
+        />
+      )}
+      {tournamentDetailId && (
+        <TournamentDetailModal
+          tournamentId={tournamentDetailId}
+          onClose={() => setTournamentDetailId(null)}
+          onChanged={() => { invalidateApiCache("adminListTournaments"); invalidateApiCache("adminListTimelineEntries"); refresh(); }}
+          onEdit={() => { /* dashboard doesn't have edit flow — close and let user navigate */ setTournamentDetailId(null); }}
         />
       )}
     </div>
@@ -6734,6 +6768,68 @@ function TodaysPulsePanel({ data }) {
           vs last {new Date().toLocaleDateString("en", { weekday: "long" })}: {deltaLabel(deltaWk)} · ${lastWk.toFixed(2)}
         </div>
       </div>
+
+      {/* Tournament + Open Play activity — surfaced here so the dashboard
+          actually reflects everything happening at the venue today, not
+          just regular court bookings. */}
+      {((data.tournaments && (data.tournaments.activeToday > 0 || data.tournaments.upcoming30d > 0)) ||
+        (data.openPlay && data.openPlay.sessions > 0)) && (
+        <div className="pulse-metric" style={{ borderTop: "1px dashed var(--rule-strong)", paddingTop: 12 }}>
+          <div className="label">Programs running</div>
+          {data.openPlay && data.openPlay.sessions > 0 && (
+            <div style={{
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              marginBottom: 6,
+              padding: "6px 10px",
+              background: "rgba(91,107,168,0.08)",
+              borderRadius: 4,
+              borderLeft: "3px solid #5B6BA8"
+            }}>
+              <div>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>◎ Drop-in</span>
+                <span style={{ opacity: 0.65, marginLeft: 8, fontSize: 12 }}>
+                  {data.openPlay.sessions} session{data.openPlay.sessions === 1 ? "" : "s"}
+                  {data.openPlay.players > 0 && " · " + data.openPlay.players + " player" + (data.openPlay.players === 1 ? "" : "s")}
+                </span>
+              </div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700 }}>
+                ${((data.openPlay.revenuePaid || 0) + (data.openPlay.revenuePending || 0)).toFixed(2)}
+              </div>
+            </div>
+          )}
+          {data.tournaments && data.tournaments.activeToday > 0 && (
+            <div style={{
+              padding: "6px 10px",
+              background: "rgba(168,116,74,0.08)",
+              borderRadius: 4,
+              borderLeft: "3px solid var(--wood)",
+              marginBottom: 6
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>🏆 Tournament live</span>
+                <span style={{ opacity: 0.65, fontSize: 12 }}>
+                  {data.tournaments.playersToday} player{data.tournaments.playersToday === 1 ? "" : "s"}
+                </span>
+              </div>
+              {data.tournaments.namesToday && data.tournaments.namesToday.length > 0 && (
+                <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>
+                  {data.tournaments.namesToday.join(" · ")}
+                </div>
+              )}
+            </div>
+          )}
+          {data.tournaments && data.tournaments.upcoming30d > 0 && (
+            <div style={{
+              fontFamily: "var(--mono)", fontSize: 11, opacity: 0.65,
+              letterSpacing: "0.05em", marginTop: 6
+            }}>
+              {data.tournaments.upcoming30d} tournament{data.tournaments.upcoming30d === 1 ? "" : "s"} in next 30 days
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -6765,6 +6861,7 @@ function ScreenBookings() {
   const [walkInBlock, setWalkInBlock] = useState(null); // walk-in block modal
   const [coachingInfo, setCoachingInfo] = useState(null); // simple coaching info modal
   const [openPlayDetailId, setOpenPlayDetailId] = useState(null); // open play session detail
+  const [tournamentDetailId, setTournamentDetailId] = useState(null); // tournament detail
   const [addBookingFlow, setAddBookingFlow] = useState(null); // null | "chooser" | "court" | "walkin"
 
   // FAB integration
@@ -6809,6 +6906,8 @@ function ScreenBookings() {
       setCoachingInfo(entry);
     } else if (entry.entryType === "openplay") {
       setOpenPlayDetailId(entry.sessionId || entry.bookingId);
+    } else if (entry.entryType === "tournament") {
+      setTournamentDetailId(entry.tournamentId || entry.bookingId);
     } else {
       setDetailBooking(entry);
     }
@@ -7270,6 +7369,15 @@ function ScreenBookings() {
         />
       )}
 
+      {tournamentDetailId && (
+        <TournamentDetailModal
+          tournamentId={tournamentDetailId}
+          onClose={() => setTournamentDetailId(null)}
+          onChanged={() => { invalidateApiCache("adminListTournaments"); invalidateApiCache("adminListTimelineEntries"); load(); }}
+          onEdit={() => { setTournamentDetailId(null); }}
+        />
+      )}
+
       {addBookingFlow === "chooser" && (
         <AddBookingChooserModal
           onClose={() => setAddBookingFlow(null)}
@@ -7316,20 +7424,37 @@ function WeekView({ entries, days, onDayClick, onBlockClick }) {
       const coachEntries = dayEntries.filter(e => e.entryType === "coaching");
       const walkinEntries = dayEntries.filter(e => e.entryType === "walkin");
       const openplayEntries = dayEntries.filter(e => e.entryType === "openplay");
+      const tournamentEntries = dayEntries.filter(e => e.entryType === "tournament");
       const courtRev = guestEntries.reduce((s, e) => s + (e.total || 0), 0);
       const coachingRev = coachEntries.reduce((s, e) => s + (e.facilityEarns || 0), 0);
       const walkinRev = walkinEntries.reduce((s, e) => s + (e.total || 0), 0);
       const openplayRev = openplayEntries.reduce((s, e) => s + (e.total || 0), 0);
+      // Tournament revenue is the paid-player entry fees collected; same
+      // shape as openplay (price × paid count, already in e.total). A
+      // tournament running 3 days is counted on each day's revenue —
+      // that's fine because the entry-fee is shown on each row but it's
+      // the same dollars. To avoid triple-counting in week totals, dedupe
+      // by tournamentId before summing.
+      const seenTrnIds = new Set();
+      let tournamentRev = 0;
+      for (const e of tournamentEntries) {
+        const tid = e.tournamentId || e.bookingId;
+        if (seenTrnIds.has(tid)) continue;
+        seenTrnIds.add(tid);
+        tournamentRev += (e.total || 0);
+      }
       map[iso] = {
         guestCount: guestEntries.length,
         coachCount: coachEntries.length,
         walkinCount: walkinEntries.length,
         openplayCount: openplayEntries.length,
+        tournamentCount: tournamentEntries.length,
         courtRev: courtRev,
         coachingRev: coachingRev,
         walkinRev: walkinRev,
         openplayRev: openplayRev,
-        totalRev: courtRev + coachingRev + walkinRev + openplayRev
+        tournamentRev: tournamentRev,
+        totalRev: courtRev + coachingRev + walkinRev + openplayRev + tournamentRev
       };
     }
     return map;
@@ -7343,13 +7468,14 @@ function WeekView({ entries, days, onDayClick, onBlockClick }) {
         const todayStr = todayISO();
         const isToday = iso === todayStr;
         const isPastDay = iso < todayStr;
-        const stats = dayStats[iso] || { guestCount: 0, coachCount: 0, walkinCount: 0, openplayCount: 0, totalRev: 0, courtRev: 0, coachingRev: 0, walkinRev: 0, openplayRev: 0 };
+        const stats = dayStats[iso] || { guestCount: 0, coachCount: 0, walkinCount: 0, openplayCount: 0, tournamentCount: 0, totalRev: 0, courtRev: 0, coachingRev: 0, walkinRev: 0, openplayRev: 0, tournamentRev: 0 };
 
         const counts = [];
         if (stats.guestCount > 0) counts.push(stats.guestCount + " booking" + (stats.guestCount === 1 ? "" : "s"));
         if (stats.coachCount > 0) counts.push(stats.coachCount + " ★");
         if (stats.walkinCount > 0) counts.push(stats.walkinCount + " ◉");
         if (stats.openplayCount > 0) counts.push(stats.openplayCount + " ◎");
+        if (stats.tournamentCount > 0) counts.push(stats.tournamentCount + " 🏆");
         const countText = counts.length > 0 ? counts.join(" · ") : "No activity";
 
         return (
@@ -7371,6 +7497,7 @@ function WeekView({ entries, days, onDayClick, onBlockClick }) {
                     {stats.coachingRev > 0 && <span style={{ marginLeft: 6, color: "var(--wood-2,#C9A24A)" }}>★ ${stats.coachingRev.toFixed(0)}</span>}
                     {stats.walkinRev > 0 && <span style={{ marginLeft: 6, color: "var(--peach,#D9785C)" }}>◉ ${stats.walkinRev.toFixed(0)}</span>}
                     {stats.openplayRev > 0 && <span style={{ marginLeft: 6, color: "var(--green,#3D7A4F)" }}>◎ ${stats.openplayRev.toFixed(0)}</span>}
+                    {stats.tournamentRev > 0 && <span style={{ marginLeft: 6, color: "var(--clay)" }}>🏆 ${stats.tournamentRev.toFixed(0)}</span>}
                   </span>
                 )}
               </div>
@@ -7418,7 +7545,7 @@ function MonthView({ entries, centerDate, onDayClick }) {
   const byDate = useMemo(() => {
     const map = {};
     for (const e of entries) {
-      if (!map[e.date]) map[e.date] = { bookings: 0, coaching: 0, walkin: 0, openplay: 0, revenue: 0, slots: 0, entries: [] };
+      if (!map[e.date]) map[e.date] = { bookings: 0, coaching: 0, walkin: 0, openplay: 0, tournament: 0, revenue: 0, slots: 0, entries: [], seenTrnIds: new Set() };
       if (e.entryType === "booking" && e.derivedStatus !== "cancelled") {
         map[e.date].bookings++;
         map[e.date].revenue += (e.total || 0);
@@ -7442,6 +7569,23 @@ function MonthView({ entries, centerDate, onDayClick }) {
         map[e.date].revenue += (e.total || 0);
         // Open Play sessions occupy MULTIPLE courts for their full duration —
         // slot capacity must count slots × courts, like bookings.
+        const courtCount = String(e.courtNumbers || "").split(",").filter(Boolean).length;
+        map[e.date].slots += (e.slots || 0) * courtCount;
+        map[e.date].entries.push(e);
+      } else if (e.entryType === "tournament") {
+        map[e.date].tournament++;
+        // Multi-day tournaments emit one entry per day, but a tournament's
+        // entry-fee revenue is collected once. Per-day in the month view
+        // it's reasonable to attribute the revenue to each day (slot-time
+        // is real, fee is shown on each day's cell), but for the MONTH
+        // total we want the sum to make sense — so dedupe by tournamentId
+        // within a single day's aggregation (defensive: shouldn't double
+        // up but worth guarding).
+        const tid = e.tournamentId || e.bookingId;
+        if (!map[e.date].seenTrnIds.has(tid)) {
+          map[e.date].seenTrnIds.add(tid);
+          map[e.date].revenue += (e.total || 0);
+        }
         const courtCount = String(e.courtNumbers || "").split(",").filter(Boolean).length;
         map[e.date].slots += (e.slots || 0) * courtCount;
         map[e.date].entries.push(e);
@@ -7492,7 +7636,7 @@ function MonthView({ entries, centerDate, onDayClick }) {
           const isTodayCell = iso === today;
           const isPast = iso < today;
           const utilPct = Math.min(100, Math.round((stats.slots / DAILY_CAPACITY) * 100));
-          const totalEvents = stats.bookings + stats.coaching + stats.walkin + stats.openplay;
+          const totalEvents = stats.bookings + stats.coaching + stats.walkin + stats.openplay + stats.tournament;
 
           // Saturation: 0..1 scaling based on revenue
           const sat = Math.min(1, stats.revenue / maxRev);
@@ -7542,7 +7686,10 @@ function MonthView({ entries, centerDate, onDayClick }) {
                     <span className="dot-walkin" title={stats.walkin + " walk-in"} style={{ color: "var(--peach,#D9785C)" }}>◉ {stats.walkin}</span>
                   )}
                   {stats.openplay > 0 && (
-                    <span className="dot-openplay" title={stats.openplay + " open play"} style={{ color: "var(--green,#3D7A4F)" }}>◎ {stats.openplay}</span>
+                    <span className="dot-openplay" title={stats.openplay + " open play"} style={{ color: "#5B6BA8" }}>◎ {stats.openplay}</span>
+                  )}
+                  {stats.tournament > 0 && (
+                    <span className="dot-tournament" title={stats.tournament + " tournament"} style={{ color: "var(--clay)" }}>🏆 {stats.tournament}</span>
                   )}
                   <div className="util-mini-v2">
                     <div className="fill" style={{ width: utilPct + "%" }} />
@@ -7573,6 +7720,7 @@ function MonthView({ entries, centerDate, onDayClick }) {
               {hoverStats.coaching > 0 && <span> · {hoverStats.coaching} ★</span>}
               {hoverStats.walkin > 0 && <span> · {hoverStats.walkin} ◉</span>}
               {hoverStats.openplay > 0 && <span> · {hoverStats.openplay} ◎</span>}
+              {hoverStats.tournament > 0 && <span> · {hoverStats.tournament} 🏆</span>}
               <span> · ${hoverStats.revenue.toFixed(0)} revenue</span>
             </div>
           </div>
@@ -7581,11 +7729,13 @@ function MonthView({ entries, centerDate, onDayClick }) {
               const icon = e.entryType === "coaching" ? "★ "
                 : e.entryType === "walkin" ? "◉ "
                 : e.entryType === "openplay" ? "◎ "
+                : e.entryType === "tournament" ? "🏆 "
                 : "";
               const rowClass = "row"
                 + (e.entryType === "coaching" ? " is-coach"
                 : e.entryType === "walkin" ? " is-walkin"
                 : e.entryType === "openplay" ? " is-openplay"
+                : e.entryType === "tournament" ? " is-tournament"
                 : "");
               return (
                 <div key={idx} className={rowClass}>
@@ -12919,13 +13069,15 @@ function ScreenCustomers() {
   }, [search, typeFilter]);
 
   const counts = useMemo(() => {
-    if (!customers) return { all: 0, member: 0, guest: 0, walkin: 0, student: 0 };
+    if (!customers) return { all: 0, member: 0, guest: 0, walkin: 0, student: 0, openplay: 0, tournament: 0 };
     return {
       all: customers.length,
       member: customers.filter(c => c.sources.indexOf("member") >= 0).length,
       guest: customers.filter(c => c.sources.indexOf("guest") >= 0).length,
       walkin: customers.filter(c => c.sources.indexOf("walkin") >= 0).length,
-      student: customers.filter(c => c.sources.indexOf("student") >= 0).length
+      student: customers.filter(c => c.sources.indexOf("student") >= 0).length,
+      openplay: customers.filter(c => c.sources.indexOf("openplay") >= 0).length,
+      tournament: customers.filter(c => c.sources.indexOf("tournament") >= 0).length
     };
   }, [customers]);
 
@@ -12934,7 +13086,9 @@ function ScreenCustomers() {
     { id: "member", label: "Members" },
     { id: "guest", label: "Court guests" },
     { id: "walkin", label: "Walk-in players" },
-    { id: "student", label: "Coaching students" }
+    { id: "student", label: "Coaching students" },
+    { id: "openplay", label: "Drop-in players" },
+    { id: "tournament", label: "Tournament players" }
   ];
 
   return (
@@ -13072,6 +13226,10 @@ function CustomerHistoryModal({ customer, onClose }) {
     ? "◉ Walk-in player"
     : customer.sources.indexOf("student") >= 0
     ? "★ Coaching student"
+    : customer.sources.indexOf("openplay") >= 0
+    ? "◎ Drop-in player"
+    : customer.sources.indexOf("tournament") >= 0
+    ? "🏆 Tournament player"
     : "Court guest";
 
   return (
@@ -13092,7 +13250,9 @@ function CustomerHistoryModal({ customer, onClose }) {
               member: { label: customer.tier + " member", bg: "var(--ink)", color: "var(--cream)" },
               guest: { label: "Court guest", bg: "var(--green)", color: "var(--cream)" },
               walkin: { label: "◉ Walk-in player", bg: "var(--peach,#D9785C)", color: "var(--cream)" },
-              student: { label: "★ Coaching student", bg: "var(--wood)", color: "var(--cream)" }
+              student: { label: "★ Coaching student", bg: "var(--wood)", color: "var(--cream)" },
+              openplay: { label: "◎ Drop-in player", bg: "#5B6BA8", color: "var(--cream)" },
+              tournament: { label: "🏆 Tournament player", bg: "var(--clay)", color: "var(--cream)" }
             }[s];
             if (!cfg) return null;
             return (
@@ -13108,7 +13268,7 @@ function CustomerHistoryModal({ customer, onClose }) {
           <div style={{ padding: 30, display: "flex", justifyContent: "center" }}><BouncingBall size="sm" /></div>
         ) : (
           <>
-            <div className="stat-grid" style={{ marginBottom: 18, gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
+            <div className="stat-grid" style={{ marginBottom: 18, gridTemplateColumns: "repeat(5, 1fr)" }}>
               <div className="stat-card accent-ink">
                 <div className="label">Bookings</div>
                 <div className="value">{data.totalBookings}</div>
@@ -13121,6 +13281,13 @@ function CustomerHistoryModal({ customer, onClose }) {
                 <div className="label">Coaching</div>
                 <div className="value" style={{ color: "var(--wood)" }}>{data.totalCoachingSessions}</div>
               </div>
+              <div className="stat-card" style={{ borderColor: "#5B6BA8" }}>
+                <div className="label">Drop-ins / Tournament</div>
+                <div className="value" style={{ color: "#5B6BA8" }}>
+                  {(data.totalOpenPlay || 0)}
+                  <span style={{ opacity: 0.5, fontSize: "0.7em" }}> · {data.totalTournaments || 0}🏆</span>
+                </div>
+              </div>
               <div className="stat-card accent-green">
                 <div className="label">Lifetime spend</div>
                 <div className="value">${data.totalSpent.toFixed(2)}</div>
@@ -13128,78 +13295,171 @@ function CustomerHistoryModal({ customer, onClose }) {
               </div>
             </div>
 
-            {/* Court bookings */}
-            {data.bookings.length > 0 && (
-              <>
-                <div className="section-label">
-                  <span><span className="num">01</span><span className="name">Court Bookings</span></span>
-                  <span className="right">{data.bookings.length} entries</span>
-                </div>
-                <div style={{ maxHeight: 240, overflowY: "auto", marginBottom: 16 }}>
-                  {data.bookings.map(b => (
-                    <div key={b.bookingId} className="modal-detail-row" style={{ padding: "10px 0" }}>
-                      <span className="k">
-                        {b.date} · {b.time}
-                        <span style={{ marginLeft: 8 }} className={"status-pill " + b.derivedStatus}>
-                          {STATUS_LABELS[b.derivedStatus] || b.derivedStatus}
-                        </span>
-                      </span>
-                      <span className="v">
-                        {b.slots * 0.5}h · C·{b.courtNumbers} · ${(b.total || 0).toFixed(2)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
+            {/* Section numbering is computed at render time so empty sections
+                don't leave gaps like "01... 03... 05". Numbering follows the
+                fixed display order: bookings, walkins, coaching, open play,
+                tournaments. */}
+            {(() => {
+              const sections = [];
+              let n = 0;
+              const num = () => { n++; return String(n).padStart(2, "0"); };
 
-            {/* Walk-in visits */}
-            {data.walkIns && data.walkIns.length > 0 && (
-              <>
-                <div className="section-label">
-                  <span><span className="num">02</span><span className="name" style={{ color: "var(--peach,#D9785C)" }}>◉ Walk-in / Open Play</span></span>
-                  <span className="right">{data.walkIns.length} visits</span>
-                </div>
-                <div style={{ maxHeight: 240, overflowY: "auto", marginBottom: 16 }}>
-                  {data.walkIns.map(w => (
-                    <div key={w.playerId} className="modal-detail-row" style={{ padding: "10px 0" }}>
-                      <span className="k">
-                        {w.date} · {w.time}
-                        <span style={{ marginLeft: 8 }} className={"status-pill " + (String(w.paymentStatus).toLowerCase() === "paid" ? "paid" : "at_risk")}>
-                          {w.paymentStatus}
-                        </span>
-                      </span>
-                      <span className="v">C·{w.court} · ${(w.amount || 0).toFixed(2)}</span>
+              if (data.bookings.length > 0) {
+                sections.push(
+                  <React.Fragment key="bookings">
+                    <div className="section-label">
+                      <span><span className="num">{num()}</span><span className="name">Court Bookings</span></span>
+                      <span className="right">{data.bookings.length} entries</span>
                     </div>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {/* Coaching sessions */}
-            {data.coachingSessions && data.coachingSessions.length > 0 && (
-              <>
-                <div className="section-label">
-                  <span><span className="num">03</span><span className="name" style={{ color: "var(--wood)" }}>★ Coaching Sessions</span></span>
-                  <span className="right">{data.coachingSessions.length} sessions</span>
-                </div>
-                <div style={{ maxHeight: 240, overflowY: "auto", marginBottom: 16 }}>
-                  {data.coachingSessions.map(s => (
-                    <div key={s.sessionId} className="modal-detail-row" style={{ padding: "10px 0" }}>
-                      <span className="k">
-                        {s.date} · {s.time}
-                        <span style={{ marginLeft: 8, fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.12em", opacity: 0.6 }}>
-                          with {s.coachName}
-                        </span>
-                      </span>
-                      <span className="v">{s.durationHours}h · C·{s.courtNumbers} · ${(s.lessonFee || 0).toFixed(2)} fee</span>
+                    <div style={{ maxHeight: 240, overflowY: "auto", marginBottom: 16 }}>
+                      {data.bookings.map(b => (
+                        <div key={b.bookingId} className="modal-detail-row" style={{ padding: "10px 0" }}>
+                          <span className="k">
+                            {b.date} · {b.time}
+                            <span style={{ marginLeft: 8 }} className={"status-pill " + b.derivedStatus}>
+                              {STATUS_LABELS[b.derivedStatus] || b.derivedStatus}
+                            </span>
+                          </span>
+                          <span className="v">
+                            {b.slots * 0.5}h · C·{b.courtNumbers} · ${(b.total || 0).toFixed(2)}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              </>
-            )}
+                  </React.Fragment>
+                );
+              }
 
-            {data.bookings.length === 0 && (!data.walkIns || data.walkIns.length === 0) && (!data.coachingSessions || data.coachingSessions.length === 0) && (
+              if (data.walkIns && data.walkIns.length > 0) {
+                sections.push(
+                  <React.Fragment key="walkins">
+                    <div className="section-label">
+                      <span><span className="num">{num()}</span><span className="name" style={{ color: "var(--peach,#D9785C)" }}>◉ Walk-in</span></span>
+                      <span className="right">{data.walkIns.length} visits</span>
+                    </div>
+                    <div style={{ maxHeight: 240, overflowY: "auto", marginBottom: 16 }}>
+                      {data.walkIns.map(w => (
+                        <div key={w.playerId} className="modal-detail-row" style={{ padding: "10px 0" }}>
+                          <span className="k">
+                            {w.date} · {w.time}
+                            <span style={{ marginLeft: 8 }} className={"status-pill " + (String(w.paymentStatus).toLowerCase() === "paid" ? "paid" : "at_risk")}>
+                              {w.paymentStatus}
+                            </span>
+                          </span>
+                          <span className="v">C·{w.court} · ${(w.amount || 0).toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </React.Fragment>
+                );
+              }
+
+              if (data.coachingSessions && data.coachingSessions.length > 0) {
+                sections.push(
+                  <React.Fragment key="coaching">
+                    <div className="section-label">
+                      <span><span className="num">{num()}</span><span className="name" style={{ color: "var(--wood)" }}>★ Coaching Sessions</span></span>
+                      <span className="right">{data.coachingSessions.length} sessions</span>
+                    </div>
+                    <div style={{ maxHeight: 240, overflowY: "auto", marginBottom: 16 }}>
+                      {data.coachingSessions.map(s => (
+                        <div key={s.sessionId} className="modal-detail-row" style={{ padding: "10px 0" }}>
+                          <span className="k">
+                            {s.date} · {s.time}
+                            <span style={{ marginLeft: 8, fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.12em", opacity: 0.6 }}>
+                              with {s.coachName}
+                            </span>
+                          </span>
+                          <span className="v">{s.durationHours}h · C·{s.courtNumbers} · ${(s.lessonFee || 0).toFixed(2)} fee</span>
+                        </div>
+                      ))}
+                    </div>
+                  </React.Fragment>
+                );
+              }
+
+              if (data.openPlay && data.openPlay.length > 0) {
+                sections.push(
+                  <React.Fragment key="openplay">
+                    <div className="section-label">
+                      <span><span className="num">{num()}</span><span className="name" style={{ color: "#5B6BA8" }}>◎ Drop-in Sessions</span></span>
+                      <span className="right">{data.openPlay.length} registrations</span>
+                    </div>
+                    <div style={{ maxHeight: 240, overflowY: "auto", marginBottom: 16 }}>
+                      {data.openPlay.map(o => (
+                        <div key={o.registrationId} className="modal-detail-row" style={{ padding: "10px 0", opacity: o.cancelled ? 0.5 : 1 }}>
+                          <span className="k">
+                            {o.date} · {o.time}
+                            <span style={{ marginLeft: 8, fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.12em", opacity: 0.7 }}>
+                              {o.title}
+                            </span>
+                            {o.cancelled && (
+                              <span style={{ marginLeft: 6, fontSize: 9, color: "var(--clay)", fontWeight: 700 }}>· CANCELLED</span>
+                            )}
+                            {!o.cancelled && o.checkedIn && (
+                              <span style={{ marginLeft: 6, fontSize: 9, color: "var(--green)", fontWeight: 700 }}>· CHECKED IN</span>
+                            )}
+                          </span>
+                          <span className="v">
+                            {o.durationHours}h · C·{o.courts} · ${(o.paid ? o.amountPaid : o.price).toFixed(2)}
+                            {o.paid && !o.cancelled && <span style={{ marginLeft: 6, color: "var(--green)" }}>paid</span>}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </React.Fragment>
+                );
+              }
+
+              if (data.tournaments && data.tournaments.length > 0) {
+                sections.push(
+                  <React.Fragment key="tournaments">
+                    <div className="section-label">
+                      <span><span className="num">{num()}</span><span className="name" style={{ color: "var(--clay)" }}>🏆 Tournaments</span></span>
+                      <span className="right">{data.tournaments.length} registrations</span>
+                    </div>
+                    <div style={{ maxHeight: 240, overflowY: "auto", marginBottom: 16 }}>
+                      {data.tournaments.map(tr => (
+                        <div key={tr.playerId} className="modal-detail-row" style={{ padding: "10px 0", opacity: tr.cancelled ? 0.5 : 1 }}>
+                          <span className="k">
+                            {tr.startDate}
+                            {tr.endDate && tr.endDate !== tr.startDate ? "→" + tr.endDate : ""}
+                            <span style={{ marginLeft: 8, fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.12em", opacity: 0.7 }}>
+                              {tr.tournamentName}
+                            </span>
+                            {tr.partnerName && (
+                              <span style={{ marginLeft: 6, fontSize: 10, opacity: 0.6 }}>
+                                &amp; {tr.partnerName}
+                              </span>
+                            )}
+                            {tr.cancelled && (
+                              <span style={{ marginLeft: 6, fontSize: 9, color: "var(--clay)", fontWeight: 700 }}>· CANCELLED</span>
+                            )}
+                            {tr.finalPosition && (
+                              <span style={{ marginLeft: 6, fontSize: 9, color: "var(--green)", fontWeight: 700 }}>· {tr.finalPosition}</span>
+                            )}
+                          </span>
+                          <span className="v">
+                            {tr.skillLevel || tr.format || ""}
+                            {tr.dupr != null && " · DUPR " + tr.dupr.toFixed(1)}
+                            {" · "}${(tr.paid ? tr.amountPaid : tr.entryFee).toFixed(2)}
+                            {tr.paid && !tr.cancelled && <span style={{ marginLeft: 6, color: "var(--green)" }}>paid</span>}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </React.Fragment>
+                );
+              }
+
+              return sections;
+            })()}
+
+            {data.bookings.length === 0
+              && (!data.walkIns || data.walkIns.length === 0)
+              && (!data.coachingSessions || data.coachingSessions.length === 0)
+              && (!data.openPlay || data.openPlay.length === 0)
+              && (!data.tournaments || data.tournaments.length === 0) && (
               <div className="empty-mini" style={{ padding: 30 }}>No activity yet</div>
             )}
 
@@ -16046,6 +16306,17 @@ function OpenPlayCreateModal({ onClose, onCreated }) {
     if (form.durationHours <= 0) { setError("Duration must be > 0"); return; }
     if (form.playerCap < 0) { setError("Cap can't be negative"); return; }
     if (form.price < 0) { setError("Price can't be negative"); return; }
+    // Validate start time format and snap to half-hour grid. Browsers
+    // sometimes ignore step="1800" on <input type="time"> when the user
+    // types manually — surface that as a clear error rather than letting
+    // an off-grid time (e.g. 16:42) silently corrupt the session.
+    if (!/^\d{2}:\d{2}$/.test(form.startTime)) {
+      setError("Start time must be HH:MM"); return;
+    }
+    const stMin = parseInt(form.startTime.substring(3, 5));
+    if (stMin !== 0 && stMin !== 30) {
+      setError("Start time must be on a half-hour (e.g. 16:00 or 16:30, not 16:42)"); return;
+    }
     // DUPR sanity (server validates too but catch obvious typos here)
     if (form.minDupr !== "" && form.maxDupr !== "" && parseFloat(form.minDupr) > parseFloat(form.maxDupr)) {
       setError("Min DUPR can't be greater than Max DUPR"); return;
@@ -16117,13 +16388,24 @@ function OpenPlayCreateModal({ onClose, onCreated }) {
           </div>
           <div>
             <label style={{ display: "block", marginBottom: 6, fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>Start</label>
-            <input
-              type="time"
+            <select
               value={form.startTime}
               onChange={(e) => setForm({ ...form, startTime: e.target.value })}
-              step="1800"
               style={{ width: "100%" }}
-            />
+            >
+              {/* Half-hour grid from 06:00 to 21:30. Restricts to legal
+                  values so off-grid times (e.g. 16:42) are impossible. */}
+              {(() => {
+                const opts = [];
+                for (let h = 6; h <= 21; h++) {
+                  for (const m of ["00", "30"]) {
+                    const v = String(h).padStart(2, "0") + ":" + m;
+                    opts.push(<option key={v} value={v}>{v}</option>);
+                  }
+                }
+                return opts;
+              })()}
+            </select>
           </div>
           <div>
             <label style={{ display: "block", marginBottom: 6, fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>Duration</label>
@@ -16689,7 +16971,7 @@ function ScreenTournaments() {
       </div>
 
       {/* Stat strip */}
-      <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr", marginBottom: 20 }}>
+      <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", marginBottom: 20 }}>
         <div className="stat-card">
           <div className="label">Upcoming</div>
           <div className="value">{fmtInt(summary.upcoming || 0)}</div>
@@ -16699,6 +16981,15 @@ function ScreenTournaments() {
           <div className="label">Live now</div>
           <div className="value" style={{ color: "var(--green)" }}>{fmtInt(summary.inProgress || 0)}</div>
           <div className="sub">in-progress today</div>
+        </div>
+        <div className="stat-card" style={{
+          borderColor: summary.signupsToday > 0 ? "var(--clay)" : undefined
+        }}>
+          <div className="label">Signups today</div>
+          <div className="value" style={{ color: summary.signupsToday > 0 ? "var(--clay)" : undefined }}>
+            {fmtInt(summary.signupsToday || 0)}
+          </div>
+          <div className="sub">new registrations</div>
         </div>
         <div className="stat-card">
           <div className="label">Past this year</div>
@@ -16832,6 +17123,20 @@ function TournamentRow({ t, onOpenDetail }) {
         </div>
         <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>
           {t.paidPlayers} paid
+          {t.signupsToday > 0 && (
+            <span style={{
+              marginLeft: 6,
+              padding: "1px 6px",
+              borderRadius: 3,
+              background: "var(--clay)",
+              color: "var(--cream)",
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: "0.04em"
+            }}>
+              +{t.signupsToday} today
+            </span>
+          )}
         </div>
       </div>
       <div style={{ textAlign: "right" }}>
@@ -17013,11 +17318,33 @@ function TournamentCreateModal({ existing, onClose, onCreated }) {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="field">
               <div className="field-label">Start time</div>
-              <input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} />
+              <select value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })}>
+                {(() => {
+                  const opts = [];
+                  for (let h = 6; h <= 21; h++) {
+                    for (const m of ["00", "30"]) {
+                      const v = String(h).padStart(2, "0") + ":" + m;
+                      opts.push(<option key={v} value={v}>{v}</option>);
+                    }
+                  }
+                  return opts;
+                })()}
+              </select>
             </div>
             <div className="field">
               <div className="field-label">End time</div>
-              <input type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} />
+              <select value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })}>
+                {(() => {
+                  const opts = [];
+                  for (let h = 6; h <= 22; h++) {
+                    for (const m of ["00", "30"]) {
+                      const v = String(h).padStart(2, "0") + ":" + m;
+                      opts.push(<option key={v} value={v}>{v}</option>);
+                    }
+                  }
+                  return opts;
+                })()}
+              </select>
             </div>
           </div>
 
@@ -17214,7 +17541,23 @@ function TournamentDetailModal({ tournamentId, onClose, onChanged, onEdit }) {
           <div>
             <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, letterSpacing: "0.14em", textTransform: "uppercase" }}>Players</div>
             <div style={{ fontFamily: "var(--mono)", fontSize: 18, fontWeight: 700 }}>{t.registeredPlayers}{t.playerCap > 0 ? "/" + t.playerCap : ""}</div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>{t.paidPlayers} paid</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>
+              {t.paidPlayers} paid
+              {t.signupsToday > 0 && (
+                <span style={{
+                  marginLeft: 4,
+                  padding: "1px 5px",
+                  borderRadius: 2,
+                  background: "var(--clay)",
+                  color: "var(--cream)",
+                  fontSize: 8,
+                  fontWeight: 700,
+                  letterSpacing: "0.04em"
+                }}>
+                  +{t.signupsToday}
+                </span>
+              )}
+            </div>
           </div>
           <div>
             <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, letterSpacing: "0.14em", textTransform: "uppercase" }}>Revenue</div>
@@ -17710,6 +18053,11 @@ function TournamentRosterTab({ t, onChanged }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
         <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.7 }}>
           {t.players.length} player{t.players.length === 1 ? "" : "s"}{t.playerCap > 0 ? " · " + (t.playerCap - t.players.length) + " spot(s) left" : ""} · {t.paidPlayers} paid
+          {t.cancelledPlayers && t.cancelledPlayers.length > 0 && (
+            <span style={{ marginLeft: 8, opacity: 0.5 }}>
+              · {t.cancelledPlayers.length} cancelled
+            </span>
+          )}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           {t.players.length > 0 && (
@@ -17798,6 +18146,8 @@ function PlayerRow({ player, onChanged, entryFee }) {
           {player.phone || "(no phone)"}
           {player.division && " · " + player.division}
           {player.skillLevel && " · " + player.skillLevel}
+          {player.dupr != null && " · DUPR " + Number(player.dupr).toFixed(1)}
+          {player.email && " · " + player.email}
         </div>
       </div>
       <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.7 }}>
@@ -19292,10 +19642,224 @@ function ScreenSettings() {
         </div>
       </div>
 
+      <DataIntegrityCard />
+
       <div className="settings-card" style={{ opacity: 0.6 }}>
         <h3>More settings</h3>
         <div className="desc">Pricing rules, operating hours, grace period, and birthday window will appear here in a future release. For now, these are configured in the Pricing sheet and Script Properties.</div>
       </div>
+    </div>
+  );
+}
+
+/* ====================================================================
+   DataIntegrityCard — audit/repair UI for the Settings screen.
+   Lives outside ScreenSettings so its state survives ScreenSettings'
+   re-renders when other Settings fields update.
+
+   UX:
+   - "Run audit" — read-only scan; lists issues found
+   - For each issue group, a tappable "Repair these" button on the
+     summary that opens a confirm modal showing the exact planned actions
+   - Repair calls adminRepairDataIntegrity with confirm=true; success
+     hides the resolved issues from the list
+   ==================================================================== */
+function DataIntegrityCard() {
+  const [auditing, setAuditing] = useState(false);
+  const [repairing, setRepairing] = useState(false);
+  const [report, setReport] = useState(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [plannedActions, setPlannedActions] = useState([]);
+
+  async function runAudit() {
+    setAuditing(true);
+    const r = await api("adminAuditDataIntegrity");
+    setAuditing(false);
+    if (r.ok) {
+      setReport({ ...r.report, summary: r.summary, total: r.totalIssues });
+    } else {
+      showToast(r.error || "Audit failed", "error");
+    }
+  }
+
+  async function planRepair() {
+    // Dry-run to get the action list
+    const r = await api("adminRepairDataIntegrity");
+    if (!r.ok) { showToast(r.error || "Failed to plan repair", "error"); return; }
+    if (!r.actions || r.actions.length === 0) {
+      showToast("Nothing to repair", "info");
+      return;
+    }
+    setPlannedActions(r.actions);
+    setShowConfirm(true);
+  }
+
+  async function applyRepair() {
+    setRepairing(true);
+    const r = await api("adminRepairDataIntegrity", { confirm: true });
+    setRepairing(false);
+    setShowConfirm(false);
+    if (r.ok) {
+      showToast(r.message || ("Repaired " + (r.appliedCount || 0) + " issue(s)"), "success");
+      // Re-run audit to refresh state
+      runAudit();
+    } else {
+      showToast(r.error || "Repair failed", "error");
+    }
+  }
+
+  return (
+    <div className="settings-card">
+      <h3>Data integrity</h3>
+      <div className="desc">
+        Scan for sessions or tournaments with off-grid times (caused by older
+        versions accepting times like 16:42) and orphan markers on the Availability
+        sheet. Audit is read-only; repair cancels affected sessions/tournaments
+        so they can be recreated cleanly with valid half-hour times.
+      </div>
+      <div className="settings-row" style={{ alignItems: "flex-start" }}>
+        <div style={{ flex: 1 }}>
+          {!report ? (
+            <div style={{ fontSize: 12, opacity: 0.7 }}>
+              Click "Run audit" to scan for issues. No changes will be made.
+            </div>
+          ) : report.total === 0 ? (
+            <div style={{ fontSize: 13, color: "var(--green)", fontWeight: 600 }}>
+              ✓ All checks passed — no integrity issues found.
+            </div>
+          ) : (
+            <div style={{ fontSize: 12 }}>
+              <div style={{ fontWeight: 700, marginBottom: 8, color: "var(--clay)" }}>
+                Found {report.total} issue(s):
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
+                {report.offGridOpenPlay.length > 0 && (
+                  <li>
+                    <strong>{report.offGridOpenPlay.length}</strong> Open Play session(s) with off-grid times:
+                    <ul style={{ marginTop: 2, marginBottom: 4, fontSize: 11, opacity: 0.85 }}>
+                      {report.offGridOpenPlay.slice(0, 5).map((op, i) => (
+                        <li key={i}>
+                          <code>{op.id}</code> · "{op.title}" at {op.date} {op.startTime}
+                        </li>
+                      ))}
+                      {report.offGridOpenPlay.length > 5 && (
+                        <li style={{ opacity: 0.6 }}>… and {report.offGridOpenPlay.length - 5} more</li>
+                      )}
+                    </ul>
+                  </li>
+                )}
+                {report.offGridTournaments.length > 0 && (
+                  <li>
+                    <strong>{report.offGridTournaments.length}</strong> tournament(s) with off-grid times:
+                    <ul style={{ marginTop: 2, marginBottom: 4, fontSize: 11, opacity: 0.85 }}>
+                      {report.offGridTournaments.slice(0, 5).map((tr, i) => (
+                        <li key={i}>
+                          <code>{tr.id}</code> · "{tr.name}" {tr.startTime}–{tr.endTime} ({tr.problems.join(", ")})
+                        </li>
+                      ))}
+                      {report.offGridTournaments.length > 5 && (
+                        <li style={{ opacity: 0.6 }}>… and {report.offGridTournaments.length - 5} more</li>
+                      )}
+                    </ul>
+                  </li>
+                )}
+                {report.orphanOpMarkers.length > 0 && (
+                  <li>
+                    <strong>{report.orphanOpMarkers.length}</strong> orphan OP marker group(s) pointing to deleted/cancelled sessions
+                  </li>
+                )}
+                {report.orphanTrnMarkers.length > 0 && (
+                  <li>
+                    <strong>{report.orphanTrnMarkers.length}</strong> orphan tournament marker group(s)
+                  </li>
+                )}
+                {report.offGridAvailabilityRows.length > 0 && (
+                  <li style={{ opacity: 0.7 }}>
+                    {report.offGridAvailabilityRows.length} off-grid Availability rows (harmless — not auto-repaired)
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <button className="btn" disabled={auditing} onClick={runAudit}>
+            {auditing ? "Scanning…" : (report ? "Re-run audit" : "Run audit")}
+          </button>
+          {report && report.total > 0 && (
+            <button
+              className="btn"
+              style={{ background: "var(--clay)", color: "var(--cream)", borderColor: "var(--clay)" }}
+              disabled={repairing}
+              onClick={planRepair}
+            >
+              Repair…
+            </button>
+          )}
+        </div>
+      </div>
+
+      {showConfirm && (
+        <div className="modal-overlay" onClick={() => !repairing && setShowConfirm(false)}>
+          <div className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <div className="kicker">Confirm repair</div>
+                <h2>Apply {plannedActions.length} action(s)?</h2>
+              </div>
+              <button className="x" onClick={() => setShowConfirm(false)} disabled={repairing}>×</button>
+            </div>
+            <div style={{ padding: 20 }}>
+              <div style={{ fontSize: 13, marginBottom: 12, opacity: 0.85 }}>
+                The following actions will be applied. Sessions and tournaments are
+                cancelled (not deleted) so you can recreate them with valid times.
+                This cannot be undone — but cancelled records remain on the sheet
+                for audit.
+              </div>
+              <div style={{
+                background: "var(--cream)",
+                border: "1px solid var(--concrete)",
+                borderRadius: 4,
+                padding: 12,
+                maxHeight: 280,
+                overflowY: "auto"
+              }}>
+                {plannedActions.map((a, i) => (
+                  <div key={i} style={{
+                    padding: "6px 0",
+                    borderBottom: i < plannedActions.length - 1 ? "1px solid rgba(26,26,26,0.06)" : "none",
+                    fontSize: 12,
+                    fontFamily: "var(--mono)"
+                  }}>
+                    <span style={{
+                      display: "inline-block",
+                      minWidth: 130,
+                      fontWeight: 700,
+                      color: a.kind.indexOf("cancel") === 0 ? "var(--clay)" : "var(--wood)"
+                    }}>
+                      {a.kind}
+                    </span>
+                    {a.detail}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
+                <button className="btn" onClick={() => setShowConfirm(false)} disabled={repairing}>
+                  Cancel
+                </button>
+                <button
+                  className="btn"
+                  style={{ background: "var(--clay)", color: "var(--cream)", borderColor: "var(--clay)" }}
+                  onClick={applyRepair}
+                  disabled={repairing}
+                >
+                  {repairing ? "Applying…" : "Apply repair"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
