@@ -885,6 +885,13 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
 .foot-nav button:last-child{ border-right:0; }
 .foot-nav button:hover{ background:rgba(241,234,214,0.06); }
 .foot-nav button:active{ background:rgba(241,234,214,0.12); }
+/* Strip the browser's default focus ring on foot-nav buttons. On mobile,
+ * the browser preserves :focus on the last-tapped button until another
+ * element receives focus — this was making the indicator appear "stuck"
+ * on whichever tab the user tapped most recently, even after navigating
+ * to a different tab via gesture / hash change. */
+.foot-nav button:focus { outline: none; }
+.foot-nav button:focus-visible { outline: 2px solid rgba(241,234,214,0.4); outline-offset: -4px; }
 .foot-nav button.on{
   color:var(--cream);
   background:rgba(241,234,214,0.08);
@@ -4327,19 +4334,32 @@ function ScreenConfirm({ state, setState, go, lang }) {
 /* ===================== SCREEN 5: MY BOOKINGS ===================== */
 function ScreenMyBookings({ state, setState, go, lang }) {
   const [data, setData] = useState(null);
+  const [opRegs, setOpRegs] = useState(null);          // Open Play registrations
+  const [trnRegs, setTrnRegs] = useState(null);        // Tournament registrations
+  const [walkIns, setWalkIns] = useState(null);        // Walk-in activity (read-only)
   const [loading, setLoading] = useState(true);
   const [cancelTarget, setCancelTarget] = useState(null);
   const [cancelling, setCancelling] = useState(false);
+  // Universal cancellation target: { kind: "booking"|"openplay"|"tournament", ... }
+  const [universalCancel, setUniversalCancel] = useState(null);
 
   async function load() {
     setLoading(true);
-    const r = await api("getMyBookings", {
-      token: state.token || "",
-      phone: state.phone || ""
-    });
+    // Fire all four lookups in PARALLEL so the page paints in one round-trip
+    // window instead of four sequential calls.
+    const phone = state.phone || "";
+    const [bookings, op, trn, wi] = await Promise.all([
+      api("getMyBookings", { token: state.token || "", phone: phone }),
+      phone ? api("myOpenPlayRegistrations", { phone: phone }) : Promise.resolve({ ok: true, registrations: [] }),
+      phone ? api("myTournamentRegistrations", { phone: phone }) : Promise.resolve({ ok: true, registrations: [] }),
+      phone ? api("myWalkInActivity", { phone: phone }) : Promise.resolve({ ok: true, walkIns: [] })
+    ]);
     setLoading(false);
-    if (r.ok) setData({ upcoming: r.upcoming || [], past: r.past || [], cancelled: r.cancelled || [] });
-    else { setData({ upcoming: [], past: [], cancelled: [] }); showToast(r.error || t("error", null, lang), "error"); }
+    if (bookings.ok) setData({ upcoming: bookings.upcoming || [], past: bookings.past || [], cancelled: bookings.cancelled || [] });
+    else { setData({ upcoming: [], past: [], cancelled: [] }); showToast(bookings.error || t("error", null, lang), "error"); }
+    setOpRegs(op.ok ? (op.registrations || []) : []);
+    setTrnRegs(trn.ok ? (trn.registrations || []) : []);
+    setWalkIns(wi.ok ? (wi.walkIns || []) : []);
   }
 
   useEffect(() => { load(); }, []);
@@ -4359,6 +4379,66 @@ function ScreenMyBookings({ state, setState, go, lang }) {
     load();
   }
 
+  // Universal cancellation: handles open play OR tournament cancellation
+  // through one modal flow. The `kind` field tells us which endpoint to hit.
+  async function doUniversalCancel() {
+    if (!universalCancel) return;
+    setCancelling(true);
+    let r;
+    if (universalCancel.kind === "openplay") {
+      r = await api("cancelMyOpenPlayRegistration", {
+        registrationId: universalCancel.registrationId,
+        phone: state.phone || ""
+      });
+    } else if (universalCancel.kind === "tournament") {
+      r = await api("cancelMyTournamentRegistration", {
+        registrationId: universalCancel.registrationId,
+        phone: state.phone || ""
+      });
+    } else {
+      r = { ok: false, error: "Unknown registration type" };
+    }
+    setCancelling(false);
+    setUniversalCancel(null);
+    if (!r.ok) { showToast(r.error || t("error", null, lang), "error"); return; }
+    showToast(lang === "km" ? "បាន​បោះបង់" : "Cancelled", "success");
+    load();
+  }
+
+  // Active Open Play and tournament regs (not past). Walk-ins split into
+  // "active/today" (still on-schedule today or future) vs "past" (history).
+  const activeOpRegs = (opRegs || []).filter(r => !r.isPast);
+  const activeTrnRegs = (trnRegs || []).filter(r => !r.isPast);
+  const activeWalkIns = (walkIns || []).filter(w => !w.isPast);
+  const pastWalkIns = (walkIns || []).filter(w => w.isPast);
+  const hasAnyActivity = (data && data.upcoming.length > 0)
+    || activeOpRegs.length > 0
+    || activeTrnRegs.length > 0
+    || activeWalkIns.length > 0;
+
+  // Precompute section numbers so the list always reads 01, 02, 03… without
+  // gaps regardless of which sections are populated. Order is fixed; visibility
+  // is per-section. We pad with "00" sentinel for unused sections so the JSX
+  // never has to think about whether to skip a number.
+  //
+  // Special case: bookings_upcoming is ALWAYS numbered (header renders even
+  // when the list is empty, to show the empty-state CTA). All other sections
+  // only get a number when they have content.
+  const sectionNums = (() => {
+    let n = 0;
+    const next = () => { n++; return String(n).padStart(2, "0"); };
+    const blank = "00";
+    return {
+      drop_in: activeOpRegs.length > 0 ? next() : blank,
+      tournaments: activeTrnRegs.length > 0 ? next() : blank,
+      walkin_active: activeWalkIns.length > 0 ? next() : blank,
+      bookings_upcoming: next(),  // always rendered
+      bookings_past: (data && data.past.length > 0) ? next() : blank,
+      walkin_past: pastWalkIns.length > 0 ? next() : blank,
+      cancelled: (data && data.cancelled.length > 0) ? next() : blank
+    };
+  })();
+
   return (
     <div className="screen scr-pad-top">
       <div className="row-between" style={{ marginBottom: 12 }}>
@@ -4373,7 +4453,111 @@ function ScreenMyBookings({ state, setState, go, lang }) {
         <div style={{ padding: 30, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
       ) : (
         <>
-          <SectionLabel n="01">{t("mb_upcoming", null, lang)}</SectionLabel>
+          {/* OPEN PLAY REGISTRATIONS — surfaced first since they have the
+              shortest lead time (typically "today" or "this weekend"). */}
+          {activeOpRegs.length > 0 && (
+            <>
+              <SectionLabel n={sectionNums.drop_in}>{lang === "km" ? "ល្បែង​ដ្រ៉ុបអ៊ីន" : "Drop-in sessions"}</SectionLabel>
+              {activeOpRegs.map(r => (
+                <div key={r.registrationId} className="booking-card" style={{ borderLeft: "4px solid #5B6BA8" }}>
+                  <div className="top">
+                    <span>◎ {r.title}</span>
+                    <span style={{ color: r.checkedIn ? "var(--green)" : r.paid ? "var(--green)" : "var(--wood)" }}>
+                      {r.checkedIn ? "CHECKED IN" : r.paid ? "PAID" : "RESERVED"}
+                    </span>
+                  </div>
+                  <div className="date">{fmtDateLong(r.date, lang)}</div>
+                  <div className="meta">
+                    {r.startTime} · {r.durationHours}h · Court{r.courts && r.courts.indexOf(",") !== -1 ? "s" : ""} {r.courts}
+                  </div>
+                  <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span className="mono" style={{ fontSize: 14, fontWeight: 500 }}>
+                      {r.price === 0 ? "FREE" : "$" + Number(r.price).toFixed(2) + (r.paid ? "" : " at counter")}
+                    </span>
+                    <button className="ulink" style={{ fontSize: 12, color: "var(--clay)", borderColor: "var(--clay)" }}
+                      onClick={() => setUniversalCancel({ kind: "openplay", registrationId: r.registrationId, title: r.title })}>
+                      {t("mb_cancel", null, lang)}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* TOURNAMENT REGISTRATIONS */}
+          {activeTrnRegs.length > 0 && (
+            <>
+              <SectionLabel n={sectionNums.tournaments}>
+                {lang === "km" ? "កីឡា​ប្រណាំង" : "Tournaments"}
+              </SectionLabel>
+              {activeTrnRegs.map(r => (
+                <div key={r.registrationId} className="booking-card" style={{ borderLeft: "4px solid var(--wood)" }}>
+                  <div className="top">
+                    <span>🏆 {r.tournamentName}</span>
+                    <span style={{ color: r.paid ? "var(--green)" : "var(--wood)" }}>
+                      {r.paid ? "PAID" : (r.entryFee > 0 ? "PAY AT COUNTER" : "REGISTERED")}
+                    </span>
+                  </div>
+                  <div className="date">
+                    {fmtDateLong(r.startDate, lang)}
+                    {r.endDate && r.endDate !== r.startDate ? " → " + fmtDateLong(r.endDate, lang) : ""}
+                  </div>
+                  <div className="meta">
+                    {r.startTime || ""}{r.endTime ? " — " + r.endTime : ""}
+                    {r.format ? " · " + r.format : ""}
+                    {r.partnerName ? " · w/ " + r.partnerName : ""}
+                  </div>
+                  <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span className="mono" style={{ fontSize: 14, fontWeight: 500 }}>
+                      {r.entryFee === 0 ? "FREE" : "$" + Number(r.entryFee).toFixed(2)}
+                    </span>
+                    <button className="ulink" style={{ fontSize: 12, color: "var(--clay)", borderColor: "var(--clay)" }}
+                      onClick={() => setUniversalCancel({ kind: "tournament", registrationId: r.registrationId, title: r.tournamentName })}>
+                      {t("mb_cancel", null, lang)}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* WALK-IN ACTIVITY — read-only history. Walk-ins are added by
+              staff at the counter; players can't cancel themselves. So
+              this section just shows "you played here, you paid X". */}
+          {activeWalkIns.length > 0 && (
+            <>
+              <SectionLabel n={sectionNums.walkin_active}>
+                {lang === "km" ? "ល្បែង​ដើរ​ចូល" : "Walk-in sessions"}
+              </SectionLabel>
+              {activeWalkIns.map(w => (
+                <div key={w.playerId} className="booking-card" style={{ borderLeft: "4px solid var(--peach,#D9785C)" }}>
+                  <div className="top">
+                    <span>◉ Walk-in · Court {w.courtNumber}</span>
+                    <span style={{ color: w.paid ? "var(--green)" : "var(--wood)" }}>
+                      {w.paid ? "PAID" : (w.paymentStatus || "PENDING").toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="date">{fmtDateLong(w.date, lang)}</div>
+                  <div className="meta">
+                    {w.startTime} · {w.durationHours}h
+                  </div>
+                  <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span className="mono" style={{ fontSize: 14, fontWeight: 500 }}>
+                      {w.amountPaid > 0 ? "$" + Number(w.amountPaid).toFixed(2) : ("$" + Number(w.rate).toFixed(2))}
+                    </span>
+                    <span style={{ fontSize: 11, opacity: 0.6, fontFamily: "var(--mono)" }}>
+                      {lang === "km" ? "ការ​បន្ថែម​ដោយ​បុគ្គលិក" : "Added at counter"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {/* COURT BOOKINGS */}
+          <SectionLabel n={sectionNums.bookings_upcoming}>
+            {t("mb_upcoming", null, lang)}
+          </SectionLabel>
           {data && data.upcoming.length > 0 ? (
             data.upcoming.map(b => (
               <div key={b.bookingId} className="booking-card">
@@ -4396,18 +4580,18 @@ function ScreenMyBookings({ state, setState, go, lang }) {
                 </div>
               </div>
             ))
-          ) : (
+          ) : !hasAnyActivity ? (
             <div className="empty">
               <div className="icon">🏓</div>
               <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 24, marginBottom: 6 }}>{t("mb_empty_upcoming_h", null, lang)}</div>
               <div style={{ marginBottom: 14 }}>{t("mb_empty_upcoming_p", null, lang)}</div>
               <CTA tone="green" onClick={() => go("booking")}>{t("mb_book_now", null, lang)}</CTA>
             </div>
-          )}
+          ) : null}
 
           {data && data.past.length > 0 && (
             <>
-              <SectionLabel n="02">{t("mb_past", null, lang)}</SectionLabel>
+              <SectionLabel n={sectionNums.bookings_past}>{t("mb_past", null, lang)}</SectionLabel>
               {data.past.map(b => (
                 <div key={b.bookingId} className="booking-card past">
                   <div className="top">
@@ -4423,9 +4607,39 @@ function ScreenMyBookings({ state, setState, go, lang }) {
             </>
           )}
 
+          {/* PAST WALK-INS — read-only history. Walk-ins from the previous
+              14 days (the backend cutoff) appear here. Like active walk-ins,
+              they're not cancellable from the user side. */}
+          {pastWalkIns.length > 0 && (
+            <>
+              <SectionLabel n={sectionNums.walkin_past}>
+                {lang === "km" ? "ល្បែង​ដើរ​ចូល​កន្លង​មក" : "Past walk-ins"}
+              </SectionLabel>
+              {pastWalkIns.map(w => (
+                <div key={w.playerId} className="booking-card past" style={{ borderLeft: "4px solid var(--peach,#D9785C)" }}>
+                  <div className="top">
+                    <span>◉ Walk-in · Court {w.courtNumber}</span>
+                    <span style={{ color: w.paid ? "var(--green)" : "var(--clay)" }}>
+                      {w.paid ? "PAID" : (w.paymentStatus || "PENDING").toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="date">{fmtDateLong(w.date, lang)}</div>
+                  <div className="meta">
+                    {w.startTime} · {w.durationHours}h
+                  </div>
+                  <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
+                    <span className="mono" style={{ fontSize: 13, fontWeight: 500 }}>
+                      {w.amountPaid > 0 ? "$" + Number(w.amountPaid).toFixed(2) : ("$" + Number(w.rate).toFixed(2))}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+
           {data && data.cancelled.length > 0 && (
             <>
-              <SectionLabel n={data.past.length > 0 ? "03" : "02"}>
+              <SectionLabel n={sectionNums.cancelled}>
                 {t("mb_cancelled", null, lang)}
               </SectionLabel>
               {data.cancelled.map(b => {
@@ -4460,6 +4674,34 @@ function ScreenMyBookings({ state, setState, go, lang }) {
                 {t("mb_keep", null, lang)}
               </button>
               <button className="btn coral" onClick={doCancel} disabled={cancelling}>
+                {cancelling ? t("loading", null, lang) : t("mb_confirm_cancel_yes", null, lang)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Universal cancel modal — used for Open Play and Tournament cancellations.
+          Identical UX to the regular booking cancel modal so users don't have
+          to learn a new pattern; differs only in the API endpoint hit. */}
+      {universalCancel && (
+        <div className="modal-backdrop" onClick={() => !cancelling && setUniversalCancel(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>{t("mb_confirm_cancel", null, lang)}</h3>
+            <p>
+              {universalCancel.kind === "openplay"
+                ? (lang === "km"
+                    ? "បោះបង់​ការ​ចូលរួម​ល្បែង​ដ្រ៉ុបអ៊ីន?"
+                    : "Cancel your spot in '" + universalCancel.title + "'? This frees the spot for someone else.")
+                : (lang === "km"
+                    ? "បោះបង់​ការ​ចូលរួម​កីឡា​ប្រណាំង?"
+                    : "Cancel your spot in '" + universalCancel.title + "'? This frees the spot for someone else.")}
+            </p>
+            <div className="actions">
+              <button className="btn ghost" onClick={() => setUniversalCancel(null)} disabled={cancelling}>
+                {t("mb_keep", null, lang)}
+              </button>
+              <button className="btn coral" onClick={doUniversalCancel} disabled={cancelling}>
                 {cancelling ? t("loading", null, lang) : t("mb_confirm_cancel_yes", null, lang)}
               </button>
             </div>
@@ -5212,7 +5454,24 @@ function App() {
     setScreen(s);
     try { location.hash = s; } catch (e) {}
     window.scrollTo(0, 0);
+    // Force-blur the currently focused element. On mobile, the last-tapped
+    // foot-nav button stays focused, which can make the active indicator
+    // appear "stuck" on the previous tab.
+    try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (e) {}
   }
+
+  // Keep React state in sync with the URL hash. Without this, back/forward
+  // browser navigation would update the URL without updating the visible
+  // screen, leaving the foot-nav indicator out of sync with the body.
+  useEffect(() => {
+    function onHashChange() {
+      const hash = (location.hash || "").replace("#", "");
+      const validHashes = ["booking", "myBookings", "membership", "confirm", "openplay"];
+      if (validHashes.includes(hash) && hash !== screen) setScreen(hash);
+    }
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [screen]);
 
   function switchLang(l) {
     setLangState(l);
