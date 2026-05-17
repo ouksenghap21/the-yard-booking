@@ -20094,12 +20094,194 @@ function ScreenSettings() {
         </div>
       </div>
 
+      <PerfProbeCard />
+
       <DataIntegrityCard />
 
       <div className="settings-card" style={{ opacity: 0.6 }}>
         <h3>More settings</h3>
         <div className="desc">Pricing rules, operating hours, grace period, and birthday window will appear here in a future release. For now, these are configured in the Pricing sheet and Script Properties.</div>
       </div>
+    </div>
+  );
+}
+
+/* ====================================================================
+   PerfProbeCard — diagnostic UI that pings the backend's adminPerfProbe
+   endpoint and shows the wall-clock cost of each phase of a dashboard
+   load. Use this when "the admin feels slow" to localize the bottleneck
+   before guessing at optimizations.
+
+   What the numbers mean (rough guide for a healthy small venue):
+     - Sheet open:         <100ms (cold-start: up to 2000ms)
+     - Bookings read:      <500ms per ~5000 rows
+     - adminDashboard:     <1500ms cold, <50ms cached
+     - adminTimeline:      <1000ms cold, <50ms cached
+     - KPI / OpKPI:        <1500ms cold, <50ms cached
+     - Total:              <5000ms cold, <500ms cached
+   ==================================================================== */
+function PerfProbeCard() {
+  const [running, setRunning] = useState(false);
+  const [report, setReport] = useState(null);
+
+  async function runProbe() {
+    setRunning(true);
+    setReport(null);
+    const t0 = performance.now();
+    const r = await api("adminPerfProbe", {}, { bypassCache: true });
+    const networkRtt = Math.round(performance.now() - t0) - (r.times ? r.times.total : 0);
+    setRunning(false);
+    if (r.ok) {
+      setReport({ ...r, _clientRtt: Math.max(0, networkRtt) });
+    } else {
+      showToast(r.error || "Probe failed", "error");
+    }
+  }
+
+  function severityColor(ms, lowMs, highMs) {
+    if (ms < lowMs) return "var(--green)";
+    if (ms < highMs) return "var(--wood,#A8744A)";
+    return "var(--clay,#C64F3A)";
+  }
+
+  return (
+    <div className="settings-card">
+      <h3>Performance diagnostics</h3>
+      <div className="desc">
+        Measures how long each phase of a dashboard load takes on the
+        server. Run this when the admin feels slow — it tells you whether
+        the bottleneck is sheet size, Apps Script cold-start, or the
+        network round-trip.
+      </div>
+      <div style={{ display: "flex", gap: 10, marginTop: 12, alignItems: "center" }}>
+        <button
+          className="btn primary"
+          onClick={runProbe}
+          disabled={running}
+        >
+          {running ? "Measuring…" : "Run probe"}
+        </button>
+        {report && (
+          <span className="mono" style={{ fontSize: 11, opacity: 0.6 }}>
+            Last run: {report.times.total + (report._clientRtt || 0)}ms total
+            {report._clientRtt > 0 && " (server " + report.times.total + "ms + network " + report._clientRtt + "ms)"}
+          </span>
+        )}
+      </div>
+
+      {report && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{
+            fontFamily: "var(--mono)", fontSize: 10,
+            letterSpacing: "0.14em", textTransform: "uppercase",
+            opacity: 0.55, marginBottom: 10
+          }}>
+            Phase breakdown · cached state will be much faster
+          </div>
+
+          {/* Phase timings table */}
+          <div style={{
+            border: "1px solid var(--concrete)",
+            borderRadius: 6,
+            padding: "8px 12px",
+            background: "var(--paper)",
+            fontFamily: "var(--mono)", fontSize: 12
+          }}>
+            {[
+              ["Sheet open",         report.times.sheet_open,        50, 500],
+              ["Bookings read",      report.times.bookings_read,     300, 1500],
+              ["Availability meta",  report.times.availability_meta, 50, 300],
+              ["adminDashboard",     report.times.dashboard,         800, 2500],
+              ["adminTimeline",      report.times.timeline,          500, 2000],
+              ["adminDashKpi",       report.times.kpi,               500, 2000],
+              ["adminOpKpi",         report.times.opkpi,             500, 2000],
+            ].map(([label, ms, lo, hi]) => (
+              <div key={label} style={{
+                display: "flex",
+                justifyContent: "space-between",
+                padding: "4px 0",
+                borderBottom: "1px dashed rgba(0,0,0,0.05)"
+              }}>
+                <span>{label}</span>
+                <span style={{ color: severityColor(ms, lo, hi), fontWeight: 600 }}>
+                  {ms}ms
+                </span>
+              </div>
+            ))}
+            <div style={{
+              display: "flex", justifyContent: "space-between",
+              padding: "8px 0 0", fontWeight: 700, marginTop: 4,
+              borderTop: "1.5px solid var(--ink)"
+            }}>
+              <span>Server total</span>
+              <span>{report.times.total}ms</span>
+            </div>
+            {report._clientRtt > 0 && (
+              <div style={{
+                display: "flex", justifyContent: "space-between",
+                padding: "4px 0", opacity: 0.7
+              }}>
+                <span>Network RTT (you ↔ Apps Script)</span>
+                <span>{report._clientRtt}ms</span>
+              </div>
+            )}
+          </div>
+
+          {/* Sheet row counts */}
+          <div style={{
+            marginTop: 14,
+            fontFamily: "var(--mono)", fontSize: 10,
+            letterSpacing: "0.14em", textTransform: "uppercase",
+            opacity: 0.55, marginBottom: 6
+          }}>
+            Sheet sizes (rows of data)
+          </div>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(2, 1fr)",
+            gap: "4px 16px",
+            fontFamily: "var(--mono)", fontSize: 11
+          }}>
+            {Object.keys(report.counts).sort().map(k => (
+              <div key={k} style={{
+                display: "flex", justifyContent: "space-between",
+                padding: "2px 0",
+                opacity: report.counts[k] > 5000 ? 1 : 0.75,
+                color: report.counts[k] > 5000 ? "var(--clay,#C64F3A)" : undefined
+              }}>
+                <span>{k}</span>
+                <span style={{ fontWeight: 600 }}>{report.counts[k]}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Diagnosis hint */}
+          <div style={{
+            marginTop: 16,
+            padding: "10px 12px",
+            background: "rgba(61,122,79,0.07)",
+            border: "1px solid rgba(61,122,79,0.18)",
+            borderRadius: 6,
+            fontSize: 12, lineHeight: 1.5
+          }}>
+            <strong style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", opacity: 0.7 }}>
+              How to read this
+            </strong>
+            <div style={{ marginTop: 6 }}>
+              {report.times.sheet_open > 1500 &&
+                <div>• <strong>Sheet open &gt; 1.5s</strong> means Apps Script was cold. The 4-min ping keepalive should reduce this.</div>}
+              {report.times.bookings_read > 800 &&
+                <div>• <strong>Bookings read &gt; 800ms</strong> with {report.counts.bookings} rows — consider archiving old bookings.</div>}
+              {report._clientRtt > 600 &&
+                <div>• <strong>Network RTT &gt; 600ms</strong> — you're on a slow connection (cellular, distant server). Floor latency that can't be optimized server-side.</div>}
+              {report.times.dashboard > 2000 &&
+                <div>• <strong>adminDashboard &gt; 2s</strong> on cold cache — biggest server bottleneck. Worth deeper optimization.</div>}
+              {report.times.total < 3000 && report._clientRtt < 600 &&
+                <div>• System is performing well. If admin still feels slow, the issue is likely client-side (browser, network jitter, or JS rendering).</div>}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -20680,12 +20862,18 @@ function App() {
       }
     };
 
-    // Fire secondary IN PARALLEL — don't await, don't gate on primary
-    api("adminBootstrapSecondary").then(r2 => {
-      if (r2 && r2.sections) {
-        hydrateSections(r2.sections, Date.now());
-      }
-    }).catch(() => { /* secondary failures are silent; per-screen fallback covers it */ });
+    // SPEED: previously fired adminBootstrapSecondary in parallel, but
+    // Apps Script can only execute ONE function per project at a time —
+    // so "parallel" calls actually queue and delay the primary's response.
+    // Fixing this: defer secondary by 2 seconds so the dashboard has already
+    // received its data and rendered before we start the secondary scan.
+    setTimeout(() => {
+      api("adminBootstrapSecondary").then(r2 => {
+        if (r2 && r2.sections) {
+          hydrateSections(r2.sections, Date.now());
+        }
+      }).catch(() => { /* secondary failures are silent; per-screen fallback covers it */ });
+    }, 2000);
 
     api("adminBootstrap").then(r => {
       // Bad PIN — clear and bounce back to login
