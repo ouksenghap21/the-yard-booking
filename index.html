@@ -2536,10 +2536,23 @@ const STRINGS = {
     p_h1_b: "Dink on.",
     p_lede: "A neighborhood pickleball club in Toul Kork. Eight courts.",
     p_lede_em: "Book one.",
+    // 3-pillar strip — concrete value props between the hero and the action.
+    // Pre-launch visitors landing from social need to see what we actually offer
+    // in 3 seconds. Short fragments, mono caps, brand consistent.
+    p_pillar_1_v: "8",
+    p_pillar_1_l: "Indoor courts",
+    p_pillar_1_s: "Climate-controlled",
+    p_pillar_2_v: "16h",
+    p_pillar_2_l: "Daily open",
+    p_pillar_2_s: "06:00 — 22:00",
+    p_pillar_3_v: "$5",
+    p_pillar_3_l: "Member rate",
+    p_pillar_3_s: "Per court · per hour",
     p_label_phone: "Phone number",
     p_phone_placeholder: "12 345 678",
     p_phone_hint: "We'll text you a 6-digit code. Standard SMS rates apply.",
     p_cta: "Send me a code",
+    p_browse: "Browse courts without signing in →",
     p_label_members: "Members of the dink line",
     p_members_right: "MEMBERSHIPS",
     p_standard: "STANDARD",
@@ -2571,6 +2584,7 @@ const STRINGS = {
 
     // Booking form
     b_title: "BOOK A COURT",
+    b_verified_nudge: "Phone verified. Review the details and tap Confirm to finish your booking.",
     b_welcome: "WELCOME BACK",
     b_member_no: "MEMBER",
     b_expires: "EXPIRES",
@@ -2695,10 +2709,21 @@ const STRINGS = {
     p_h1_b: "ដិកនៅទីនេះ។",
     p_lede: "ក្លឹប​ភីខលបល​នៅ​ទួលគោក។ ប្រាំបី​កួត។",
     p_lede_em: "កក់​មួយ។",
+    // 3-pillar strip (KM)
+    p_pillar_1_v: "៨",
+    p_pillar_1_l: "កួត​ក្នុង​អគារ",
+    p_pillar_1_s: "មាន​ម៉ាស៊ីន​ត្រជាក់",
+    p_pillar_2_v: "១៦ម៉",
+    p_pillar_2_l: "បើក​ប្រចាំ​ថ្ងៃ",
+    p_pillar_2_s: "០៦:០០ — ២២:០០",
+    p_pillar_3_v: "$៥",
+    p_pillar_3_l: "តម្លៃ​សមាជិក",
+    p_pillar_3_s: "ក្នុង​មួយ​កួត · ក្នុង​មួយ​ម៉ោង",
     p_label_phone: "លេខ​ទូរស័ព្ទ",
     p_phone_placeholder: "12 345 678",
     p_phone_hint: "យើង​នឹង​ផ្ញើ​លេខ​សម្ងាត់​៦​ខ្ទង់​ទៅ​អ្នក។",
     p_cta: "ផ្ញើ​លេខ​សម្ងាត់",
+    p_browse: "មើល​កួត​ដោយ​មិន​ចូល​គណនី →",
     p_label_members: "សមាជិក​នៃ​បន្ទាត់​ដិក",
     p_members_right: "សមាជិកភាព",
     p_standard: "ស្តង់ដារ",
@@ -2727,6 +2752,7 @@ const STRINGS = {
     o_verifying: "កំពុង​ផ្ទៀងផ្ទាត់…",
 
     b_title: "កក់​កួត",
+    b_verified_nudge: "បាន​ផ្ទៀង​ផ្ទាត់​លេខ​ទូរស័ព្ទ។ ពិនិត្យ​ព័ត៌មាន​លម្អិត និង​ចុច​ប៊ូតុង​បញ្ជាក់​ដើម្បី​បញ្ចប់​ការ​កក់។",
     b_welcome: "សួស្តី​ត្រឡប់​មក​វិញ",
     b_member_no: "សមាជិក",
     b_expires: "ផុត​កំណត់",
@@ -3567,6 +3593,68 @@ function ScreenPhone({ state, setState, go, lang }) {
           </div>
         </div>
 
+        {/* 3-PILLAR VALUE STRIP — Concrete value props after the atmospheric
+            hero, before the phone-input ask. Gives pre-launch visitors a
+            "this is what we offer" beat in 3 seconds: 8 courts, 16h daily,
+            $5 member rate.
+
+            Visual logic: serif italic for the headline numbers (matches the
+            "−50%" treatment in the membership tease below), mono uppercase
+            for labels (matches section labels and hero tags). Dividers
+            between cells, hairline border around the whole strip, paper bg.
+            No icons — wordmark/typography only, to stay on brand.
+
+            Layout: equal-width 3-column grid that collapses to a single
+            column on very narrow screens via the inline media query. */}
+        <div style={{
+          margin: "0 0 28px",
+          border: "1.5px solid var(--ink)",
+          borderRadius: 14,
+          background: "var(--paper)",
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr 1fr",
+          overflow: "hidden"
+        }}>
+          {[
+            ["p_pillar_1_v", "p_pillar_1_l", "p_pillar_1_s"],
+            ["p_pillar_2_v", "p_pillar_2_l", "p_pillar_2_s"],
+            ["p_pillar_3_v", "p_pillar_3_l", "p_pillar_3_s"]
+          ].map(([vKey, lKey, sKey], i) => (
+            <div key={vKey} style={{
+              padding: "16px 12px 14px",
+              borderLeft: i === 0 ? "none" : "1.5px solid var(--ink)",
+              textAlign: "center"
+            }}>
+              <div style={{
+                fontFamily: "var(--serif)",
+                fontStyle: "italic",
+                fontWeight: 400,
+                fontSize: 38,
+                lineHeight: 0.95,
+                letterSpacing: "-0.02em"
+              }}>
+                {t(vKey, null, lang)}
+              </div>
+              <div className="mono" style={{
+                fontSize: 9,
+                letterSpacing: "0.16em",
+                fontWeight: 600,
+                marginTop: 8,
+                textTransform: "uppercase"
+              }}>
+                {t(lKey, null, lang)}
+              </div>
+              <div className="hint" style={{
+                fontSize: 11,
+                marginTop: 3,
+                opacity: 0.65
+              }}>
+                {t(sKey, null, lang)}
+              </div>
+            </div>
+          ))}
+        </div>
+
         <SectionLabel n="01">{t("p_label_phone", null, lang)}</SectionLabel>
         <div style={{ display: "flex", gap: 8 }}>
           <div className="input" style={{
@@ -3592,6 +3680,19 @@ function ScreenPhone({ state, setState, go, lang }) {
         <CTA onClick={onContinue} disabled={!valid || sending} tone="green">
           {sending ? t("loading", null, lang) : t("p_cta", null, lang)}
         </CTA>
+
+        {/* BROWSE-WITHOUT-SIGN-IN escape hatch. New visitors who aren't
+            ready to verify their phone can still pick a slot and see
+            prices. We collect their phone only when they tap Confirm. */}
+        <div style={{ marginTop: 14, textAlign: "center" }}>
+          <button
+            className="ulink"
+            style={{ fontSize: 12.5, opacity: 0.7 }}
+            onClick={(e) => { e.preventDefault(); go("booking"); }}
+          >
+            {t("p_browse", null, lang)}
+          </button>
+        </div>
 
         {/* Membership tease */}
         <div style={{ marginTop: 30 }}>
@@ -3963,6 +4064,34 @@ function ScreenBooking({ state, setState, go, lang, config }) {
 
   async function submit() {
     if (ctaDisabled()) return;
+
+    // BROWSE-WITHOUT-SIGN-IN: if user hasn't verified their phone yet,
+    // stash the booking intent in state and route to phone/OTP. After
+    // verification, ScreenOTP routes back to "booking" with state.token
+    // populated, and the booking screen re-mounts with the same date/time/
+    // courts pre-filled from state. The user can then tap Confirm again
+    // to actually create the booking — same single button, just a brief
+    // verification detour the first time.
+    const hasAuth = (state.token && state.token.length > 0) ||
+                    (state.phone && state.phone.length >= 8);
+    if (!hasAuth) {
+      setState(s => ({
+        ...s,
+        date: date,
+        time: time,
+        slots: slots,
+        pickedCourts: pickedCourts,
+        guestName: guestName,
+        // Flag set when we route to phone/OTP from a pending booking.
+        // ScreenOTP checks this to bounce back to "booking" instead of
+        // the default "booking" landing — so the user lands right back
+        // on their picked slot.
+        pendingBookingFromBrowse: true
+      }));
+      go("phone");
+      return;
+    }
+
     setSubmitting(true);
     const r = await api("createBooking", {
       token: state.token || "",
@@ -3979,7 +4108,7 @@ function ScreenBooking({ state, setState, go, lang, config }) {
       showToast(r.error || t("error", null, lang), "error");
       return;
     }
-    setState(s => ({ ...s, confirmation: r.confirmation }));
+    setState(s => ({ ...s, confirmation: r.confirmation, pendingBookingFromBrowse: false }));
     go("confirm");
   }
 
@@ -3992,6 +4121,29 @@ function ScreenBooking({ state, setState, go, lang, config }) {
         <Lockup size={0.92} onClick={() => go(state.token ? "booking" : "phone")} />
         <span className="pill">{t("b_title", null, lang)}</span>
       </div>
+
+      {/* Post-verify nudge — shown only after a "browse without sign-in"
+          user returns from OTP. Reminds them their booking is one tap away
+          without auto-submitting (auto-submit on mount is fragile and steals
+          agency). One-shot: clears the flag after first render. */}
+      {state.pendingBookingFromBrowse && (state.token || state.phone) && (
+        <div style={{
+          marginBottom: 16,
+          padding: "10px 14px",
+          background: "rgba(61,122,79,0.10)",
+          border: "1.5px solid var(--green)",
+          borderRadius: 10,
+          display: "flex", alignItems: "center", gap: 10
+        }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: "50%",
+            background: "var(--green)", flexShrink: 0
+          }} />
+          <span style={{ fontSize: 13, lineHeight: 1.4 }}>
+            {t("b_verified_nudge", null, lang)}
+          </span>
+        </div>
+      )}
 
       {/* Member or guest strip */}
       {isMember && (
