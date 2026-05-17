@@ -20227,6 +20227,49 @@ function PerfProbeCard() {
             )}
           </div>
 
+          {/* DASHBOARD PHASE BREAKDOWN — drills inside adminDashboard()
+              showing which internal section is slow. Only present when the
+              backend has phase instrumentation (Backend.gs >= 2026-05-18). */}
+          {report.dashPhases && Object.keys(report.dashPhases).length > 1 && (
+            <div style={{ marginTop: 18 }}>
+              <div style={{
+                fontFamily: "var(--mono)", fontSize: 10,
+                letterSpacing: "0.14em", textTransform: "uppercase",
+                opacity: 0.55, marginBottom: 6
+              }}>
+                Inside adminDashboard() — slowest section is the culprit
+              </div>
+              <div style={{
+                border: "1px solid var(--concrete)",
+                borderRadius: 6,
+                padding: "8px 12px",
+                background: "var(--paper)",
+                fontFamily: "var(--mono)", fontSize: 11
+              }}>
+                {Object.keys(report.dashPhases)
+                  .filter(k => k !== "_total")
+                  .map(k => {
+                    const ms = report.dashPhases[k] || 0;
+                    const color = ms < 200 ? "var(--green)"
+                                : ms < 800 ? "var(--wood,#A8744A)"
+                                : "var(--clay,#C64F3A)";
+                    return (
+                      <div key={k} style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        padding: "3px 0"
+                      }}>
+                        <span>{k.replace(/_/g, " ")}</span>
+                        <span style={{ color: color, fontWeight: 600 }}>
+                          {ms}ms
+                        </span>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
           {/* Sheet row counts */}
           <div style={{
             marginTop: 14,
