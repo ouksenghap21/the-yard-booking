@@ -1098,7 +1098,15 @@ h1.tournament-name{
     });
   }
 
+  // Module-level flag prevents double-submission. DOM disabled flag alone is
+  // insufficient — between tap N+1 firing and the browser committing the
+  // disabled attribute from tap N, both clicks can sneak through and create
+  // duplicate registrations. The flag closes that gap.
+  var _signupInFlight = false;
+  var _cancelInFlight = false;
+
   function submitSignup(t) {
+    if (_signupInFlight) return;
     var btn = document.getElementById("signup-submit");
     var errEl = document.getElementById("signup-err");
     errEl.textContent = "";
@@ -1114,6 +1122,7 @@ h1.tournament-name{
     var digits = phone.replace(/\D/g, "");
     if (digits.length < 8) { errEl.textContent = "Please enter a valid phone number"; return; }
 
+    _signupInFlight = true;
     btn.disabled = true;
     btn.textContent = "Reserving…";
 
@@ -1140,18 +1149,24 @@ h1.tournament-name{
             email: email
           });
           renderSuccess(t, r);
+          // Success path replaces the entire signup card, so the flag is
+          // effectively retired with the DOM — but reset it anyway for
+          // tidiness in case any retry logic ever re-renders the form.
+          _signupInFlight = false;
         } else {
           errEl.textContent = r.error || "Registration failed";
           btn.disabled = false;
           btn.textContent = t.entryFee > 0
             ? 'Reserve my spot · $' + Number(t.entryFee).toFixed(2) + ' at counter'
             : 'Reserve my spot';
+          _signupInFlight = false;
         }
       })
       .catch(function(e) {
         errEl.textContent = "Network error — please try again";
         btn.disabled = false;
         btn.textContent = "Try again";
+        _signupInFlight = false;
       });
   }
 
@@ -1214,8 +1229,10 @@ h1.tournament-name{
       '</div>';
 
     document.getElementById("cancel-btn").addEventListener("click", function() {
+      if (_cancelInFlight) return;
       if (!confirm("Cancel your spot in '" + reg.tournamentName + "'? This frees the spot for someone else.")) return;
       var btn = document.getElementById("cancel-btn");
+      _cancelInFlight = true;
       btn.disabled = true; btn.textContent = "Cancelling…";
       var errEl = document.getElementById("cancel-err");
       errEl.textContent = "";
@@ -1237,14 +1254,17 @@ h1.tournament-name{
                 '<div class="note">Thanks for letting us know — your spot is freed up. A confirmation text was sent.</div>' +
                 '<button type="button" class="ghost-btn" onclick="location.reload()">Sign up again</button>' +
               '</div>';
+            _cancelInFlight = false;
           } else {
             errEl.textContent = r.error || "Cancel failed";
             btn.disabled = false; btn.textContent = "Cancel my spot";
+            _cancelInFlight = false;
           }
         })
         .catch(function() {
           errEl.textContent = "Network error";
           btn.disabled = false; btn.textContent = "Cancel my spot";
+          _cancelInFlight = false;
         });
     });
   }
