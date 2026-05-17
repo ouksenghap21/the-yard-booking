@@ -16405,44 +16405,45 @@ function ScreenOpenPlay() {
 
   return (
     <div className="main">
-      <div className="page-header">
+      <div className="main-head">
         <div>
           <div className="title">Drop-in Sessions</div>
           <h1>Open Play</h1>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <LastUpdated ts={lastUpdated} />
-          <button className="btn primary" onClick={() => setShowCreate(true)}>
+        <div className="meta">
+          {lastUpdated && <LastUpdated ts={lastUpdated} />}
+          <button
+            className="btn"
+            style={{ marginTop: 10 }}
+            onClick={() => setShowCreate(true)}
+          >
             + New session
           </button>
         </div>
       </div>
 
-      {/* TOP-LEVEL STAT TILES — at-a-glance pulse of the operation */}
+      {/* TOP-LEVEL STAT TILES — at-a-glance pulse of the operation.
+          Uses the same .stat-card / .label / .value / .sub pattern as the
+          Tournaments and Dashboard tabs so the typography stays consistent. */}
       {sessions.length > 0 && (
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: 12,
-          marginBottom: 22
-        }}>
-          <div className="stat-card" style={{ borderLeft: "4px solid var(--green)" }}>
-            <div className="stat-label">Today</div>
-            <div className="stat-value">{todaySessions.length}</div>
-            <div className="stat-sub">
+        <div className="stat-grid" style={{ marginBottom: 24 }}>
+          <div className="stat-card accent-green">
+            <div className="label">Today</div>
+            <div className="value">{todaySessions.length}</div>
+            <div className="sub">
               {todaySessions.length === 1 ? "session" : "sessions"}
               {todayPlayers > 0 && " · " + todayPlayers + " players"}
             </div>
           </div>
-          <div className="stat-card" style={{ borderLeft: "4px solid var(--peach,#D9785C)" }}>
-            <div className="stat-label">This week (upcoming)</div>
-            <div className="stat-value">{upcomingThisWeek.length}</div>
-            <div className="stat-sub">scheduled</div>
+          <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}>
+            <div className="label">This week (upcoming)</div>
+            <div className="value">{upcomingThisWeek.length}</div>
+            <div className="sub">scheduled</div>
           </div>
-          <div className="stat-card" style={{ borderLeft: "4px solid var(--wood)" }}>
-            <div className="stat-label">Today's revenue</div>
-            <div className="stat-value">{fmtMoney(todayCollected)}</div>
-            <div className="stat-sub">
+          <div className="stat-card accent-wood">
+            <div className="label">Today's revenue</div>
+            <div className="value">{fmtMoney(todayCollected)}</div>
+            <div className="sub">
               of {fmtMoney(todayExpected)} expected
             </div>
           </div>
@@ -16468,9 +16469,10 @@ function ScreenOpenPlay() {
         <span>Cap restriction by <b>DUPR</b> can be set per session — players self-report their rating on signup.</span>
       </div>
 
+      {/* Filter pills — inline-styled to match the Tournaments tab pattern,
+          since the .chip class isn't defined in CSS. */}
       <div style={{
         display: "flex", gap: 8, marginBottom: 18,
-        borderBottom: "1px solid var(--concrete)", paddingBottom: 14,
         flexWrap: "wrap"
       }}>
         {[
@@ -16481,8 +16483,17 @@ function ScreenOpenPlay() {
         ].map(([k, lbl, n]) => (
           <button
             key={k}
-            className={"chip" + (filter === k ? " active" : "")}
             onClick={() => setFilter(k)}
+            style={{
+              padding: "7px 14px",
+              border: "1.5px solid var(--ink)",
+              borderRadius: 999,
+              background: filter === k ? "var(--ink)" : "transparent",
+              color: filter === k ? "var(--cream)" : "var(--ink)",
+              fontFamily: "var(--mono)", fontSize: 10,
+              letterSpacing: "0.14em", textTransform: "uppercase",
+              fontWeight: 700, cursor: "pointer"
+            }}
           >
             {lbl} <span style={{ opacity: 0.6, marginLeft: 4 }}>{n}</span>
           </button>
