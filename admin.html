@@ -4612,6 +4612,14 @@ async function api(action, params = {}, options = {}) {
     const result = await _doFetchRaw(action, params);
     if (result && result.ok && _isMutation(action)) {
       _invalidateForMutation(action);
+      // OPTIMISTIC LIVE-UPDATE: tell any listener (the dashboard) that
+      // something just changed. The dashboard refreshes immediately rather
+      // than waiting up to 10s for the next pulse to detect the change.
+      try {
+        window.dispatchEvent(new CustomEvent("yard:data-changed", {
+          detail: { action: action }
+        }));
+      } catch (e) { /* non-fatal */ }
     }
     return result;
   }
@@ -4724,7 +4732,18 @@ function fmtRelativeTime(ts) {
 
 function fmtDateLong(dateStr) {
   if (!dateStr) return "";
-  const d = new Date(dateStr + "T12:00:00");
+  // Defensive parsing: accept "YYYY-MM-DD", "YYYY-MM-DDTHH:MM...", or
+  // anything Date.parse can handle. Never produce "undefined NaN..." output.
+  const s = String(dateStr);
+  let d;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    d = new Date(s + "T12:00:00");
+  } else if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+    d = new Date(s);
+  } else {
+    d = new Date(s);
+  }
+  if (!d || isNaN(d.getTime())) return "";
   const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const MO = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   return DOW[d.getDay()] + " " + d.getDate() + " " + MO[d.getMonth()] + " " + d.getFullYear();
@@ -5931,32 +5950,78 @@ function ScreenDashboard() {
 
   useEffect(() => {
     refresh();  // initial — uses cache if fresh
-    let intervalId = null;
+    let pulseIntervalId = null;
+    // Track the last fingerprint we've seen so we only do a heavy refresh
+    // when something actually changed. Initial value "" means "fetch on
+    // first pulse so we have a baseline".
+    let lastFingerprint = "";
+
+    async function checkPulse() {
+      // Skip if tab is in background — no point fetching for a hidden tab
+      if (document.hidden) return;
+      try {
+        const r = await api("adminPulse", {}, { bypassCache: true });
+        if (r && r.ok && r.fingerprint) {
+          if (r.fingerprint !== lastFingerprint) {
+            const isFirst = lastFingerprint === "";
+            lastFingerprint = r.fingerprint;
+            // First pulse just records the baseline — don't force-refresh
+            // (we already did the initial refresh() above).
+            if (!isFirst) {
+              refresh({ fresh: true });
+            }
+          }
+        }
+      } catch (e) {
+        // Pulse failed — don't try to refresh. Next pulse will retry.
+        // Failures are silently ignored to avoid spamming logs on transient
+        // network blips.
+      }
+    }
+
     function startPolling() {
-      if (intervalId) return;
-      intervalId = setInterval(() => refresh({ fresh: true }), POLL_INTERVAL_MS);
+      if (pulseIntervalId) return;
+      // 10 seconds — aggressive but cheap (~200 byte response per poll).
+      // For 1-2 admin devices, total quota is ~14K calls/day, well under
+      // the 20K Apps Script URL fetch limit.
+      pulseIntervalId = setInterval(checkPulse, 10000);
     }
     function stopPolling() {
-      if (!intervalId) return;
-      clearInterval(intervalId);
-      intervalId = null;
+      if (!pulseIntervalId) return;
+      clearInterval(pulseIntervalId);
+      pulseIntervalId = null;
     }
     function onVisChange() {
       if (document.hidden) {
         stopPolling();
       } else {
-        // When user returns to the tab, immediately fetch fresh data + resume polling
+        // Returning to the tab — do an immediate full refresh and resume
+        // pulse polling. The full refresh also resets the fingerprint so
+        // we don't fire a second one redundantly.
         refresh({ fresh: true });
+        lastFingerprint = "";  // force next pulse to set baseline
         startPolling();
       }
     }
+
+    // OPTIMISTIC LIVE-UPDATE: any mutation done from anywhere in the app
+    // dispatches yard:data-changed via the api() wrapper. We refresh
+    // immediately so the admin sees their own change without waiting for
+    // the 10s pulse.
+    function onDataChanged() {
+      refresh({ fresh: true });
+      lastFingerprint = "";  // next pulse will pick up the new baseline
+    }
+
     if (!document.hidden) startPolling();
     document.addEventListener("visibilitychange", onVisChange);
+    window.addEventListener("yard:data-changed", onDataChanged);
     const clockId = setInterval(() => setClock(fmtClock()), 30000);
     return () => {
       stopPolling();
       clearInterval(clockId);
       document.removeEventListener("visibilitychange", onVisChange);
+      window.removeEventListener("yard:data-changed", onDataChanged);
     };
   }, []);
 
@@ -5975,7 +6040,7 @@ function ScreenDashboard() {
           <h1>Dashboard</h1>
         </div>
         <div className="meta">
-          <div className="live">Live · auto-refresh 15s</div>
+          <div className="live">Live · checks every 10s</div>
           <div style={{ marginTop: 4, fontSize: 10 }}>
             {clock} · Toul Kork
           </div>
@@ -7110,6 +7175,17 @@ function ScreenBookings() {
   useEffect(() => {
     const id = setInterval(() => load({ silent: true }), 20000);
     return () => clearInterval(id);
+  }, [range.from, range.to]);
+
+  // OPTIMISTIC LIVE-UPDATE: any mutation done elsewhere in the app fires
+  // yard:data-changed. Refresh the bookings list immediately so the admin
+  // sees their change without the 20s poll delay.
+  useEffect(() => {
+    function onDataChanged() {
+      load({ silent: true });
+    }
+    window.addEventListener("yard:data-changed", onDataChanged);
+    return () => window.removeEventListener("yard:data-changed", onDataChanged);
   }, [range.from, range.to]);
 
   // For Day view: get just today's bookings (not coaching, since coaching has its own tab)
