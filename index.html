@@ -2481,7 +2481,21 @@ h1.h-display{ text-wrap:balance; }
 </script>
 <!-- END TOURNAMENT BANNER -->
 
-  <div id="root"></div>
+  <div id="root">
+    <!-- Loading shim — visible until React mounts. Without this, the booking
+         page is blank for 2-3s while Babel parses, and customers tap reload
+         thinking the page is broken. -->
+    <div id="loading-shim" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#f1ead6;font-family:system-ui,-apple-system,sans-serif;">
+      <div style="text-align:center;">
+        <div style="font-family:ui-monospace,monospace;font-size:10px;letter-spacing:0.2em;text-transform:uppercase;opacity:0.55;margin-bottom:14px;">The Yard</div>
+        <div style="font-style:italic;font-size:22px;color:#1a1a1a;margin-bottom:18px;">Loading…</div>
+        <div style="width:60px;height:2px;background:#1a1a1a;opacity:0.15;border-radius:2px;overflow:hidden;margin:0 auto;">
+          <div style="width:30%;height:100%;background:#1a1a1a;animation:loadbar 1.2s ease-in-out infinite;"></div>
+        </div>
+        <style>@keyframes loadbar{0%{margin-left:-30%}100%{margin-left:100%}}</style>
+      </div>
+    </div>
+  </div>
 
   <script type="text/babel" data-presets="react">
 /* ====================================================================
@@ -5129,6 +5143,7 @@ function OpenPlaySessionModal({ session, myReg, profile, state, onClose, onChang
     || session.maxDupr !== null && session.maxDupr !== undefined;
 
   async function submitSignup() {
+    if (submitting) return;  // double-tap guard — same rationale as admin paths
     setError("");
     if (!name.trim()) { setError("Please enter your name"); return; }
     if (!phone.trim() || phone.replace(/\D/g, "").length < 8) {
@@ -5164,6 +5179,7 @@ function OpenPlaySessionModal({ session, myReg, profile, state, onClose, onChang
   }
 
   async function submitCancel() {
+    if (submitting) return;  // double-tap guard
     if (!confirm("Cancel your spot in '" + (myReg.title || session.title) + "'? This frees up the spot for someone else.")) return;
     setSubmitting(true);
     const r = await api("cancelMyOpenPlayRegistration", {
@@ -5537,8 +5553,75 @@ function App() {
   );
 }
 
+/**
+ * Top-level error boundary — see admin.html for rationale. Without this,
+ * any uncaught render error blanks the entire booking page. Customers are
+ * less forgiving than staff; a graceful "reload" screen beats a white void.
+ */
+class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error: error };
+  }
+  componentDidCatch(error, info) {
+    console.error("[AppErrorBoundary]", error, info);
+  }
+  reload() {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("_r", Date.now());
+      window.location.href = url.toString();
+    } catch (e) {
+      window.location.reload();
+    }
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          padding: 32, maxWidth: 480, margin: "40px auto",
+          fontFamily: "system-ui, -apple-system, sans-serif",
+          background: "#fff", border: "1.5px solid #1a1a1a", borderRadius: 4,
+          textAlign: "center"
+        }}>
+          <div style={{
+            fontFamily: "ui-monospace, monospace", fontSize: 10,
+            letterSpacing: "0.2em", textTransform: "uppercase",
+            opacity: 0.55, marginBottom: 12
+          }}>Something went wrong</div>
+          <h1 style={{ fontStyle: "italic", fontWeight: 400, fontSize: 24, margin: "0 0 12px" }}>
+            We hit a snag.
+          </h1>
+          <p style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 20, opacity: 0.8 }}>
+            Please reload the page. Your booking data is safe.
+          </p>
+          <button onClick={() => this.reload()} style={{
+            background: "#1a1a1a", color: "#f1ead6", border: "none",
+            padding: "11px 28px", fontSize: 14, fontWeight: 600,
+            cursor: "pointer", borderRadius: 2
+          }}>Reload</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const root = createRoot(document.getElementById("root"));
-root.render(<App />);
+root.render(<AppErrorBoundary><App /></AppErrorBoundary>);
+
+// Register the service worker for instant repeat loads. Same pattern as
+// admin.html — see sw.js for details.
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(err => {
+      console.warn("SW registration failed:", err);
+    });
+  });
+}
 
   </script>
 
