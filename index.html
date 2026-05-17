@@ -3093,7 +3093,23 @@ function maskPhone(p) {
 }
 
 function fmtDateLong(dateStr, lang) {
-  const d = new Date(dateStr + "T12:00:00");
+  // Defensive: empty/null/undefined → empty string, never "undefined NaN..."
+  if (!dateStr) return "";
+  // The expected shape is "YYYY-MM-DD". If it's something else (a Date.toString()
+  // output, an ISO with timezone, etc.) we still try to parse it.
+  const s = String(dateStr);
+  // YYYY-MM-DD path — fast, no timezone surprises
+  let d;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    d = new Date(s + "T12:00:00");
+  } else if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+    // Already an ISO datetime — use as-is
+    d = new Date(s);
+  } else {
+    // Fallback: let JS try to parse it
+    d = new Date(s);
+  }
+  if (!d || isNaN(d.getTime())) return "";
   if (lang === "km") {
     const DOW = ["អា", "ច", "អ", "ព", "ព្រ", "សុ", "ស"];
     const MO = ["មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា", "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"];
