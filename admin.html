@@ -4278,7 +4278,21 @@ body::before{
   <script src="https://unpkg.com/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js" crossorigin="anonymous"></script>
 </head>
 <body>
-  <div id="root"></div>
+  <div id="root">
+    <!-- Loading shim — visible until React mounts and replaces root's contents.
+         The 2-3s of Babel parsing leaves the page totally blank otherwise, which
+         makes admins think the app is broken on every cold load. -->
+    <div id="loading-shim" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#f1ead6;font-family:system-ui,-apple-system,sans-serif;">
+      <div style="text-align:center;">
+        <div style="font-family:ui-monospace,monospace;font-size:10px;letter-spacing:0.2em;text-transform:uppercase;opacity:0.55;margin-bottom:14px;">The Yard · Admin</div>
+        <div style="font-style:italic;font-size:22px;color:#1a1a1a;margin-bottom:18px;">Loading…</div>
+        <div style="width:60px;height:2px;background:#1a1a1a;opacity:0.15;border-radius:2px;overflow:hidden;margin:0 auto;">
+          <div style="width:30%;height:100%;background:#1a1a1a;animation:loadbar 1.2s ease-in-out infinite;"></div>
+        </div>
+        <style>@keyframes loadbar{0%{margin-left:-30%}100%{margin-left:100%}}</style>
+      </div>
+    </div>
+  </div>
 
   <script type="text/babel" data-presets="react">
 /* ====================================================================
@@ -4465,6 +4479,25 @@ function getCachedApi(action, params = {}) {
   const key = _apiCacheKey(action, params);
   const cached = _apiCache.get(key);
   return cached ? cached.data : null;
+}
+
+/**
+ * Programmatically write into the API cache. Used by combined endpoints
+ * (like adminDashboardCombined) to populate the per-endpoint caches that
+ * getCachedApi reads, so first-paint stale-while-revalidate keeps working.
+ *
+ * Persists to localStorage if the action is in the persist whitelist.
+ */
+function cacheApi(action, params, data) {
+  if (!data || data.ok === false) return;
+  const key = _apiCacheKey(action, params);
+  const entry = { data: data, time: Date.now() };
+  _apiCache.set(key, entry);
+  if (_PERSIST_ENDPOINTS && _PERSIST_ENDPOINTS.has(action)) {
+    try {
+      localStorage.setItem("yard.api." + key, JSON.stringify(entry));
+    } catch (e) { /* localStorage full or denied — non-fatal */ }
+  }
 }
 
 async function _doFetchRaw(action, params) {
@@ -5844,7 +5877,10 @@ function ScreenDashboard() {
   async function refresh(opts = {}) {
     const today = todayISO();
     const bypass = !!opts.fresh;
-    // Synchronous cache priming on first paint — show stale data instantly
+    // Synchronous cache priming on first paint — show stale data instantly.
+    // We still read from the per-endpoint caches (populated by previous
+    // adminDashboardCombined calls via cacheApi side-effects below), so
+    // first paint is unchanged.
     if (!bypass && !data) {
       const cd = getCachedApi("adminDashboard");
       const cb = getCachedApi("adminListTimelineEntries", { date: today });
@@ -5855,16 +5891,41 @@ function ScreenDashboard() {
       if (ck && ck.ok) setKpiData(ck);
       if (cok && cok.ok) setOpKpiData(cok);
     }
-    const [d, b, k, ok] = await Promise.all([
-      api("adminDashboard", {}, { bypassCache: bypass }),
-      api("adminListTimelineEntries", { date: today }, { bypassCache: bypass }),
-      api("adminDashboardKpi", {}, { bypassCache: bypass }),
-      api("adminOperationalKpi", {}, { bypassCache: bypass })
-    ]);
-    if (d.ok) setData(d);
-    if (b.ok) setBookings(b.entries || []);
-    if (k.ok) setKpiData(k);
-    if (ok.ok) setOpKpiData(ok);
+
+    // ONE round-trip combining 4 endpoints. Saves ~3 × network-RTT (~500–900ms
+    // on mobile) versus the previous Promise.all of 4 separate requests.
+    // The server runs them sequentially in one execution (where each per-
+    // endpoint cache still applies). Cache the response under each original
+    // key so getCachedApi works for the next first-paint.
+    const combined = await api("adminDashboardCombined", { date: today }, { bypassCache: bypass });
+    let d, b, k, ok;
+    if (combined && combined.ok) {
+      d = combined.dashboard;
+      b = combined.timeline;
+      k = combined.kpi;
+      ok = combined.opKpi;
+      // Mirror into per-endpoint caches so subsequent direct calls hit cache
+      try {
+        if (d && d.ok) cacheApi("adminDashboard", {}, d);
+        if (b && b.ok) cacheApi("adminListTimelineEntries", { date: today }, b);
+        if (k && k.ok) cacheApi("adminDashboardKpi", {}, k);
+        if (ok && ok.ok) cacheApi("adminOperationalKpi", {}, ok);
+      } catch (e) { /* non-fatal */ }
+    } else {
+      // Fallback: combined endpoint missing on server (old deploy). Use the
+      // original parallel calls — no regression vs the pre-batch baseline.
+      const [d1, b1, k1, ok1] = await Promise.all([
+        api("adminDashboard", {}, { bypassCache: bypass }),
+        api("adminListTimelineEntries", { date: today }, { bypassCache: bypass }),
+        api("adminDashboardKpi", {}, { bypassCache: bypass }),
+        api("adminOperationalKpi", {}, { bypassCache: bypass })
+      ]);
+      d = d1; b = b1; k = k1; ok = ok1;
+    }
+    if (d && d.ok) setData(d);
+    if (b && b.ok) setBookings(b.entries || []);
+    if (k && k.ok) setKpiData(k);
+    if (ok && ok.ok) setOpKpiData(ok);
     setLastUpdated(new Date());
   }
 
@@ -6422,24 +6483,30 @@ function ActionQueuePanel({ data, onMarkPaid }) {
   const atRisk = aq.atRisk || [];
   const lowStock = aq.lowStock || [];
   const birthdayWeek = aq.birthdayThisWeek || [];
+  const refundsOwed = aq.refundsOwed || [];
+  const refundsOwedTotal = aq.refundsOwedTotal || 0;
 
   // Optimistic UI: IDs the user just clicked "Mark paid" on. We hide them
   // immediately so the action feels instant; the API call runs in the background
   // and reconciles when onMarkPaid() refreshes the data.
   const [optimisticPaid, setOptimisticPaid] = useState(new Set());
+  // Same idea for refunds — IDs the user just marked as refunded
+  const [optimisticRefunded, setOptimisticRefunded] = useState(new Set());
   // How many overdue items to show by default (rest collapsed)
   const [showAllOverdue, setShowAllOverdue] = useState(false);
 
   // Compose a unique id for overdue items (id alone collides across types)
   const overdueKey = (o) => o.entryType + ":" + o.id;
   const visibleOverdue = overdue.filter(o => !optimisticPaid.has(overdueKey(o)));
+  const visibleRefunds = refundsOwed.filter(r => !optimisticRefunded.has(r.bookingId));
 
   const total =
     payments.filter(p => !optimisticPaid.has(p.bookingId)).length +
     visibleOverdue.length +
     atRisk.length +
     lowStock.length +
-    birthdayWeek.filter(m => !m.alreadyUsed).length;
+    birthdayWeek.filter(m => !m.alreadyUsed).length +
+    visibleRefunds.length;
 
   async function markPaid(bookingId) {
     // Instantly hide the row
@@ -6453,6 +6520,26 @@ function ActionQueuePanel({ data, onMarkPaid }) {
     } else {
       // Revert: bring the row back
       setOptimisticPaid(prev => {
+        const next = new Set(prev);
+        next.delete(bookingId);
+        return next;
+      });
+      showToast(r.error || "Failed — try again", "error");
+    }
+  }
+
+  // Mark a paid-then-cancelled booking as having been refunded. This is a
+  // bookkeeping action — it does NOT move money. The actual cash refund
+  // happens out-of-band (till, ABA, bank). We stamp [REFUNDED date] into
+  // the booking's Notes so it stops showing up in this queue.
+  async function markRefunded(bookingId) {
+    setOptimisticRefunded(prev => new Set([...prev, bookingId]));
+    const r = await api("adminMarkRefunded", { bookingId: bookingId });
+    if (r.ok) {
+      showToast("Marked refunded — out of the queue", "success");
+      onMarkPaid && onMarkPaid();
+    } else {
+      setOptimisticRefunded(prev => {
         const next = new Set(prev);
         next.delete(bookingId);
         return next;
@@ -6674,6 +6761,55 @@ function ActionQueuePanel({ data, onMarkPaid }) {
               </span>
             </div>
           ))
+        )}
+      </div>
+
+      {/* Refunds owed — paid bookings that were later cancelled.
+          Surfaces them so admin doesn't lose track of who's owed money.
+          Marking refunded stamps [REFUNDED date] into the booking's Notes;
+          it does NOT move actual money (refunds happen externally via cash
+          or ABA/Wing transfer). */}
+      <div className="section-group">
+        <div className="head">
+          <span>Refunds Owed</span>
+          <span className={"count" + (visibleRefunds.length === 0 ? " zero" : " urgent")}>
+            {visibleRefunds.length}
+          </span>
+        </div>
+        {visibleRefunds.length === 0 ? (
+          <div className="empty-mini">No outstanding refunds</div>
+        ) : (
+          <>
+            {refundsOwedTotal > 0 && (
+              <div style={{
+                fontFamily: "var(--mono)",
+                fontSize: 10,
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                opacity: 0.7,
+                marginBottom: 10
+              }}>
+                Total owed: <span style={{ color: "var(--clay)", fontWeight: 700 }}>
+                  ${refundsOwedTotal.toFixed(2)}
+                </span>
+              </div>
+            )}
+            {visibleRefunds.map(r => (
+              <div className="action-item" key={r.bookingId}>
+                <span className="badge urgent">{r.date}</span>
+                <div className="body">
+                  <div className="title">{r.name || "(no name)"}</div>
+                  <div className="meta">
+                    {r.bookingId} · C·{r.courts} · {r.time} · ${(r.total || 0).toFixed(2)}
+                    {r.cancelledAt ? " · cancelled " + r.cancelledAt : ""}
+                  </div>
+                </div>
+                <button className="btn-sm primary" onClick={() => markRefunded(r.bookingId)}>
+                  Mark refunded
+                </button>
+              </div>
+            ))}
+          </>
         )}
       </div>
     </div>
@@ -8148,6 +8284,8 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
   }
 
   async function submit() {
+    // Double-tap guard. See processCharge comment for rationale.
+    if (submitting) return;
     if (!form.phone) return showToast("Phone required", "error");
     if (!form.name) return showToast("Name required", "error");
     if (form.courts.length === 0) return showToast("Pick at least one court", "error");
@@ -8463,6 +8601,7 @@ function NewWalkInBlockModal({ dateDefault, onClose, onCreated }) {
   }, [availSlots, form.time, form.durationHours]);
 
   async function submit() {
+    if (submitting) return;  // double-tap guard
     if (courtAvailability.unavailable.includes(form.court)) {
       return showToast("Court " + form.court + " is busy during this window", "error");
     }
@@ -8869,6 +9008,7 @@ function AddWalkInPlayerModal({ block, onClose, onAdded }) {
   const [submitting, setSubmitting] = useState(false);
 
   async function submit(markPaidNow) {
+    if (submitting) return;  // double-tap guard
     if (!form.name) return showToast("Name required", "error");
     setSubmitting(true);
     const r = await api("adminAddWalkInPlayer", {
@@ -9138,6 +9278,7 @@ function AddMemberModal({ foundingFull, onClose, onCreated }) {
   const [submitting, setSubmitting] = useState(false);
 
   async function submit() {
+    if (submitting) return;  // double-tap guard
     if (!form.phone) return showToast("Phone required", "error");
     if (!form.name) return showToast("Name required", "error");
     if (!bMonth || !bDay) return showToast("Birthday required", "error");
@@ -9278,6 +9419,7 @@ function EditMemberModal({ member, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
 
   async function save() {
+    if (saving) return;  // double-tap guard
     setSaving(true);
     const r = await api("adminUpdateMember", {
       phone: member.phone,
@@ -9970,6 +10112,7 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
   }
 
   async function submit() {
+    if (submitting) return;  // double-tap guard
     if (!form.coachId) return showToast("Coach required", "error");
     if (!form.courts.length) return showToast("Pick at least one court", "error");
     if (!form.durationHours || form.durationHours <= 0) return showToast("Duration required", "error");
@@ -10030,6 +10173,7 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
   }
 
   async function cancelSession() {
+    if (submitting) return;  // double-tap guard
     const ok = await confirmAction({
       title: "Cancel this coaching session?",
       message: "Coach " + (session.coachName || "?") + " · " + session.date + " " + session.time + " · C·" + session.courtNumbers,
@@ -10491,6 +10635,7 @@ function PaymentConfirmModal({ coach, sessionIds, totalAmount, onClose, onConfir
   const [submitting, setSubmitting] = useState(false);
 
   async function go() {
+    if (submitting) return;  // double-tap guard
     setSubmitting(true);
     await onConfirm(method, date);
     setSubmitting(false);
@@ -10782,6 +10927,11 @@ function ScreenPOS() {
   }
 
   async function processCharge() {
+    // Double-tap guard: button disabled prop alone isn't sufficient — React
+    // batches re-renders, so on a fast double-tap (50ms apart) both click
+    // events fire before the disabled state hits the DOM. Without this
+    // guard, the second tap creates a duplicate sale.
+    if (submitting) return;
     if (cart.length === 0 && attached.length === 0) return showToast("Cart is empty", "error");
     if (paymentMethod === "Cash" && parseFloat(cashReceived) < total) {
       return showToast("Cash received less than total", "error");
@@ -13486,7 +13636,7 @@ function CustomerHistoryModal({ customer, onClose }) {
    statement, payment reconciliation, transaction ledger, outstanding A/R
    aging, member subscription summary, and methodology notes.
 
-   All amounts in USD. Cash-basis accounting.
+   All amounts in USD. Cash- or accrual-basis (selectable per call).
    ==================================================================== */
 function generateAccountingPdf(report) {
   if (typeof window.jspdf === "undefined" || !window.jspdf.jsPDF) {
@@ -13548,7 +13698,7 @@ function generateAccountingPdf(report) {
   doc.setTextColor(...MUTED);
   doc.text("Report period: " + report.period.fromStr + " to " + report.period.toStr, M, y);
   doc.text("Generated: " + report.generatedAt + " (Asia/Phnom_Penh)", M, y + 12);
-  doc.text("Basis: Cash · Currency: USD", M, y + 24);
+  doc.text("Basis: " + (report.basis === "accrual" ? "Accrual" : "Cash") + " · Currency: USD", M, y + 24);
   y += 50;
 
   // --- EXECUTIVE SUMMARY (key numbers in a clean box) ---
@@ -13644,7 +13794,7 @@ function generateAccountingPdf(report) {
   doc.setFont("helvetica", "italic");
   doc.setFontSize(8);
   doc.setTextColor(...MUTED);
-  doc.text("Cash basis · revenue recognized when payment received. All amounts in USD.", M, y + 8);
+  doc.text((report.basisLabel || "Cash basis · revenue recognized when payment received") + ". All amounts in USD.", M, y + 8);
   doc.setTextColor(...INK);
   y += 20;
 
@@ -13984,7 +14134,7 @@ function generateAccountingPdf(report) {
   doc.setFont("helvetica", "italic");
   doc.setFontSize(8);
   doc.setTextColor(...MUTED);
-  doc.text("Cash-basis ledger of all paid transactions, grouped by day with daily subtotals.", M, y + 12);
+  doc.text((report.basis === "accrual" ? "Accrual-basis" : "Cash-basis") + " ledger of all paid transactions, grouped by day with daily subtotals.", M, y + 12);
   doc.text("Phone numbers and customer notes omitted from ledger for readability — see source sheets for detail.", M, y + 22);
   doc.setTextColor(...INK);
   y += 32;
@@ -14285,6 +14435,12 @@ function ScreenFinances() {
         showToast("Invalid date range", "error");
         return;
       }
+      // Pass through accounting basis: "cash" (default) or "accrual".
+      // Cash basis = recognized when payment received (default for most SMBs).
+      // Accrual basis = recognized on service-delivery date; includes
+      // outstanding receivables as earned-but-uncollected income.
+      if (opts.basis) params.basis = opts.basis;
+      if (opts.includeReceivables) params.includeReceivables = "true";
       showToast("Generating report…", "info");
       const r = await api("adminAccountingReport", params);
       if (!r.ok) {
@@ -14501,22 +14657,34 @@ function AccountingReportPickerModal({ onClose, onPick }) {
   const [monthYear, setMonthYear] = useState(now.getFullYear());
   const [monthMonth, setMonthMonth] = useState(now.getMonth() + 1);
 
+  // Accounting basis. Cash = revenue when paid (default, matches typical
+  // SMB tax filing). Accrual = revenue on service-delivery date + show
+  // outstanding receivables as earned income.
+  const [basis, setBasis] = useState("cash");
+
   function fmt(d) {
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+
+  // Wrap onPick to inject the basis selection into every pick path
+  // (preset, month, custom) without duplicating the basis arg at every
+  // call site below.
+  function pick(opts) {
+    onPick(Object.assign({}, opts, { basis: basis }));
   }
 
   function pickPreset(preset) {
     if (preset === "this_month") {
       const y = now.getFullYear(), m = now.getMonth() + 1;
-      onPick({ year: y, month: m });
+      pick({ year: y, month: m });
     } else if (preset === "last_month") {
       const ref = new Date(now); ref.setMonth(ref.getMonth() - 1);
-      onPick({ year: ref.getFullYear(), month: ref.getMonth() + 1 });
+      pick({ year: ref.getFullYear(), month: ref.getMonth() + 1 });
     } else if (preset === "last_3_months") {
       // Last 3 full calendar months (excluding current)
       const fromRef = new Date(now); fromRef.setMonth(fromRef.getMonth() - 3, 1);
       const toRef = new Date(now); toRef.setMonth(toRef.getMonth(), 0);  // last day of prev month
-      onPick({
+      pick({
         fromStr: fmt(fromRef),
         toStr: fmt(toRef),
         label: "Last 3 months (" + fmt(fromRef) + " to " + fmt(toRef) + ")"
@@ -14524,21 +14692,21 @@ function AccountingReportPickerModal({ onClose, onPick }) {
     } else if (preset === "last_6_months") {
       const fromRef = new Date(now); fromRef.setMonth(fromRef.getMonth() - 6, 1);
       const toRef = new Date(now); toRef.setMonth(toRef.getMonth(), 0);
-      onPick({
+      pick({
         fromStr: fmt(fromRef),
         toStr: fmt(toRef),
         label: "Last 6 months (" + fmt(fromRef) + " to " + fmt(toRef) + ")"
       });
     } else if (preset === "ytd") {
       const fromRef = new Date(now.getFullYear(), 0, 1);
-      onPick({
+      pick({
         fromStr: fmt(fromRef),
         toStr: fmt(now),
         label: "Year to date (" + now.getFullYear() + ")"
       });
     } else if (preset === "mtd") {
       const fromRef = new Date(now.getFullYear(), now.getMonth(), 1);
-      onPick({
+      pick({
         fromStr: fmt(fromRef),
         toStr: fmt(now),
         label: "Month to date — " + now.toLocaleString("en-US", { month: "long", year: "numeric" })
@@ -14547,7 +14715,7 @@ function AccountingReportPickerModal({ onClose, onPick }) {
   }
 
   function submitMonth() {
-    onPick({ year: monthYear, month: monthMonth });
+    pick({ year: monthYear, month: monthMonth });
   }
 
   function submitCustom() {
@@ -14559,7 +14727,7 @@ function AccountingReportPickerModal({ onClose, onPick }) {
       showToast("From date must be before To date", "error");
       return;
     }
-    onPick({
+    pick({
       fromStr: customFrom,
       toStr: customTo,
       label: "Custom: " + customFrom + " to " + customTo
@@ -14614,6 +14782,48 @@ function AccountingReportPickerModal({ onClose, onPick }) {
               {t.label}
             </button>
           ))}
+        </div>
+
+        {/* Accounting basis toggle. Affects every preset/month/custom pick
+            below — basis is stored in state and injected into onPick by the
+            pick() wrapper. */}
+        <div style={{
+          marginBottom: 16, padding: 12,
+          background: "rgba(168,116,74,0.06)",
+          border: "1px solid rgba(168,116,74,0.2)",
+          borderRadius: 4
+        }}>
+          <div style={{
+            fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.16em",
+            textTransform: "uppercase", opacity: 0.65, marginBottom: 8
+          }}>Accounting basis</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {[
+              { id: "cash", label: "Cash basis", sub: "Revenue when payment received (typical SMB tax)" },
+              { id: "accrual", label: "Accrual basis", sub: "Revenue on service date + show receivables" }
+            ].map(opt => (
+              <button
+                key={opt.id}
+                onClick={() => setBasis(opt.id)}
+                style={{
+                  flex: 1,
+                  padding: "10px 12px",
+                  background: basis === opt.id ? "var(--ink)" : "var(--paper)",
+                  color: basis === opt.id ? "var(--paper)" : "var(--ink)",
+                  border: "1.5px solid var(--ink)",
+                  borderRadius: 3,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  fontSize: 12,
+                  fontWeight: basis === opt.id ? 600 : 400
+                }}
+                title={opt.sub}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 2 }}>{opt.label}</div>
+                <div style={{ fontSize: 10, opacity: basis === opt.id ? 0.85 : 0.6, lineHeight: 1.3 }}>{opt.sub}</div>
+              </button>
+            ))}
+          </div>
         </div>
 
         {mode === "preset" && (
@@ -17203,6 +17413,7 @@ function TournamentCreateModal({ existing, onClose, onCreated }) {
   }
 
   async function submit() {
+    if (submitting) return;  // double-tap guard
     if (!form.name.trim()) return showToast("Name required", "error");
     if (form.courts.length === 0) return showToast("Pick at least one court", "error");
     if (form.endDate < form.startDate) return showToast("End date before start date", "error");
@@ -18604,6 +18815,7 @@ function SponsorshipModal({ banner, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
 
   async function save() {
+    if (saving) return;  // double-tap guard
     if (!form.location.trim()) return showToast("Location required", "error");
     if (!form.sponsorName.trim()) return showToast("Sponsor name required", "error");
     if (form.saleType === "one_off" && !form.endDate) return showToast("One-off banners need an End Date", "error");
@@ -18624,6 +18836,7 @@ function SponsorshipModal({ banner, onClose, onSaved }) {
   }
 
   async function cancelBanner() {
+    if (saving) return;  // double-tap guard
     if (!confirm("Cancel this banner? It will be marked cancelled but kept for records.")) return;
     setSaving(true);
     const r = await api("adminCancelSponsorship", { bannerId: banner.bannerId });
@@ -19670,6 +19883,35 @@ function DataIntegrityCard() {
   const [report, setReport] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [plannedActions, setPlannedActions] = useState([]);
+  const [legacyDryRun, setLegacyDryRun] = useState(null);
+  const [fixingLegacy, setFixingLegacy] = useState(false);
+
+  async function planLegacyFix() {
+    setFixingLegacy(true);
+    const r = await api("adminFixLegacyTimeCells", { confirm: false });
+    setFixingLegacy(false);
+    if (r.ok) {
+      setLegacyDryRun(r);
+      if (r.totalCellsAffected === 0) {
+        showToast("No legacy time cells found — already clean", "success");
+      }
+    } else {
+      showToast(r.error || "Scan failed", "error");
+    }
+  }
+
+  async function applyLegacyFix() {
+    if (!confirm("Rewrite " + (legacyDryRun?.totalCellsAffected || 0) + " legacy time cells as plain strings? This is safe to re-run.")) return;
+    setFixingLegacy(true);
+    const r = await api("adminFixLegacyTimeCells", { confirm: true });
+    setFixingLegacy(false);
+    if (r.ok) {
+      showToast(r.message || "Done", "success");
+      setLegacyDryRun(null);
+    } else {
+      showToast(r.error || "Fix failed", "error");
+    }
+  }
 
   async function runAudit() {
     setAuditing(true);
@@ -19860,6 +20102,62 @@ function DataIntegrityCard() {
           </div>
         </div>
       )}
+
+      {/* Legacy time cells migration. Separate flow from "off-grid times" because
+          it operates at a different level — those off-grid times were caused by
+          this exact bug: Sheets typed "16:00" → 1899 Date → Phnom Penh LMT offset
+          rendered "15:42". This button rewrites those cells as plain strings so
+          the bug can't recur. Safe to re-run; idempotent. */}
+      <div style={{
+        marginTop: 18,
+        paddingTop: 18,
+        borderTop: "1px dashed var(--concrete)"
+      }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>Legacy time cells</div>
+        <div className="desc" style={{ marginBottom: 12 }}>
+          Older entries may have time values stored as 1899-era Date objects, which
+          the Asia/Phnom_Penh timezone renders 18 min early (e.g. "17:00" shows as
+          "16:42"). Click "Scan" to see how many cells are affected, then "Fix"
+          to rewrite them as plain strings. Safe to re-run.
+        </div>
+        <div className="settings-row" style={{ alignItems: "flex-start" }}>
+          <div style={{ flex: 1, fontSize: 12 }}>
+            {legacyDryRun ? (
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: 6, color: legacyDryRun.totalCellsAffected > 0 ? "var(--clay)" : "var(--green)" }}>
+                  {legacyDryRun.totalCellsAffected > 0
+                    ? "Found " + legacyDryRun.totalCellsAffected + " legacy cell(s) across " + (legacyDryRun.report || []).length + " sheet(s)"
+                    : "✓ All time cells are already in plain string format"}
+                </div>
+                {legacyDryRun.totalCellsAffected > 0 && (
+                  <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.5, opacity: 0.85 }}>
+                    {(legacyDryRun.report || []).filter(s => s.rewritten > 0).map((s, i) => (
+                      <li key={i}>{s.sheet}: {s.rewritten} cell(s) <span style={{ opacity: 0.6 }}>({s.label})</span></li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : (
+              <div style={{ opacity: 0.7 }}>Click "Scan" to check for legacy cells.</div>
+            )}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <button className="btn" disabled={fixingLegacy} onClick={planLegacyFix}>
+              {fixingLegacy && !legacyDryRun ? "Scanning…" : "Scan"}
+            </button>
+            {legacyDryRun && legacyDryRun.totalCellsAffected > 0 && (
+              <button
+                className="btn"
+                style={{ background: "var(--clay)", color: "var(--cream)", borderColor: "var(--clay)" }}
+                disabled={fixingLegacy}
+                onClick={applyLegacyFix}
+              >
+                {fixingLegacy ? "Fixing…" : "Fix " + legacyDryRun.totalCellsAffected + " cell(s)"}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -20500,8 +20798,89 @@ function App() {
   );
 }
 
+/**
+ * Top-level error boundary. Without this, any uncaught render error in any
+ * component crashes the entire admin app to a blank white screen. With it,
+ * we show a recover screen with a hard-reload button + the error text so
+ * the staff can report it. The reload uses location.reload() with a cache
+ * bust query param to escape any cached broken state.
+ */
+class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null, info: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error: error };
+  }
+  componentDidCatch(error, info) {
+    console.error("[AppErrorBoundary]", error, info);
+    this.setState({ info: info });
+  }
+  reload() {
+    try {
+      // Force-refresh past CDN by adding a cache bust
+      const url = new URL(window.location.href);
+      url.searchParams.set("_r", Date.now());
+      window.location.href = url.toString();
+    } catch (e) {
+      window.location.reload();
+    }
+  }
+  render() {
+    if (this.state.hasError) {
+      const msg = (this.state.error && this.state.error.message) || String(this.state.error || "");
+      return (
+        <div style={{
+          padding: 40, maxWidth: 600, margin: "60px auto",
+          fontFamily: "system-ui, -apple-system, sans-serif",
+          background: "#fff", border: "2px solid #1a1a1a", borderRadius: 4
+        }}>
+          <div style={{
+            fontFamily: "ui-monospace, monospace", fontSize: 10,
+            letterSpacing: "0.2em", textTransform: "uppercase",
+            opacity: 0.6, marginBottom: 12
+          }}>Admin app crashed</div>
+          <h1 style={{ fontStyle: "italic", fontWeight: 400, fontSize: 28, margin: "0 0 16px" }}>
+            Something went wrong.
+          </h1>
+          <p style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 20, opacity: 0.85 }}>
+            The interface hit an error and stopped rendering. Your data is safe — this only
+            affects what you can see in the browser. Reload to get back to a working state.
+          </p>
+          {msg && (
+            <pre style={{
+              background: "#f5f0e4", padding: 12, borderRadius: 3,
+              fontSize: 11, lineHeight: 1.4, overflow: "auto",
+              maxHeight: 200, margin: "0 0 20px"
+            }}>{msg}</pre>
+          )}
+          <button onClick={() => this.reload()} style={{
+            background: "#1a1a1a", color: "#f1ead6", border: "none",
+            padding: "12px 24px", fontSize: 14, fontWeight: 600,
+            cursor: "pointer", borderRadius: 2
+          }}>Reload admin</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const root = createRoot(document.getElementById("root"));
-root.render(<App />);
+root.render(<AppErrorBoundary><App /></AppErrorBoundary>);
+
+// Register the service worker for instant repeat loads. Failures are
+// non-fatal — the app works without it. Only registered on https or
+// localhost (browser security requirement). Bumping the CACHE_VERSION
+// in sw.js will trigger an update on next page load.
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(err => {
+      console.warn("SW registration failed:", err);
+    });
+  });
+}
 
   </script>
 </body>
