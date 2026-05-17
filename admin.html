@@ -4586,20 +4586,116 @@ function _isMutation(action) {
 // Broad-stroke invalidation: clear most cached reads after any mutation.
 // Specific endpoints (settings) keep their cache because they're set elsewhere.
 function _invalidateForMutation(action) {
-  const KEEP = new Set([
-    "adminGetGoals", "adminGetPromo", "adminGetPosSettings", "adminGetSponsorshipSettings"
-  ]);
+  // Surgical invalidation: only wipe caches actually affected by THIS mutation.
+  // Previously this wiped EVERYTHING which forced every tab to re-fetch from
+  // scratch — making the UI feel slow after every save. Now a POS sale only
+  // wipes POS caches, a booking save only wipes booking/timeline caches, etc.
+
   // Settings mutations invalidate their own corresponding read endpoint
   if (action === "adminSetGoals") invalidateApiCache("adminGetGoals");
   if (action === "adminSetPromo") invalidateApiCache("adminGetPromo");
   if (action === "adminSetPosSettings") invalidateApiCache("adminGetPosSettings");
   if (action === "adminSetSponsorshipSettings") invalidateApiCache("adminGetSponsorshipSettings");
-  // Operational mutations invalidate everything except settings caches
-  for (const k of [..._apiCache.keys()]) {
-    const ep = k.split(":")[0];
-    if (KEEP.has(ep)) continue;
-    _apiCache.delete(k);
-    try { localStorage.removeItem(_LS_CACHE_PREFIX + k); } catch (e) {}
+  if (action === "adminSetPricingRules") invalidateApiCache("adminGetPricingRules");
+
+  // Categorize the mutation. Multiple categories can fire — e.g., creating a
+  // booking affects dashboard + timeline + bookings list + availability.
+  const isBookingMutation = (
+    /^(adminCreateBooking|createBooking|adminCancelBooking|cancelBooking|adminMarkPaid|adminMarkNoShow|adminUndoCancellation|adminUpdateBooking|adminUpdateNotes)/.test(action)
+  );
+  const isWalkInMutation = (
+    /^(adminCreateWalkInBlock|adminCloseWalkInBlock|adminAddWalkInPlayer|adminRemoveWalkInPlayer|adminMarkWalkInPlayerPaid|adminUpdateWalkInBlock)/.test(action)
+  );
+  const isCoachingMutation = (
+    /^(adminCreateCoachingSession|adminCancelCoachingSession|adminUpdateCoachingSession|adminMarkCoachingSessionsPaid|adminCreateCoach|adminUpdateCoach|adminDeleteCoach)/.test(action)
+  );
+  const isOpenPlayMutation = (
+    /^(adminCreateOpenPlaySession|adminCancelOpenPlaySession|adminUpdateOpenPlaySession|registerForOpenPlay|cancelMyOpenPlayRegistration|adminUpdateOpenPlayPlayer|adminRemoveOpenPlayPlayer)/.test(action)
+  );
+  const isTournamentMutation = (
+    /^(adminCreateTournament|adminCancelTournament|adminUpdateTournament|adminAddTournamentPlayer|adminRemoveTournamentPlayer|adminAddTournamentRevenue|adminAddTournamentExpense|registerForTournament|adminMarkTournamentPlayerPaid)/.test(action)
+  );
+  const isPosMutation = (
+    /^(posCreate|posVoid|posAdjust|posUpdate|posDelete)/.test(action)
+  );
+  const isTabMutation = (
+    /^tab(Open|Close|AddItem|RemoveItem|Attach|Detach|Update)/.test(action)
+  );
+  const isMemberMutation = (
+    /^(adminCreateMember|adminUpdateMember|adminDeleteMember|adminCancelMember)/.test(action)
+  );
+  const isSponsorshipMutation = (
+    /^(adminCreateSponsorship|adminUpdateSponsorship|adminCancelSponsorship)/.test(action)
+  );
+
+  // Helper — wipe a single endpoint's caches (memory + localStorage)
+  const wipe = (ep) => {
+    for (const k of [..._apiCache.keys()]) {
+      if (k.split(":")[0] !== ep) continue;
+      _apiCache.delete(k);
+      try { localStorage.removeItem(_LS_CACHE_PREFIX + k); } catch (e) {}
+    }
+  };
+
+  // The dashboard's view changes for almost any operational mutation,
+  // so we wipe the dashboard family on all of them.
+  const touchesDashboard = (
+    isBookingMutation || isWalkInMutation || isCoachingMutation ||
+    isOpenPlayMutation || isTournamentMutation || isPosMutation ||
+    isTabMutation || isSponsorshipMutation
+  );
+  if (touchesDashboard) {
+    wipe("adminDashboard");
+    wipe("adminDashboardKpi");
+    wipe("adminOperationalKpi");
+    wipe("adminListTimelineEntries");
+    wipe("adminFinancesMonth");
+    wipe("adminFinancesRange");
+  }
+
+  // Per-category cache wipes
+  if (isBookingMutation || isWalkInMutation || isCoachingMutation || isOpenPlayMutation || isTournamentMutation) {
+    wipe("getAvailability");  // bookings/walk-ins/etc change court availability
+  }
+  if (isPosMutation || isTabMutation) {
+    wipe("posListProducts");   // stock changes
+    wipe("posListSales");
+    wipe("adminListSettleableEntries");
+  }
+  if (isTabMutation) {
+    wipe("tabListOpen");
+    wipe("tabListAll");
+  }
+  if (isWalkInMutation) {
+    wipe("adminListWalkInBlocks");
+  }
+  if (isCoachingMutation) {
+    wipe("adminListCoaches");
+    wipe("adminListCoachingSessions");
+    wipe("adminListCoachPayments");
+  }
+  if (isOpenPlayMutation) {
+    wipe("adminListOpenPlaySessions");
+    wipe("listOpenPlaySessions");
+    wipe("adminGetOpenPlaySession");
+    wipe("myOpenPlayRegistrations");
+  }
+  if (isTournamentMutation) {
+    wipe("adminListTournaments");
+    wipe("adminGetTournament");
+    wipe("tournamentPublicInfo");
+    wipe("myTournamentRegistrations");
+  }
+  if (isMemberMutation) {
+    wipe("adminListMembers");
+    wipe("adminGetMemberByPhone");
+    wipe("lookupMember");
+  }
+  if (isSponsorshipMutation) {
+    wipe("adminListSponsorships");
+  }
+  if (isBookingMutation) {
+    wipe("adminListBookings");
   }
 }
 
@@ -9632,19 +9728,6 @@ function ScreenCoaching() {
     return () => window.removeEventListener("yard:open-create", onCreate);
   }, []);
 
-  // LIVE UPDATE: refetch on any mutation event. Reloads whichever subtab is
-  // currently visible so a payment marked elsewhere or a session added from
-  // another device appears without a manual refresh.
-  useEffect(() => {
-    function onDataChanged() {
-      loadCoaches();
-      if (tab === "sessions") loadSessions();
-      if (tab === "payments") loadPayments();
-    }
-    window.addEventListener("yard:data-changed", onDataChanged);
-    return () => window.removeEventListener("yard:data-changed", onDataChanged);
-  }, [tab, sessDateFrom, sessDateTo, sessCoachFilter, sessPaymentFilter]);
-
   // Lift sessions + payments state up to parent so switching subtabs keeps cached data
   // — prevents the re-mount-and-re-fetch lag user experienced when toggling Sessions ↔ Payments Due.
   const today = todayISO();
@@ -9721,6 +9804,24 @@ function ScreenCoaching() {
   useEffect(() => {
     if (tab === "payments" && payments === null) loadPayments();
   }, [tab]);
+
+  // LIVE UPDATE: refetch on any mutation event. Uses a ref to always call
+  // the latest closure (otherwise the effect captures stale filter values
+  // and the dep array would have to list every state used inside —
+  // including some not yet declared at the top of the function).
+  const _liveRefreshRef = React.useRef(null);
+  _liveRefreshRef.current = () => {
+    loadCoaches();
+    if (tab === "sessions") loadSessions();
+    if (tab === "payments") loadPayments();
+  };
+  useEffect(() => {
+    function onDataChanged() {
+      if (_liveRefreshRef.current) _liveRefreshRef.current();
+    }
+    window.addEventListener("yard:data-changed", onDataChanged);
+    return () => window.removeEventListener("yard:data-changed", onDataChanged);
+  }, []);
 
   return (
     <div className="main">
@@ -20598,7 +20699,11 @@ function App() {
         // cold-start cost.
         hydrateSections(r.sections, Date.now());
       }
-      // Continue with secondary prefetch of less critical screens
+      // SPEED: Only prefetch the SECOND-paint critical data (timeline for the
+      // dashboard's already-visible time-grid, KPI cards, and tab count for
+      // the badge). Everything else loads lazily on tab navigation — that
+      // keeps the dashboard's first paint quick and stops Apps Script from
+      // serializing 15+ requests behind each other.
       const today = todayISO();
       const now = new Date();
       setTimeout(() => {
@@ -20608,27 +20713,13 @@ function App() {
       setTimeout(() => {
         api("adminDashboardKpi").catch(() => {});
         api("adminOperationalKpi").catch(() => {});
-        api("adminListSponsorships").catch(() => {});
-        api("adminFinancesMonth", { year: now.getFullYear(), month: now.getMonth() + 1 }).catch(() => {});
       }, 800);
-      // 1.5s in — warm Settings tab (5 endpoints) and Open Play list.
-      // Hides the lag when an admin clicks Settings shortly after login.
-      // These are all small payloads with stable data so they cache well.
-      setTimeout(() => {
-        api("adminGetPromo").catch(() => {});
-        api("adminGetPosSettings").catch(() => {});
-        api("adminGetGoals").catch(() => {});
-        api("adminGetSponsorshipSettings").catch(() => {});
-        api("adminGetPricingRules").catch(() => {});
-        api("adminListOpenPlaySessions").catch(() => {});
-        api("adminListTournaments").catch(() => {});
-      }, 1500);
-      // Lower-priority tabs — warm cache 2s in (after main tabs ready)
-      setTimeout(() => {
-        api("adminListCustomers", { search: "", type: "" }).catch(() => {});
-        api("adminListSmsLog", { type: "", status: "", limit: 200 }).catch(() => {});
-        api("posListSales").catch(() => {});
-      }, 2000);
+      // All other tabs (Settings, Sponsorships, Open Play, Tournaments,
+      // Customers, SMS, POS history, Finances) are now lazy: the per-screen
+      // useEffect fetches on first navigation. With server-side caching
+      // on the heavy reads (adminDashboard, adminListTimelineEntries), the
+      // first-navigate latency is acceptable and we save ~10 login-time
+      // requests that were piling up behind each other.
     }).catch(() => {
       // Network failure — leave auth state alone; user can retry by clicking around
     });
