@@ -2552,7 +2552,6 @@ const STRINGS = {
     p_phone_placeholder: "12 345 678",
     p_phone_hint: "We'll text you a 6-digit code. Standard SMS rates apply.",
     p_cta: "Send me a code",
-    p_browse: "Browse courts without signing in →",
     p_label_members: "Members of the dink line",
     p_members_right: "MEMBERSHIPS",
     p_standard: "STANDARD",
@@ -2584,7 +2583,6 @@ const STRINGS = {
 
     // Booking form
     b_title: "BOOK A COURT",
-    b_verified_nudge: "Phone verified. Review the details and tap Confirm to finish your booking.",
     b_welcome: "WELCOME BACK",
     b_member_no: "MEMBER",
     b_expires: "EXPIRES",
@@ -2723,7 +2721,6 @@ const STRINGS = {
     p_phone_placeholder: "12 345 678",
     p_phone_hint: "យើង​នឹង​ផ្ញើ​លេខ​សម្ងាត់​៦​ខ្ទង់​ទៅ​អ្នក។",
     p_cta: "ផ្ញើ​លេខ​សម្ងាត់",
-    p_browse: "មើល​កួត​ដោយ​មិន​ចូល​គណនី →",
     p_label_members: "សមាជិក​នៃ​បន្ទាត់​ដិក",
     p_members_right: "សមាជិកភាព",
     p_standard: "ស្តង់ដារ",
@@ -2752,7 +2749,6 @@ const STRINGS = {
     o_verifying: "កំពុង​ផ្ទៀងផ្ទាត់…",
 
     b_title: "កក់​កួត",
-    b_verified_nudge: "បាន​ផ្ទៀង​ផ្ទាត់​លេខ​ទូរស័ព្ទ។ ពិនិត្យ​ព័ត៌មាន​លម្អិត និង​ចុច​ប៊ូតុង​បញ្ជាក់​ដើម្បី​បញ្ចប់​ការ​កក់។",
     b_welcome: "សួស្តី​ត្រឡប់​មក​វិញ",
     b_member_no: "សមាជិក",
     b_expires: "ផុត​កំណត់",
@@ -3681,19 +3677,6 @@ function ScreenPhone({ state, setState, go, lang }) {
           {sending ? t("loading", null, lang) : t("p_cta", null, lang)}
         </CTA>
 
-        {/* BROWSE-WITHOUT-SIGN-IN escape hatch. New visitors who aren't
-            ready to verify their phone can still pick a slot and see
-            prices. We collect their phone only when they tap Confirm. */}
-        <div style={{ marginTop: 14, textAlign: "center" }}>
-          <button
-            className="ulink"
-            style={{ fontSize: 12.5, opacity: 0.7 }}
-            onClick={(e) => { e.preventDefault(); go("booking"); }}
-          >
-            {t("p_browse", null, lang)}
-          </button>
-        </div>
-
         {/* Membership tease */}
         <div style={{ marginTop: 30 }}>
           <SectionLabel n="02" right={t("p_members_right", null, lang)}>{t("p_label_members", null, lang)}</SectionLabel>
@@ -4064,34 +4047,6 @@ function ScreenBooking({ state, setState, go, lang, config }) {
 
   async function submit() {
     if (ctaDisabled()) return;
-
-    // BROWSE-WITHOUT-SIGN-IN: if user hasn't verified their phone yet,
-    // stash the booking intent in state and route to phone/OTP. After
-    // verification, ScreenOTP routes back to "booking" with state.token
-    // populated, and the booking screen re-mounts with the same date/time/
-    // courts pre-filled from state. The user can then tap Confirm again
-    // to actually create the booking — same single button, just a brief
-    // verification detour the first time.
-    const hasAuth = (state.token && state.token.length > 0) ||
-                    (state.phone && state.phone.length >= 8);
-    if (!hasAuth) {
-      setState(s => ({
-        ...s,
-        date: date,
-        time: time,
-        slots: slots,
-        pickedCourts: pickedCourts,
-        guestName: guestName,
-        // Flag set when we route to phone/OTP from a pending booking.
-        // ScreenOTP checks this to bounce back to "booking" instead of
-        // the default "booking" landing — so the user lands right back
-        // on their picked slot.
-        pendingBookingFromBrowse: true
-      }));
-      go("phone");
-      return;
-    }
-
     setSubmitting(true);
     const r = await api("createBooking", {
       token: state.token || "",
@@ -4108,7 +4063,7 @@ function ScreenBooking({ state, setState, go, lang, config }) {
       showToast(r.error || t("error", null, lang), "error");
       return;
     }
-    setState(s => ({ ...s, confirmation: r.confirmation, pendingBookingFromBrowse: false }));
+    setState(s => ({ ...s, confirmation: r.confirmation }));
     go("confirm");
   }
 
@@ -4121,29 +4076,6 @@ function ScreenBooking({ state, setState, go, lang, config }) {
         <Lockup size={0.92} onClick={() => go(state.token ? "booking" : "phone")} />
         <span className="pill">{t("b_title", null, lang)}</span>
       </div>
-
-      {/* Post-verify nudge — shown only after a "browse without sign-in"
-          user returns from OTP. Reminds them their booking is one tap away
-          without auto-submitting (auto-submit on mount is fragile and steals
-          agency). One-shot: clears the flag after first render. */}
-      {state.pendingBookingFromBrowse && (state.token || state.phone) && (
-        <div style={{
-          marginBottom: 16,
-          padding: "10px 14px",
-          background: "rgba(61,122,79,0.10)",
-          border: "1.5px solid var(--green)",
-          borderRadius: 10,
-          display: "flex", alignItems: "center", gap: 10
-        }}>
-          <span style={{
-            width: 8, height: 8, borderRadius: "50%",
-            background: "var(--green)", flexShrink: 0
-          }} />
-          <span style={{ fontSize: 13, lineHeight: 1.4 }}>
-            {t("b_verified_nudge", null, lang)}
-          </span>
-        </div>
-      )}
 
       {/* Member or guest strip */}
       {isMember && (
