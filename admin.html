@@ -9185,6 +9185,13 @@ function ScreenMembers() {
     return () => window.removeEventListener("yard:open-create", onCreate);
   }, []);
 
+  // LIVE UPDATE: refetch on any mutation event.
+  useEffect(() => {
+    function onDataChanged() { load(); }
+    window.addEventListener("yard:data-changed", onDataChanged);
+    return () => window.removeEventListener("yard:data-changed", onDataChanged);
+  }, []);
+
   async function load() {
     const cached = getCachedApi("adminListMembers");
     if (cached && cached.ok) {
@@ -9624,6 +9631,19 @@ function ScreenCoaching() {
     window.addEventListener("yard:open-create", onCreate);
     return () => window.removeEventListener("yard:open-create", onCreate);
   }, []);
+
+  // LIVE UPDATE: refetch on any mutation event. Reloads whichever subtab is
+  // currently visible so a payment marked elsewhere or a session added from
+  // another device appears without a manual refresh.
+  useEffect(() => {
+    function onDataChanged() {
+      loadCoaches();
+      if (tab === "sessions") loadSessions();
+      if (tab === "payments") loadPayments();
+    }
+    window.addEventListener("yard:data-changed", onDataChanged);
+    return () => window.removeEventListener("yard:data-changed", onDataChanged);
+  }, [tab, sessDateFrom, sessDateTo, sessCoachFilter, sessPaymentFilter]);
 
   // Lift sessions + payments state up to parent so switching subtabs keeps cached data
   // — prevents the re-mount-and-re-fetch lag user experienced when toggling Sessions ↔ Payments Due.
@@ -10827,6 +10847,20 @@ function ScreenPOS() {
     // Prefetch settleable entries — fired-and-forgotten, populates cache so
     // when user clicks "Attach booking" the modal opens instantly.
     api("adminListSettleableEntries").catch(() => {});
+  }, []);
+
+  // LIVE UPDATE: refresh products (stock changes), today stats, and tab count
+  // on any mutation event. DELIBERATELY does NOT touch cart/discount/customer
+  // state — those are mid-transaction and yanking them would lose the
+  // cashier's work.
+  useEffect(() => {
+    function onDataChanged() {
+      loadProducts();
+      loadTodayStats();
+      loadTabCount();
+    }
+    window.addEventListener("yard:data-changed", onDataChanged);
+    return () => window.removeEventListener("yard:data-changed", onDataChanged);
   }, []);
 
   // Categories present in products
@@ -16210,6 +16244,15 @@ function ScreenOpenPlay() {
     return () => window.removeEventListener("yard:open-create", onCreate);
   }, []);
 
+  // LIVE UPDATE: refetch when any mutation fires (admin's own action or a
+  // customer joining via index.html — the 10s pulse will translate cross-
+  // device changes into this event too).
+  useEffect(() => {
+    function onDataChanged() { load(); }
+    window.addEventListener("yard:data-changed", onDataChanged);
+    return () => window.removeEventListener("yard:data-changed", onDataChanged);
+  }, []);
+
   async function load() {
     const cached = getCachedApi("adminListOpenPlaySessions");
     if (cached && cached.ok) {
@@ -17203,6 +17246,14 @@ function ScreenTournaments() {
     }
     window.addEventListener("yard:open-create", onCreate);
     return () => window.removeEventListener("yard:open-create", onCreate);
+  }, []);
+
+  // LIVE UPDATE: refetch on any mutation event (own action or pulse-detected
+  // change from another device).
+  useEffect(() => {
+    function onDataChanged() { load(); }
+    window.addEventListener("yard:data-changed", onDataChanged);
+    return () => window.removeEventListener("yard:data-changed", onDataChanged);
   }, []);
 
   async function load() {
