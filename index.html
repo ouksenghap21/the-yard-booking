@@ -1161,6 +1161,226 @@ a.ulink, button.ulink{
   white-space:nowrap;
 }
 
+/* ========== Location module ==========
+ * Visual: cream card with a subtle 1px border, monospace label,
+ * serif italic place name (matches the membership tier card style).
+ * The map preview is an SVG hand-built sketch — Toul Kork courts +
+ * a marker — rather than a Google Maps embed (no third-party tile
+ * loading, no privacy concerns, no Apps Script API quota). The CTA
+ * opens the user's native Maps app via geo: URL (mobile) or
+ * google.com/maps URL (desktop fallback).
+ */
+.loc-card{
+  border:1.5px solid var(--ink);
+  border-radius:14px;
+  background:var(--paper);
+  overflow:hidden;
+  margin-top:28px;
+}
+.loc-card .loc-head{
+  padding:14px 16px 0;
+  display:flex; justify-content:space-between; align-items:baseline;
+}
+.loc-card .loc-label{
+  font-family:var(--mono); font-size:9px;
+  letter-spacing:0.22em; text-transform:uppercase;
+  opacity:0.55; font-weight:600;
+}
+.loc-card .loc-body{
+  padding:8px 16px 14px;
+}
+.loc-card .loc-place{
+  font-family:var(--serif); font-style:italic; font-weight:400;
+  font-size:26px; line-height:1.15; letter-spacing:-0.01em;
+  margin:4px 0 4px;
+}
+.loc-card .loc-hint{
+  font-size:12.5px; line-height:1.4; opacity:0.7;
+}
+/* Hand-drawn map sketch — Toul Kork grid + pinned location */
+.loc-map{
+  position:relative;
+  background:var(--cream-2, #ebe4cc);
+  border-top:1px solid var(--ink);
+  height:120px;
+  overflow:hidden;
+}
+.loc-map svg{
+  position:absolute; inset:0; width:100%; height:100%;
+  display:block;
+}
+.loc-cta-row{
+  border-top:1px solid var(--ink);
+  display:flex;
+}
+.loc-cta-row .loc-cta{
+  flex:1;
+  background:var(--ink);
+  color:var(--cream);
+  border:0;
+  padding:14px 16px;
+  font-family:var(--mono); font-weight:600;
+  font-size:11px; letter-spacing:0.18em;
+  text-transform:uppercase;
+  cursor:pointer;
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  transition:background .15s ease, color .15s ease;
+}
+.loc-cta-row .loc-cta:hover{ background:#000; }
+.loc-cta-row .loc-cta:active{ transform:translateY(1px); }
+.loc-cta-row .loc-cta svg{ width:14px; height:14px; }
+
+/* ========== Founder note (collapsible) ==========
+ * Editorial-style block. Quotation-mark serif glyph,
+ * 3 short paragraphs, signature in mono caps.
+ * Defaults closed; user taps "Read" to expand.
+ */
+.founder-card{
+  border:1.5px solid var(--ink);
+  border-radius:14px;
+  background:var(--paper);
+  margin-top:14px;
+  overflow:hidden;
+}
+.founder-head{
+  display:flex; justify-content:space-between; align-items:center;
+  padding:14px 16px;
+  cursor:pointer;
+  user-select:none;
+}
+.founder-head .founder-label{
+  font-family:var(--mono); font-size:9px;
+  letter-spacing:0.22em; text-transform:uppercase;
+  opacity:0.55; font-weight:600;
+}
+.founder-head .founder-toggle{
+  font-family:var(--mono); font-size:10.5px;
+  letter-spacing:0.16em; text-transform:uppercase;
+  font-weight:700;
+  border:1.5px solid var(--ink);
+  background:transparent;
+  padding:6px 12px;
+  border-radius:999px;
+  cursor:pointer;
+}
+.founder-head .founder-toggle:hover{ background:var(--ink); color:var(--cream); }
+.founder-body{
+  border-top:1px solid var(--ink);
+  padding:18px 18px 20px;
+  font-family:var(--serif);
+  font-size:15px; line-height:1.55;
+  letter-spacing:0.005em;
+}
+.founder-body p{ margin:0 0 12px; }
+.founder-body p:last-of-type{ margin-bottom:0; }
+.founder-body .quote-mark{
+  font-family:var(--serif); font-size:54px; font-style:italic;
+  line-height:0.6; opacity:0.18;
+  display:block; margin-bottom:-10px;
+}
+.founder-sig{
+  margin-top:18px;
+  font-family:var(--mono); font-size:10px;
+  letter-spacing:0.22em; text-transform:uppercase;
+  font-weight:600; opacity:0.7;
+}
+
+/* ========== Micro-FAQ (collapsible accordion) ==========
+ * Each Q/A is its own bordered row. Clicking the question expands the
+ * answer below. Single-Q state — multiple can be open simultaneously
+ * since the answers are short. No animation library — pure CSS height
+ * transition via max-height trick.
+ */
+.faq-card{
+  border:1.5px solid var(--ink);
+  border-radius:14px;
+  background:var(--paper);
+  margin-top:14px;
+  overflow:hidden;
+}
+.faq-label-row{
+  padding:14px 16px;
+  font-family:var(--mono); font-size:9px;
+  letter-spacing:0.22em; text-transform:uppercase;
+  opacity:0.55; font-weight:600;
+  border-bottom:1px solid var(--ink);
+}
+.faq-item{
+  border-bottom:1px solid rgba(26,26,26,0.12);
+}
+.faq-item:last-child{ border-bottom:0; }
+.faq-question{
+  width:100%;
+  background:transparent;
+  border:0;
+  padding:14px 16px;
+  text-align:left;
+  font-family:var(--sans);
+  font-size:13.5px;
+  font-weight:500;
+  color:var(--ink);
+  cursor:pointer;
+  display:flex; justify-content:space-between; align-items:center;
+  gap:14px;
+  transition:background .15s ease;
+}
+.faq-question:hover{ background:rgba(26,26,26,0.03); }
+.faq-toggle-icon{
+  font-family:var(--mono); font-size:18px;
+  font-weight:300; line-height:1;
+  transition:transform .2s ease;
+  opacity:0.55;
+}
+.faq-item.open .faq-toggle-icon{
+  transform:rotate(45deg);
+}
+.faq-answer{
+  max-height:0;
+  overflow:hidden;
+  transition:max-height .25s ease;
+}
+.faq-item.open .faq-answer{
+  max-height:300px;  /* enough for any expected answer length */
+}
+.faq-answer-inner{
+  padding:0 16px 14px;
+  font-size:13px;
+  line-height:1.55;
+  opacity:0.85;
+}
+
+/* ========== Confirmation action buttons ==========
+ * Calendar + Directions + Share buttons under the confirmation stamp.
+ * Pill-shaped, ink-bordered, mono-caps text. Tappable on mobile.
+ */
+.confirm-actions{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin-top:18px;
+}
+.confirm-actions .ca-btn{
+  background:transparent;
+  border:1.5px solid var(--ink);
+  border-radius:8px;
+  padding:13px 12px;
+  font-family:var(--mono);
+  font-size:10.5px;
+  letter-spacing:0.14em;
+  text-transform:uppercase;
+  font-weight:600;
+  color:var(--ink);
+  cursor:pointer;
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  transition:background .15s ease, color .15s ease;
+}
+.confirm-actions .ca-btn:hover{
+  background:var(--ink);
+  color:var(--cream);
+}
+.confirm-actions .ca-btn svg{ width:14px; height:14px; }
+.confirm-actions .ca-btn.ca-full{ grid-column: 1 / -1; }
+
 /* ========== Mobile tweaks ========== */
 @media (max-width:520px){
   .topbar{ padding:0 18px; }
@@ -2679,6 +2899,37 @@ const STRINGS = {
     p_footer: "THE YARD · TOUL KORK · PHNOM PENH",
     p_grace_notice: "Late more than 30 min · court may be released",
 
+    // ─── Location module ───
+    p_location_label: "Find us",
+    p_location_area: "Toul Kork, Phnom Penh",
+    p_location_hint: "8 indoor courts · climate-controlled · open daily",
+    p_location_cta: "Open in Maps",
+
+    // ─── Founder note (collapsible) ───
+    p_founder_label: "From the founder",
+    p_founder_cta_open: "Read",
+    p_founder_cta_close: "Close",
+    p_founder_p1: "Pickleball is the fastest-growing sport in the world. Phnom Penh deserved its first proper home for it.",
+    p_founder_p2: "The Yard is what eighteen months of late nights, design revisions, and import paperwork produced: eight tournament-grade indoor courts in Toul Kork, built specifically for this sport and nothing else. No shared lines with other games. No exposed humidity. No compromises.",
+    p_founder_p3: "If you're new to pickleball, we'll teach you. If you've been waiting for a real venue, you've found it. Memberships are limited; founding members get fifty percent off court time, forever.",
+    p_founder_sig: "Ouk · Founder",
+
+    // ─── Micro-FAQs (collapsible accordion) ───
+    p_faq_label: "Common questions",
+    p_faq_1_q: "I've never played pickleball — can I still come?",
+    p_faq_1_a: "Yes. Most of our regulars learned the game here. Just book a court, bring a friend or two, and we'll lend you paddles and balls at the desk. A coach can join your first session if you want guided instruction.",
+    p_faq_2_q: "Do I need to bring my own paddle?",
+    p_faq_2_a: "No. Loaner paddles and balls are free with every booking. If you want your own, we sell tournament-grade gear at the pro shop on-site.",
+    p_faq_3_q: "Is there parking?",
+    p_faq_3_a: "Yes — secure on-site parking for cars and motorbikes. Tap 'Find us' above for directions.",
+    p_faq_4_q: "How do bookings work?",
+    p_faq_4_a: "Pick a date, time, and number of courts. Pay at the counter when you arrive. Cancel up to 2 hours before for a full refund. Late by more than 30 minutes? Your court may be released to another player.",
+
+    // ─── Confirmation actions ───
+    c_action_calendar: "Add to Calendar",
+    c_action_directions: "Get Directions",
+    c_action_share: "Share Booking",
+
     // Grace period heads-up on confirmation page
     grace_kicker: "HEADS UP",
     grace_title: "Arrive within 30 minutes.",
@@ -2844,6 +3095,37 @@ const STRINGS = {
     p_learn: "មើល",
     p_footer: "THE YARD · ទួលគោក · ភ្នំពេញ",
     p_grace_notice: "យឺត​លើស​ពី ៣០​នាទី · កួត​អាច​ត្រូវ​បាន​ដោះ​លែង",
+
+    // ─── Location module (KM) ───
+    p_location_label: "ស្វែងរក​យើង",
+    p_location_area: "ទួលគោក · ភ្នំពេញ",
+    p_location_hint: "កួត​ក្នុង​អគារ ៨ · មាន​ម៉ាស៊ីន​ត្រជាក់ · បើក​ប្រចាំ​ថ្ងៃ",
+    p_location_cta: "បើក​ក្នុង Maps",
+
+    // ─── Founder note (KM) ───
+    p_founder_label: "ពី​ស្ថាបនិក",
+    p_founder_cta_open: "អាន",
+    p_founder_cta_close: "បិទ",
+    p_founder_p1: "ភីខលបល ជា​កីឡា​ដែល​លូត​លាស់​លឿន​បំផុត​ក្នុង​ពិភពលោក។ ភ្នំពេញ​សម​នឹង​មាន​កន្លែង​លេង​ដ៏​ត្រឹមត្រូវ​ដំបូង​សម្រាប់​កីឡា​នេះ។",
+    p_founder_p2: "The Yard គឺ​ជា​លទ្ធផល​នៃ​ការ​ខិតខំ​អស់​មួយ​ឆ្នាំ​កន្លះ — យប់​យូរ ការ​កែ​សម្រួល​ការ​រចនា និង​ឯកសារ​នាំ​ចូល។ កួត​ភីខលបល​ក្នុង​អគារ​កម្រិត​ប្រកួត​ប្រជែង​ចំនួន​ប្រាំ​បី នៅ​ទួលគោក សាងសង់​ឡើង​ដើម្បី​កីឡា​នេះ​តែ​ប៉ុណ្ណោះ។",
+    p_founder_p3: "បើ​អ្នក​ចាប់​ផ្ដើម​លេង​ភីខលបល យើង​នឹង​បង្រៀន​អ្នក។ បើ​អ្នក​រង់ចាំ​កន្លែង​ពិត​ប្រាកដ​មួយ អ្នក​បាន​រក​ឃើញ​ហើយ។ សមាជិកភាព​មាន​កំណត់ សមាជិក​ស្ថាបនិក​ទទួល​បាន​ការ​បញ្ចុះ​តម្លៃ ៥០% លើ​ការ​កក់​កួត​អស់​មួយ​ជីវិត។",
+    p_founder_sig: "អ៊ូក · ស្ថាបនិក",
+
+    // ─── Micro-FAQs (KM) ───
+    p_faq_label: "សំណួរ​ទូទៅ",
+    p_faq_1_q: "ខ្ញុំ​មិន​ដែល​លេង​ភីខលបល — តើ​នៅ​អាច​មក​បាន​ទេ?",
+    p_faq_1_a: "បាន។ ភ្ញៀវ​ទៀង​ទាត់​ភាគ​ច្រើន​បាន​រៀន​លេង​នៅ​ទីនេះ។ គ្រាន់​តែ​កក់​កួត នាំ​មិត្ត​មក​ជាមួយ យើង​នឹង​ឲ្យ​ខ្ចី​ដំបង​និង​បាល់​នៅ​ខ្នង​ទទួល​ភ្ញៀវ។ បើ​អ្នក​ចង់​បាន​ការ​បង្ហាត់ គ្រូ​អាច​ចូល​រួម​លេង​ជាមួយ​អ្នក។",
+    p_faq_2_q: "តើ​ខ្ញុំ​ត្រូវ​នាំ​ដំបង​ផ្ទាល់​ខ្លួន​មក​ឬ?",
+    p_faq_2_a: "មិន​ត្រូវ​ទេ។ ដំបង​និង​បាល់​សម្រាប់​ខ្ចី​គឺ​ឥត​គិត​ថ្លៃ​ជាមួយ​នឹង​ការ​កក់​នីមួយៗ។ ប្រសិន​បើ​អ្នក​ចង់​បាន​ផ្ទាល់​ខ្លួន យើង​លក់​ឧបករណ៍​កម្រិត​ប្រកួត​ប្រជែង​នៅ​ហាង​ក្នុង​ទីតាំង។",
+    p_faq_3_q: "តើ​មាន​កន្លែង​ចត​យាន​ជំនិះ​ទេ?",
+    p_faq_3_a: "មាន — កន្លែង​ចត​ឡាន​និង​ម៉ូតូ​មាន​សុវត្ថិភាព​នៅ​ក្នុង​ទីតាំង។ ចុច 'ស្វែងរក​យើង' ខាង​លើ​ដើម្បី​មើល​ផ្លូវ។",
+    p_faq_4_q: "តើ​ការ​កក់​ដំណើរ​ការ​ដូច​ម្ដេច?",
+    p_faq_4_a: "ជ្រើស​ថ្ងៃ ម៉ោង និង​ចំនួន​កួត។ បង់​ប្រាក់​នៅ​ខ្នង​ទទួល​ភ្ញៀវ​ពេល​មក​ដល់។ បោះ​បង់​បាន​មុន ២​ម៉ោង ដើម្បី​ទទួល​បាន​ការ​សង​ប្រាក់​វិញ។ យឺត​លើស​ពី ៣០​នាទី? កួត​របស់​អ្នក​អាច​ត្រូវ​បាន​ដោះ​លែង​ឲ្យ​អ្នក​លេង​ផ្សេង។",
+
+    // ─── Confirmation actions (KM) ───
+    c_action_calendar: "បន្ថែម​ទៅ​ប្រតិទិន",
+    c_action_directions: "បង្ហាញ​ផ្លូវ",
+    c_action_share: "ចែករំលែក​ការ​កក់",
 
     grace_kicker: "ចំណាំ",
     grace_title: "មក​ដល់​ក្នុង​រយៈ​ពេល ៣០​នាទី។",
@@ -3828,6 +4110,23 @@ function ScreenPhone({ state, setState, go, lang }) {
           </div>
         </div>
 
+        {/* LOCATION — where The Yard is + Open in Maps CTA. Placed AFTER
+            the membership tease so customers who've decided to engage
+            can find us. Stylized sketch map (custom SVG) rather than
+            a Google Maps embed for perf + privacy. */}
+        <LocationCard lang={lang} />
+
+        {/* FOUNDER NOTE — collapsible editorial block, closed by default.
+            Builds trust for visitors who want to know who's behind this
+            without forcing the read on everyone. */}
+        <FounderNote lang={lang} />
+
+        {/* FAQ — collapsible accordion. Addresses the four most common
+            pre-booking objections: new player anxiety, gear, parking,
+            booking mechanics. Each unanswered question is a potential
+            bounce; answering them costs us nothing. */}
+        <FAQList lang={lang} />
+
         <div className="grace-line" style={{ marginTop: 22 }}>
           <span className="dot" />
           <span>{t("p_grace_notice", null, lang)}</span>
@@ -4541,9 +4840,142 @@ function ScreenConfirm({ state, setState, go, lang }) {
         📱 {t("c_sms", { p: maskPhone(c.phone) }, lang).replace("***", "")} · {t("c_reminder", null, lang)}
       </div>
 
-      <CTA tone="green" onClick={() => { setState(s => ({ ...s, confirmation: null })); go("booking"); }}>
-        {t("c_book_another", null, lang)}
-      </CTA>
+      {/* ACTION BUTTONS — Add to Calendar, Get Directions, Share Booking.
+          Placed BEFORE the "Book another" CTA because these are the
+          actions a fresh-confirmation user actually wants to take. We
+          don't want them to scroll past these to find them. */}
+      <div className="confirm-actions">
+        <button
+          className="ca-btn"
+          onClick={() => {
+            // Generate an .ics calendar file in-browser. No server roundtrip.
+            // The Yard's address is hardcoded since we have no separate venue
+            // settings endpoint — if you add multiple venues later, replace
+            // this with a venue lookup.
+            const venue = "The Yard, Toul Kork, Phnom Penh";
+            // Compose a Date for the booking start. c.date is YYYY-MM-DD,
+            // c.time is HH:MM. We treat the time as venue-local (Phnom Penh).
+            const [yyyy, mm, dd] = c.date.split("-").map(Number);
+            const [hh, mi] = c.time.split(":").map(Number);
+            // Duration: c.slots is the number of 30-min slots
+            const durMins = (c.slots || 2) * 30;
+            const start = new Date(yyyy, mm - 1, dd, hh, mi);
+            const end = new Date(start.getTime() + durMins * 60000);
+            // Format as YYYYMMDDTHHMMSS for .ics
+            const pad = (n) => String(n).padStart(2, "0");
+            const fmtIcs = (d) =>
+              d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) +
+              "T" + pad(d.getHours()) + pad(d.getMinutes()) + "00";
+            const ics = [
+              "BEGIN:VCALENDAR",
+              "VERSION:2.0",
+              "PRODID:-//The Yard//Booking//EN",
+              "BEGIN:VEVENT",
+              "UID:" + c.bookingId + "@theyard.com.kh",
+              "DTSTAMP:" + fmtIcs(new Date()),
+              "DTSTART:" + fmtIcs(start),
+              "DTEND:" + fmtIcs(end),
+              "SUMMARY:Pickleball at The Yard",
+              "LOCATION:" + venue,
+              "DESCRIPTION:Booking " + c.bookingId + " · " + (c.courts || 1) + " court(s) · " + (c.slots * 30) + " min",
+              "GEO:11.586622;104.901708",
+              "END:VEVENT",
+              "END:VCALENDAR"
+            ].join("\r\n");
+            // Trigger download via blob URL.
+            const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "the-yard-" + c.bookingId + ".ics";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+               strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+          {t("c_action_calendar", null, lang)}
+        </button>
+
+        <button
+          className="ca-btn"
+          onClick={() => {
+            // Opens the native maps app on mobile, google.com/maps on desktop.
+            // Same destination as the LocationCard on ScreenPhone.
+            const url = "https://www.google.com/maps/search/?api=1&query=11.586622,104.901708";
+            window.open(url, "_blank", "noopener,noreferrer");
+          }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+               strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+            <circle cx="12" cy="10" r="3"/>
+          </svg>
+          {t("c_action_directions", null, lang)}
+        </button>
+
+        {/* Share button — uses native share sheet on mobile (WhatsApp,
+            Telegram, etc), falls back to copying booking summary on
+            desktop. Full-width since it's the third action. */}
+        <button
+          className="ca-btn ca-full"
+          onClick={async () => {
+            const shareText =
+              "Booking confirmed at The Yard · " +
+              c.date + " " + c.time + " · " +
+              (c.courts || 1) + " court(s) · " +
+              "Booking ID: " + c.bookingId;
+            const shareData = {
+              title: "The Yard — Booking",
+              text: shareText,
+              url: window.location.origin + window.location.pathname
+            };
+            // Try the native share API first (mobile)
+            if (navigator.share) {
+              try {
+                await navigator.share(shareData);
+                return;
+              } catch (err) {
+                // User cancelled — silent
+                if (err.name === "AbortError") return;
+                // Otherwise fall through to clipboard
+              }
+            }
+            // Fallback: copy text to clipboard
+            try {
+              await navigator.clipboard.writeText(shareText);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            } catch (err) {
+              // No clipboard either — just log
+              console.warn("Share unavailable:", err);
+            }
+          }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+               strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="18" cy="5" r="3"/>
+            <circle cx="6" cy="12" r="3"/>
+            <circle cx="18" cy="19" r="3"/>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+          </svg>
+          {t("c_action_share", null, lang)}
+        </button>
+      </div>
+
+      <div style={{ marginTop: 18 }}>
+        <CTA tone="green" onClick={() => { setState(s => ({ ...s, confirmation: null })); go("booking"); }}>
+          {t("c_book_another", null, lang)}
+        </CTA>
+      </div>
 
       <div style={{ marginTop: 10 }}>
         <CTA tone="ghost" onClick={() => go("myBookings")}>
@@ -5626,6 +6058,186 @@ function OpenPlaySessionModal({ session, myReg, profile, state, onClose, onChang
 }
 
 
+
+/* ====================================================================
+   LocationCard — Toul Kork location module with map preview and
+   "Open in Maps" CTA.
+
+   Why custom SVG map instead of Google Maps embed:
+     - No third-party tile loading (privacy, performance)
+     - No JS API key needed (works on any deploy)
+     - Always matches brand colors
+     - Always loads instantly
+     - The user gets a real, navigable map by tapping "Open in Maps"
+
+   The SVG is a hand-drawn sketch: subtle grid lines representing the
+   Toul Kork street grid, a marker at the venue location. Stylized
+   intentionally — not pretending to be a precise cartographic map.
+   ==================================================================== */
+function LocationCard({ lang }) {
+  // Coordinates for The Yard — pickleball venue in Toul Kork.
+  const LAT = 11.586622;
+  const LNG = 104.901708;
+
+  // Maps URL: works on iOS (opens Apple Maps), Android (opens Google
+  // Maps app), and desktop browsers (opens maps.google.com). The
+  // ?q= parameter pre-fills the search/destination.
+  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${LAT},${LNG}`;
+
+  function openMaps() {
+    // Use window.open with _blank so the user keeps our tab open
+    window.open(mapsUrl, "_blank", "noopener,noreferrer");
+  }
+
+  return (
+    <div className="loc-card" style={{ marginTop: 22 }}>
+      <div className="loc-head">
+        <span className="loc-label">{t("p_location_label", null, lang)}</span>
+      </div>
+      <div className="loc-body">
+        <div className="loc-place">{t("p_location_area", null, lang)}</div>
+        <div className="loc-hint">{t("p_location_hint", null, lang)}</div>
+      </div>
+
+      {/* Stylized map preview — Toul Kork street grid as a sketch */}
+      <div className="loc-map" aria-hidden="true">
+        <svg viewBox="0 0 320 120" preserveAspectRatio="xMidYMid slice">
+          {/* Faint horizontal "streets" */}
+          <line x1="0" y1="24" x2="320" y2="24" stroke="rgba(26,26,26,0.10)" strokeWidth="1" />
+          <line x1="0" y1="48" x2="320" y2="48" stroke="rgba(26,26,26,0.10)" strokeWidth="1" />
+          <line x1="0" y1="72" x2="320" y2="72" stroke="rgba(26,26,26,0.10)" strokeWidth="1" />
+          <line x1="0" y1="96" x2="320" y2="96" stroke="rgba(26,26,26,0.10)" strokeWidth="1" />
+          {/* Faint vertical "streets" */}
+          <line x1="50"  y1="0" x2="50"  y2="120" stroke="rgba(26,26,26,0.10)" strokeWidth="1" />
+          <line x1="110" y1="0" x2="110" y2="120" stroke="rgba(26,26,26,0.10)" strokeWidth="1" />
+          <line x1="170" y1="0" x2="170" y2="120" stroke="rgba(26,26,26,0.10)" strokeWidth="1" />
+          <line x1="230" y1="0" x2="230" y2="120" stroke="rgba(26,26,26,0.10)" strokeWidth="1" />
+          <line x1="290" y1="0" x2="290" y2="120" stroke="rgba(26,26,26,0.10)" strokeWidth="1" />
+          {/* Slightly bolder "main road" running diagonally for visual interest */}
+          <path d="M -10 100 Q 80 70, 160 60 T 330 30"
+                stroke="rgba(26,26,26,0.18)" strokeWidth="2" fill="none" />
+          {/* Pin marker for the venue — clay drop with subtle pulse */}
+          <g transform="translate(160 56)">
+            {/* Outer pulse ring (subtle ambient animation) */}
+            <circle r="14" fill="rgba(198,79,58,0.18)">
+              <animate attributeName="r" values="10;18;10" dur="3s" repeatCount="indefinite" />
+              <animate attributeName="opacity" values="0.3;0;0.3" dur="3s" repeatCount="indefinite" />
+            </circle>
+            {/* Pin body — classic teardrop in clay */}
+            <path d="M 0 -12 C 7 -12, 10 -6, 10 -2 C 10 5, 0 14, 0 14 C 0 14, -10 5, -10 -2 C -10 -6, -7 -12, 0 -12 Z"
+                  fill="var(--clay,#C64F3A)" stroke="var(--ink)" strokeWidth="1.5" />
+            {/* White center dot */}
+            <circle r="3" cx="0" cy="-4" fill="var(--cream)" />
+          </g>
+        </svg>
+      </div>
+
+      <div className="loc-cta-row">
+        <button className="loc-cta" onClick={openMaps}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+               strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+            <circle cx="12" cy="10" r="3"/>
+          </svg>
+          {t("p_location_cta", null, lang)}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ====================================================================
+   FounderNote — collapsible "from the founder" editorial block.
+
+   Defaults closed (keeps screen short). Tap "Read" to expand the
+   three-paragraph note. Visual treatment: serif body, large quotation
+   glyph as decoration, signature in mono caps. Intent: builds
+   trust/credibility without bloating the conversion path.
+   ==================================================================== */
+function FounderNote({ lang }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="founder-card">
+      <div className="founder-head" onClick={() => setOpen(!open)}>
+        <span className="founder-label">
+          {t("p_founder_label", null, lang)}
+        </span>
+        <button
+          className="founder-toggle"
+          onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+        >
+          {open ? t("p_founder_cta_close", null, lang) : t("p_founder_cta_open", null, lang)}
+        </button>
+      </div>
+      {open && (
+        <div className="founder-body">
+          <span className="quote-mark">"</span>
+          <p>{t("p_founder_p1", null, lang)}</p>
+          <p>{t("p_founder_p2", null, lang)}</p>
+          <p>{t("p_founder_p3", null, lang)}</p>
+          <div className="founder-sig">— {t("p_founder_sig", null, lang)}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ====================================================================
+   FAQList — micro-FAQ accordion. Each question is a tap target;
+   answer expands below. Multiple Qs can be open at once (answers are
+   short, no point forcing exclusivity).
+
+   Designed to address the most common pre-booking objections:
+     1. New player anxiety ("can I come if I've never played?")
+     2. Gear question ("do I need a paddle?")
+     3. Logistics ("parking?")
+     4. Booking mechanics ("how does it work?")
+   Each answer turns a potential bounce into a booking.
+   ==================================================================== */
+function FAQList({ lang }) {
+  const [openIds, setOpenIds] = useState(new Set());
+
+  function toggle(id) {
+    setOpenIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const FAQS = [
+    { id: 1, qKey: "p_faq_1_q", aKey: "p_faq_1_a" },
+    { id: 2, qKey: "p_faq_2_q", aKey: "p_faq_2_a" },
+    { id: 3, qKey: "p_faq_3_q", aKey: "p_faq_3_a" },
+    { id: 4, qKey: "p_faq_4_q", aKey: "p_faq_4_a" }
+  ];
+
+  return (
+    <div className="faq-card">
+      <div className="faq-label-row">{t("p_faq_label", null, lang)}</div>
+      {FAQS.map(f => {
+        const isOpen = openIds.has(f.id);
+        return (
+          <div key={f.id} className={"faq-item" + (isOpen ? " open" : "")}>
+            <button
+              className="faq-question"
+              onClick={() => toggle(f.id)}
+              aria-expanded={isOpen}
+            >
+              <span>{t(f.qKey, null, lang)}</span>
+              <span className="faq-toggle-icon">+</span>
+            </button>
+            <div className="faq-answer">
+              <div className="faq-answer-inner">{t(f.aKey, null, lang)}</div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 /* ====================================================================
    SponsorStrip — premium continuous-scroll sponsor logo banner.
