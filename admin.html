@@ -4308,7 +4308,7 @@ const { createRoot } = ReactDOM;
  * It should match the URL used by the customer-facing index.html.
  * Find it in Apps Script → Deploy → Manage deployments → copy "Web app" URL.
  */
-const API_URL = "https://script.google.com/macros/s/AKfycbySSk--iEFY8vTvldpARENCQ6KApJik0UHqASKa7PfJ1IkIJkmEAvOQPCsKR84MFtAY/exec";
+const API_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
 
 const COURTS_COUNT = 8;
 const OPEN_HOUR = 6;       // 06:00
@@ -6237,9 +6237,21 @@ function ScreenDashboard() {
             const pos = data.pos.revenue || 0;
             const coaching = (data.coaching && data.coaching.revenuePaid) || 0;
             const walkin = (data.walkIn && data.walkIn.revenuePaid) || 0;
+            const openPlay = (data.openPlay && data.openPlay.revenuePaid) || 0;
             const mem = (data.members && data.members.revenueToday) || 0;
-            const operational = court + pos + coaching + walkin;
+            // Operational = court bookings + POS sales + coaching + walk-in + open play.
+            // Open play used to be excluded — bug. Open play registrations
+            // that customers paid for ARE operational revenue today.
+            const operational = court + pos + coaching + walkin + openPlay;
             const total = operational + mem;
+            // Pending = all unpaid revenue across the same streams.
+            // Used to only show court bookings, missing walk-in + coaching +
+            // open play pending players — also a bug.
+            const courtPending = data.bookings.revenuePending || 0;
+            const walkinPending = (data.walkIn && data.walkIn.revenuePending) || 0;
+            const coachingPending = (data.coaching && data.coaching.revenuePending) || 0;
+            const openPlayPending = (data.openPlay && data.openPlay.revenuePending) || 0;
+            const totalPending = courtPending + walkinPending + coachingPending + openPlayPending;
             // Auto-shrink so big numbers like $2,450.00 don't overflow the card
             const fz = total < 1000 ? 56
                      : total < 10000 ? 48
@@ -6261,6 +6273,7 @@ function ScreenDashboard() {
                   "\nCourt: " + fmtMoney(court) +
                   "\nWalk-in: " + fmtMoney(walkin) +
                   "\nCoaching: " + fmtMoney(coaching) +
+                  "\nOpen Play: " + fmtMoney(openPlay) +
                   "\nPOS: " + fmtMoney(pos) +
                   (mem > 0 ? "\nMemberships: " + fmtMoney(mem) : "")
                 }>
@@ -6271,8 +6284,8 @@ function ScreenDashboard() {
                   {mem > 0 && (
                     <> · <span style={{ fontWeight: 700 }}>+{fmtMoneyWhole(mem)} memberships</span></>
                   )}
-                  {data.bookings.revenuePending > 0 && (
-                    <> · {fmtMoneyWhole(data.bookings.revenuePending)} pending</>
+                  {totalPending > 0 && (
+                    <> · {fmtMoneyWhole(totalPending)} pending</>
                   )}
                 </div>
               </>
@@ -6304,8 +6317,27 @@ function ScreenDashboard() {
         ) : (
           <div className="stat-card">
             <div className="label">Pending</div>
-            <div className="value">{fmtMoneyWhole(data.bookings.revenuePending)}</div>
-            <div className="sub">awaiting payment</div>
+            {(() => {
+              // Sum pending across ALL revenue streams, not just court.
+              // Previously only court was counted, undercounting walk-in,
+              // coaching, and open play players who haven't paid yet.
+              const courtP = data.bookings.revenuePending || 0;
+              const walkinP = (data.walkIn && data.walkIn.revenuePending) || 0;
+              const coachP = (data.coaching && data.coaching.revenuePending) || 0;
+              const opP = (data.openPlay && data.openPlay.revenuePending) || 0;
+              const totalP = courtP + walkinP + coachP + opP;
+              const breakdown = [];
+              if (courtP > 0) breakdown.push("Court: " + fmtMoney(courtP));
+              if (walkinP > 0) breakdown.push("Walk-in: " + fmtMoney(walkinP));
+              if (coachP > 0) breakdown.push("Coaching: " + fmtMoney(coachP));
+              if (opP > 0) breakdown.push("Open Play: " + fmtMoney(opP));
+              return (
+                <>
+                  <div className="value" title={breakdown.join("\n")}>{fmtMoneyWhole(totalP)}</div>
+                  <div className="sub">awaiting payment</div>
+                </>
+              );
+            })()}
           </div>
         )}
 
