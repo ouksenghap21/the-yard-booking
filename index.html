@@ -1161,6 +1161,45 @@ a.ulink, button.ulink{
   white-space:nowrap;
 }
 
+/* ========== Discovery links (phone screen) ==========
+ * Small two-up tile row that surfaces Membership and About to unauth
+ * visitors. Sits below the primary phone-input CTA. Each tile is a
+ * mono-caps kicker + serif title + small hint — same typographic
+ * language as the rest of the site so it doesn't feel bolted-on.
+ */
+.discover-link{
+  display:block;
+  text-align:left;
+  background:var(--paper);
+  border:1.5px solid var(--ink);
+  border-radius:14px;
+  padding:14px 14px 16px;
+  cursor:pointer;
+  transition:background .15s ease, transform .15s ease;
+  color:var(--ink);
+}
+.discover-link:hover{
+  background:var(--cream-2,#ebe4cc);
+  transform:translateY(-1px);
+}
+.discover-link:active{ transform:translateY(0); }
+.discover-link .discover-kicker{
+  font-family:var(--mono); font-size:9px;
+  letter-spacing:0.18em; text-transform:uppercase;
+  font-weight:600; opacity:0.55;
+  margin-bottom:6px;
+}
+.discover-link .discover-title{
+  font-family:var(--serif); font-style:italic;
+  font-size:22px; line-height:1.05;
+  letter-spacing:-0.01em;
+  margin-bottom:6px;
+}
+.discover-link .discover-hint{
+  font-size:11px; line-height:1.4;
+  opacity:0.7;
+}
+
 /* ========== Location module ==========
  * Visual: cream card with a subtle 1px border, monospace label,
  * serif italic place name (matches the membership tier card style).
@@ -2899,6 +2938,14 @@ const STRINGS = {
     p_footer: "THE YARD · TOUL KORK · PHNOM PENH",
     p_grace_notice: "Late more than 30 min · court may be released",
 
+    // ─── Discovery row (phone screen → Membership / About) ───
+    p_discover_kicker_member: "01 · For regulars",
+    p_discover_member: "Membership",
+    p_discover_member_sub: "50% off court rental · founding tier available",
+    p_discover_kicker_about: "02 · The story",
+    p_discover_about: "About",
+    p_discover_about_sub: "Why we built this · common questions",
+
     // ─── Location module ───
     p_location_label: "Find us",
     p_location_area: "Toul Kork, Phnom Penh",
@@ -2910,16 +2957,16 @@ const STRINGS = {
     p_founder_cta_open: "Read",
     p_founder_cta_close: "Close",
     p_founder_p1: "Pickleball is the fastest-growing sport in the world. Phnom Penh deserved its first proper home for it.",
-    p_founder_p2: "The Yard is what eighteen months of late nights, design revisions, and import paperwork produced: eight tournament-grade indoor courts in Toul Kork, built specifically for this sport and nothing else. No shared lines with other games. No exposed humidity. No compromises.",
+    p_founder_p2: "The Yard is what eighteen months of late nights, design revisions, and import paperwork produced: eight tournament-grade indoor courts in Toul Kork, built specifically for this sport and nothing else.",
     p_founder_p3: "If you're new to pickleball, we'll teach you. If you've been waiting for a real venue, you've found it. Memberships are limited; founding members get fifty percent off court time, forever.",
     p_founder_sig: "Ouk · Founder",
 
     // ─── Micro-FAQs (collapsible accordion) ───
     p_faq_label: "Common questions",
     p_faq_1_q: "I've never played pickleball — can I still come?",
-    p_faq_1_a: "Yes. Most of our regulars learned the game here. Just book a court, bring a friend or two, and we'll lend you paddles and balls at the desk. A coach can join your first session if you want guided instruction.",
+    p_faq_1_a: "Yes. Just book a court, bring a friend or two, and we'll lend you paddles and balls at the desk. A coach can join your first session if you want guided instruction.",
     p_faq_2_q: "Do I need to bring my own paddle?",
-    p_faq_2_a: "No. Loaner paddles and balls are free with every booking. If you want your own, we sell tournament-grade gear at the pro shop on-site.",
+    p_faq_2_a: "Optional. Loaner paddles and balls are available at the counter for $1 per session. If you want your own, we sell tournament-grade gear at the pro shop on-site.",
     p_faq_3_q: "Is there parking?",
     p_faq_3_a: "Yes — secure on-site parking for cars and motorbikes. Tap 'Find us' above for directions.",
     p_faq_4_q: "How do bookings work?",
@@ -3096,6 +3143,14 @@ const STRINGS = {
     p_footer: "THE YARD · ទួលគោក · ភ្នំពេញ",
     p_grace_notice: "យឺត​លើស​ពី ៣០​នាទី · កួត​អាច​ត្រូវ​បាន​ដោះ​លែង",
 
+    // ─── Discovery row (KM) ───
+    p_discover_kicker_member: "០១ · សម្រាប់​អ្នក​លេង​ទៀង​ទាត់",
+    p_discover_member: "សមាជិកភាព",
+    p_discover_member_sub: "បញ្ចុះ​តម្លៃ ៥០% · មាន​កម្រិត​ស្ថាបនិក",
+    p_discover_kicker_about: "០២ · រឿង​ពី​យើង",
+    p_discover_about: "អំពី​យើង",
+    p_discover_about_sub: "មូល​ហេតុ​យើង​សាងសង់ · សំណួរ​ទូទៅ",
+
     // ─── Location module (KM) ───
     p_location_label: "ស្វែងរក​យើង",
     p_location_area: "ទួលគោក · ភ្នំពេញ",
@@ -3114,9 +3169,9 @@ const STRINGS = {
     // ─── Micro-FAQs (KM) ───
     p_faq_label: "សំណួរ​ទូទៅ",
     p_faq_1_q: "ខ្ញុំ​មិន​ដែល​លេង​ភីខលបល — តើ​នៅ​អាច​មក​បាន​ទេ?",
-    p_faq_1_a: "បាន។ ភ្ញៀវ​ទៀង​ទាត់​ភាគ​ច្រើន​បាន​រៀន​លេង​នៅ​ទីនេះ។ គ្រាន់​តែ​កក់​កួត នាំ​មិត្ត​មក​ជាមួយ យើង​នឹង​ឲ្យ​ខ្ចី​ដំបង​និង​បាល់​នៅ​ខ្នង​ទទួល​ភ្ញៀវ។ បើ​អ្នក​ចង់​បាន​ការ​បង្ហាត់ គ្រូ​អាច​ចូល​រួម​លេង​ជាមួយ​អ្នក។",
+    p_faq_1_a: "បាន។ គ្រាន់​តែ​កក់​កួត នាំ​មិត្ត​មក​ជាមួយ យើង​នឹង​ឲ្យ​ខ្ចី​ដំបង​និង​បាល់​នៅ​ខ្នង​ទទួល​ភ្ញៀវ។ បើ​អ្នក​ចង់​បាន​ការ​បង្ហាត់ គ្រូ​អាច​ចូល​រួម​លេង​ជាមួយ​អ្នក។",
     p_faq_2_q: "តើ​ខ្ញុំ​ត្រូវ​នាំ​ដំបង​ផ្ទាល់​ខ្លួន​មក​ឬ?",
-    p_faq_2_a: "មិន​ត្រូវ​ទេ។ ដំបង​និង​បាល់​សម្រាប់​ខ្ចី​គឺ​ឥត​គិត​ថ្លៃ​ជាមួយ​នឹង​ការ​កក់​នីមួយៗ។ ប្រសិន​បើ​អ្នក​ចង់​បាន​ផ្ទាល់​ខ្លួន យើង​លក់​ឧបករណ៍​កម្រិត​ប្រកួត​ប្រជែង​នៅ​ហាង​ក្នុង​ទីតាំង។",
+    p_faq_2_a: "មិន​ចាំបាច់​ទេ។ ដំបង​និង​បាល់​សម្រាប់​ខ្ចី​មាន​នៅ​ខ្នង​ទទួល​ភ្ញៀវ​ក្នុង​តម្លៃ ១ដុល្លារ ក្នុង​មួយ​លើក។ បើ​អ្នក​ចង់​បាន​ផ្ទាល់​ខ្លួន យើង​លក់​ឧបករណ៍​កម្រិត​ប្រកួត​ប្រជែង​នៅ​ហាង​ក្នុង​ទីតាំង។",
     p_faq_3_q: "តើ​មាន​កន្លែង​ចត​យាន​ជំនិះ​ទេ?",
     p_faq_3_a: "មាន — កន្លែង​ចត​ឡាន​និង​ម៉ូតូ​មាន​សុវត្ថិភាព​នៅ​ក្នុង​ទីតាំង។ ចុច 'ស្វែងរក​យើង' ខាង​លើ​ដើម្បី​មើល​ផ្លូវ។",
     p_faq_4_q: "តើ​ការ​កក់​ដំណើរ​ការ​ដូច​ម្ដេច?",
@@ -4072,60 +4127,39 @@ function ScreenPhone({ state, setState, go, lang }) {
           {sending ? t("loading", null, lang) : t("p_cta", null, lang)}
         </CTA>
 
-        {/* Membership tease */}
-        <div style={{ marginTop: 30 }}>
-          <SectionLabel n="02" right={t("p_members_right", null, lang)}>{t("p_label_members", null, lang)}</SectionLabel>
-          <div style={{ border: "1.5px solid var(--ink)", background: "var(--paper)", borderRadius: 18, overflow: "hidden" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
-              <div style={{ padding: "14px 14px 16px", borderRight: "1.5px solid var(--ink)" }}>
-                <div className="mono" style={{ fontSize: 10, letterSpacing: "0.14em", fontWeight: 500 }}>{t("p_standard", null, lang)}</div>
-                <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 36, fontWeight: 400, lineHeight: 1, marginTop: 4, letterSpacing: "-0.02em" }}>
-                  −30<span style={{ fontSize: 18 }}>%</span>
-                </div>
-                <div className="hint" style={{ marginTop: 6, fontSize: 12 }}>{t("p_standard_sub", null, lang)}</div>
-              </div>
-              <div style={{ padding: "14px 14px 16px", background: "var(--wood)", color: "var(--cream)" }}>
-                <div className="mono" style={{ fontSize: 10, letterSpacing: "0.14em", fontWeight: 500 }}>{t("p_founding_year", null, lang)}</div>
-                <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 36, fontWeight: 400, lineHeight: 1, marginTop: 4, letterSpacing: "-0.02em" }}>
-                  −50<span style={{ fontSize: 18 }}>%</span>
-                </div>
-                <div style={{ marginTop: 6, fontSize: 12, opacity: 0.85 }}>{t("p_founding_sub", null, lang)}</div>
-              </div>
-            </div>
-            <div style={{ padding: "12px 14px", borderTop: "1.5px solid var(--ink)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div className="mono" style={{ fontSize: 10.5, letterSpacing: "0.12em", fontWeight: 500 }}>
-                {t("p_founding_progress", { n: founding ? founding.founding : "·", cap: FOUNDING_CAP }, lang)}
-              </div>
-              <button className="ulink" style={{ fontSize: 12 }}
-                onClick={(e) => { e.preventDefault(); go("membership"); }}>
-                {t("p_learn", null, lang)}
-              </button>
-            </div>
-            {founding && (
-              <div style={{ height: 6, borderTop: "1.5px solid var(--ink)", display: "flex" }}>
-                <div style={{ flex: founding.founding || 1, background: "var(--wood)" }} />
-                <div style={{ flex: (FOUNDING_CAP - (founding.founding || 0)) || 1, background: "var(--cream-2)" }} />
-              </div>
-            )}
-          </div>
+        {/* DISCOVERY ROW — Membership · About links for unauth visitors.
+            Replaces the in-page Membership tease + Founder + FAQ blocks
+            that previously sat here. Those now live on dedicated pages
+            (#membership, #about) so the phone-input + CTA can stay
+            above the fold. Two-up mono caps row, ink underlines on hover. */}
+        <div style={{
+          marginTop: 24,
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 10
+        }}>
+          <button
+            className="discover-link"
+            onClick={(e) => { e.preventDefault(); go("membership"); }}
+          >
+            <div className="discover-kicker">{t("p_discover_kicker_member", null, lang)}</div>
+            <div className="discover-title">{t("p_discover_member", null, lang)}</div>
+            <div className="discover-hint">{t("p_discover_member_sub", null, lang)}</div>
+          </button>
+          <button
+            className="discover-link"
+            onClick={(e) => { e.preventDefault(); go("about"); }}
+          >
+            <div className="discover-kicker">{t("p_discover_kicker_about", null, lang)}</div>
+            <div className="discover-title">{t("p_discover_about", null, lang)}</div>
+            <div className="discover-hint">{t("p_discover_about_sub", null, lang)}</div>
+          </button>
         </div>
 
-        {/* LOCATION — where The Yard is + Open in Maps CTA. Placed AFTER
-            the membership tease so customers who've decided to engage
-            can find us. Stylized sketch map (custom SVG) rather than
-            a Google Maps embed for perf + privacy. */}
+        {/* LOCATION — where The Yard is + Open in Maps CTA. Kept on this
+            screen because it's purely informational and helps fence-sitters
+            decide to engage. Map link doesn't require auth. */}
         <LocationCard lang={lang} />
-
-        {/* FOUNDER NOTE — collapsible editorial block, closed by default.
-            Builds trust for visitors who want to know who's behind this
-            without forcing the read on everyone. */}
-        <FounderNote lang={lang} />
-
-        {/* FAQ — collapsible accordion. Addresses the four most common
-            pre-booking objections: new player anxiety, gear, parking,
-            booking mechanics. Each unanswered question is a potential
-            bounce; answering them costs us nothing. */}
-        <FAQList lang={lang} />
 
         <div className="grace-line" style={{ marginTop: 22 }}>
           <span className="dot" />
@@ -6240,6 +6274,50 @@ function FAQList({ lang }) {
 }
 
 /* ====================================================================
+   ScreenAbout — public-facing about page.
+
+   Houses the founder note and FAQ accordion previously embedded on
+   ScreenPhone. Moved here so the phone-input + CTA can sit closer to
+   the top of the landing screen (better conversion).
+
+   Reachable from:
+     • The "About" link in the top discovery row on ScreenPhone
+     • Direct URL hash: #about
+     • Foot-nav (when signed in)
+   ==================================================================== */
+function ScreenAbout({ state, setState, go, lang }) {
+  return (
+    <div className="screen scr-pad-top">
+      <div className="row-between" style={{ marginBottom: 14 }}>
+        <Lockup size={0.92} onClick={() => go(state.token ? "booking" : "phone")} />
+        <span className="pill">{lang === "km" ? "អំពី​យើង" : "ABOUT"}</span>
+      </div>
+
+      <h1 className="h-display" style={{ fontSize: 48, margin: "10px 0 14px" }}>
+        {lang === "km" ? "អំពី The Yard" : "About The Yard"}
+      </h1>
+      <p style={{ fontSize: 15, lineHeight: 1.5, marginBottom: 22, maxWidth: "34ch", opacity: 0.85 }}>
+        {lang === "km"
+          ? "ដំណើរ​ជា​មួយ​យើង។ ស្ថាបនិក​សរសេរ​អ្វី​មួយ​ដែល​ឲ្យ​អ្នក​ដឹង​ពី​ផ្នូក​យើង។"
+          : "How The Yard came to be, and answers to the questions we hear most."}
+      </p>
+
+      <FounderNote lang={lang} />
+      <FAQList lang={lang} />
+
+      <div style={{ marginTop: 32 }}>
+        <CTA tone="green" onClick={() => go(state.token ? "booking" : "phone")}>
+          {state.token
+            ? (lang === "km" ? "ត្រឡប់​ទៅ​កក់" : "Back to booking")
+            : (lang === "km" ? "កក់​កួត​មួយ" : "Book a court")}
+        </CTA>
+      </div>
+    </div>
+  );
+}
+
+
+/* ====================================================================
    SponsorStrip — premium continuous-scroll sponsor logo banner.
 
    Renders at the bottom of every screen. Design language modeled on
@@ -6392,7 +6470,7 @@ function App() {
         }));
         // Skip phone+otp screens; jump straight to booking
         const hash = (location.hash || "").replace("#", "");
-        const validHashes = ["booking", "myBookings", "membership", "confirm", "openplay"];
+        const validHashes = ["booking", "myBookings", "membership", "confirm", "openplay", "about"];
         setScreen(validHashes.includes(hash) ? hash : "booking");
       } else {
         setToken("");
@@ -6416,7 +6494,7 @@ function App() {
   useEffect(() => {
     function onHashChange() {
       const hash = (location.hash || "").replace("#", "");
-      const validHashes = ["booking", "myBookings", "membership", "confirm", "openplay"];
+      const validHashes = ["booking", "myBookings", "membership", "confirm", "openplay", "about"];
       if (validHashes.includes(hash) && hash !== screen) setScreen(hash);
     }
     window.addEventListener("hashchange", onHashChange);
@@ -6449,6 +6527,7 @@ function App() {
   else if (screen === "myBookings") body = <ScreenMyBookings state={state} setState={setState} go={go} lang={lang} />;
   else if (screen === "membership") body = <ScreenMembership state={state} setState={setState} go={go} lang={lang} />;
   else if (screen === "openplay") body = <ScreenOpenPlay state={state} setState={setState} go={go} lang={lang} config={config} />;
+  else if (screen === "about") body = <ScreenAbout state={state} setState={setState} go={go} lang={lang} />;
   else body = <ScreenPhone state={state} setState={setState} go={go} lang={lang} />;
 
   return (
@@ -6804,6 +6883,38 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
     mo._t = setTimeout(() => { mo._t = null; initAll(); }, 120);
   });
   mo.observe(document.body, { childList: true, subtree: true });
+
+  /* ─── Pause sponsor strip animation when off-screen ───
+   *
+   * The sponsor strip animates infinitely via CSS keyframes. When the
+   * user is at the top of the page, the strip is below the fold but
+   * still consuming CPU/GPU for the animation. IntersectionObserver
+   * lets us pause it when fully off-screen and resume when scrolled
+   * into view.
+   *
+   * Mobile battery + perf savings, especially on lower-end Android.
+   */
+  function setupSponsorPause() {
+    const strip = document.querySelector('.sponsor-strip');
+    if (!strip) return false;
+    if (strip.dataset.pauseObserved === '1') return true;
+    strip.dataset.pauseObserved = '1';
+    const track = strip.querySelector('.sponsor-track');
+    if (!track) return false;
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        track.style.animationPlayState = e.isIntersecting ? 'running' : 'paused';
+      });
+    }, { threshold: 0.05 });
+    io.observe(strip);
+    return true;
+  }
+  // Try setting it up periodically until the strip mounts (React renders
+  // it after our script loads).
+  let sponsorAttempts = 0;
+  const sponsorPoll = setInterval(() => {
+    if (setupSponsorPause() || ++sponsorAttempts > 30) clearInterval(sponsorPoll);
+  }, 500);
 })();
 </script>
 
