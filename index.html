@@ -2353,24 +2353,16 @@ h1.h-display{ text-wrap:balance; }
    ════════════════════════════════════════════════════════════════════ */
 .yard-trail{
   position:absolute;
-  /* Anchor the trail's curve endpoint to the ball center. The SVG viewBox
-     is 0 0 580 220, with the path endpoint at x=472 (≈81% across). To
-     make that x=472 sit at the ball center (which is ~58px right of the
-     H1 wrapper's right edge), we offset the trail container so its right
-     edge sits ~108px right of the H1 wrapper edge:
-       container.right = -(ball_center_right + (1 - 472/580) * width)
-                       = -(58 + 0.186 * 560)
-                       = -(58 + 104) ≈ -162? — that goes too far right.
-     Easier: pin the trail's RIGHT edge to the ball center directly, and
-     extend SVG with extra space past x=472 trimmed off. With viewBox set
-     to '0 0 472 220' (snipping the empty right portion), the endpoint
-     sits exactly at the right edge.
-     We'll do the SVG fix in TRAIL_HTML below. The container just pins
-     to ball center via right:-58. */
+  /* The yard-ball sits at right:-12px width:140px, so its center is
+     58px LEFT of the H1 wrapper's right edge (H1.right - 58).
+     We pin the trail's right edge to that ball center via right:58px
+     (positive — pulls the trail's right edge INTO the H1 wrapper by 58px).
+     Then the SVG's viewBox right edge (x=472) lines up with the ball
+     center in screen space. */
   top:-58px;
-  right:-58px;
+  right:58px;
   width:560px;
-  max-width:calc(100% + 116px);
+  max-width:calc(100% + 0px);  /* don't extend past the H1's left edge */
   height:220px;
   pointer-events:none;
   z-index:1;
@@ -2415,9 +2407,10 @@ h1.h-display{ text-wrap:balance; }
 /* All moving balls share the same offset-path. Each ball has its own
    fade-keyframes so opacity peak is bakable (var() in @keyframes is
    unreliable for interpolated values). Motion: 0→100% over 0-55%
-   so the lead ball lands at the same moment the line finishes drawing. */
+   so the lead ball lands at the same moment the line finishes drawing.
+   The path MUST match TRAIL_PATH in the JS below — keep them in sync. */
 .yt-mover{
-  offset-path:path('M 0 210 Q 220 -90, 472 108');
+  offset-path:path('M 0 200 Q 220 -40, 472 200');
   offset-rotate:0deg;
   offset-distance:0%;
   opacity:0;
@@ -6892,14 +6885,21 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
          pinned to the ball center in the .yard-trail CSS rule above.
          The container is 560px wide on a 520px column — the SVG scales
          to fill, stretching the curve slightly, but the endpoint stays
-         pinned to the ball. ─── */
-  const TRAIL_PATH = 'M 0 210 Q 220 -90, 472 108';
+         pinned to the ball.
+
+         The curve now lands BELOW the ball, not at its center. With the
+         trail container at top:-58 height:220, the ball sits in viewBox
+         y range ~36–176 (top to bottom), centered around y=106. The
+         curve endpoint and impact splash are at y=200 — that's 24px
+         BELOW the ball bottom in viewBox units, so the splash appears
+         beneath the ball like a real bounce point. ─── */
+  const TRAIL_PATH = 'M 0 200 Q 220 -40, 472 200';
   const TRAIL_HTML = ''
     + '<svg viewBox="0 0 472 220" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">'
       // The drawn curve
     + '<path class="yt-line" d="' + TRAIL_PATH + '"/>'
-      // Impact pulse at the landing point (animated via CSS r:)
-    + '<circle class="yt-impact" cx="472" cy="108" r="6"/>'
+      // Impact pulse BELOW the ball at the landing point (animated via CSS r:)
+    + '<circle class="yt-impact" cx="472" cy="200" r="6"/>'
       // Trailing fade dots — earliest arrives first, larger/brighter.
       // All move along TRAIL_PATH via CSS offset-path.
     + '<circle class="yt-trail-4 yt-mover" r="2"/>'
@@ -6933,6 +6933,11 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
     if (!pointer) return;
     document.querySelectorAll('.yard-ball').forEach(ball => {
       const r = ball.getBoundingClientRect();
+      // Skip entirely if the ball isn't on screen — saves expensive 3D
+      // recomputation when the user has scrolled past the hero. The ball
+      // is 140px tall, so even a tiny on-screen sliver still matters
+      // visually; we add 50px buffer either side.
+      if (r.bottom < -50 || r.top > window.innerHeight + 50) return;
       const cx = r.left + r.width / 2;
       const cy = r.top + r.height / 2;
       const dx = (pointer.x - cx);
@@ -7056,6 +7061,11 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
       document.querySelectorAll('.yc-frame').forEach(frame => {
         const r = frame.getBoundingClientRect();
         const winH = window.innerHeight;
+        // Skip the parallax math + style write if the cinema is fully
+        // off-screen. Saves a layout read + style write per scroll frame
+        // when the user has scrolled past the hero. Buffer 100px so we
+        // still update when it's just out of view (animation prep).
+        if (r.bottom < -100 || r.top > winH + 100) return;
         const center = winH / 2;
         const distance = (r.top + r.height / 2) - center;
         const par = -distance * 0.04; // gentle
@@ -7093,7 +7103,21 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
     if (++pollCount > 10) clearInterval(poll); // 12s, then trust MutationObserver
   }, 1200);
 
-  const mo = new MutationObserver(() => {
+  const mo = new MutationObserver((muts) => {
+    // Only respond to ADDED nodes (new React subtree), not class/attribute
+    // changes. Otherwise every IntersectionObserver-triggered class addition
+    // (`.in-view`) would re-run initAll, which thrashes when scrolling.
+    let added = false;
+    for (const m of muts) {
+      if (m.type === 'childList' && m.addedNodes.length > 0) {
+        // Verify at least one added node is an element (not a text node)
+        for (const n of m.addedNodes) {
+          if (n.nodeType === 1) { added = true; break; }
+        }
+        if (added) break;
+      }
+    }
+    if (!added) return;
     // Debounce — slightly longer than before to ride out React rerender bursts
     if (mo._t) return;
     mo._t = setTimeout(() => { mo._t = null; initAll(); }, 200);
