@@ -4336,6 +4336,7 @@ function setStoredPin(v) {
 // in this map are NEVER cached (mutations + sensitive reads).
 const API_CACHE_TTL = {
   adminDashboard: 15000,
+  adminDashboardCore: 8000,        // short TTL — fast path, refetch often
   adminListTimelineEntries: 15000,
   adminDashboardKpi: 30000,
   adminOperationalKpi: 60000,
@@ -4646,6 +4647,7 @@ function _invalidateForMutation(action) {
   );
   if (touchesDashboard) {
     wipe("adminDashboard");
+    wipe("adminDashboardCore");
     wipe("adminDashboardKpi");
     wipe("adminOperationalKpi");
     wipe("adminListTimelineEntries");
@@ -6007,12 +6009,65 @@ function ScreenDashboard() {
       if (cok && cok.ok) setOpKpiData(cok);
     }
 
-    // ONE round-trip combining 4 endpoints. Saves ~3 × network-RTT (~500–900ms
-    // on mobile) versus the previous Promise.all of 4 separate requests.
-    // The server runs them sequentially in one execution (where each per-
-    // endpoint cache still applies). Cache the response under each original
-    // key so getCachedApi works for the next first-paint.
+    // TWO-STAGE FETCH for perceived speed:
+    //
+    // Stage 1: adminDashboardCore — fast call (~500ms) returning only
+    //   today's bookings/courts/action-queue. Skips POS, walk-in,
+    //   coaching, open-play, tournaments, members, overdue. Returns
+    //   the SAME shape as adminDashboard with _isCore:true marker and
+    //   _pending:true on secondary sections. Dashboard paints
+    //   immediately with primary data; secondary widgets show
+    //   skeletons or "Loading…".
+    //
+    // Stage 2: adminDashboardCombined — the full ~3-8s call. When this
+    //   returns, we replace state with complete data, secondary widgets
+    //   light up.
+    //
+    // We don't await Stage 1 before starting Stage 2 — they fire in
+    // sequence at the server (Apps Script serializes anyway) but the
+    // client sets state from Stage 1 the moment it arrives, even if
+    // Stage 2 is still in flight. This makes the dashboard FEEL ~5x
+    // faster on cold loads even though total server time is similar.
+
+    // Stage 1: fast core
+    const corePromise = api("adminDashboardCore", {}, { bypassCache: bypass })
+      .then(coreData => {
+        if (coreData && coreData.ok) {
+          // Only paint from core if we don't already have richer data.
+          // If a previous full-refresh's data is still in state, keep
+          // it — core data would overwrite secondary sections with
+          // their _pending:true zeros.
+          setData(prev => {
+            if (prev && prev.ok && !prev._isCore) {
+              // Already have full data — merge core's fresh primary
+              // numbers in without nuking secondary sections.
+              return {
+                ...prev,
+                bookings: coreData.bookings || prev.bookings,
+                utilization: coreData.utilization || prev.utilization,
+                actionQueue: {
+                  ...(prev.actionQueue || {}),
+                  paymentsToCollect: coreData.actionQueue?.paymentsToCollect || prev.actionQueue?.paymentsToCollect || [],
+                  atRisk: coreData.actionQueue?.atRisk || prev.actionQueue?.atRisk || [],
+                  courtsInUseNow: coreData.actionQueue?.courtsInUseNow || prev.actionQueue?.courtsInUseNow || [],
+                  refundsOwed: coreData.actionQueue?.refundsOwed || prev.actionQueue?.refundsOwed || [],
+                  refundsOwedCount: coreData.actionQueue?.refundsOwedCount ?? prev.actionQueue?.refundsOwedCount ?? 0,
+                  refundsOwedTotal: coreData.actionQueue?.refundsOwedTotal ?? prev.actionQueue?.refundsOwedTotal ?? 0
+                }
+              };
+            }
+            return coreData;
+          });
+        }
+        return coreData;
+      });
+
+    // Stage 2: full data (timeline + kpi + opkpi + full dashboard via Combined)
     const combined = await api("adminDashboardCombined", { date: today }, { bypassCache: bypass });
+    // Wait for core too (in case it took longer than expected) so we don't
+    // race the setData calls
+    await corePromise;
+
     let d, b, k, ok;
     if (combined && combined.ok) {
       d = combined.dashboard;
