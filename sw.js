@@ -19,7 +19,7 @@
  */
 "use strict";
 
-const CACHE_VERSION = "yard-v12-nav-auth-gate";
+const CACHE_VERSION = "yard-v13-tab-bundles";
 const VENDOR_CACHE = "yard-vendor-v1";
 
 // Vendor URLs we know are immutable (include a version in the path)
