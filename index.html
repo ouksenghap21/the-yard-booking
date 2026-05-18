@@ -6586,8 +6586,11 @@ function App() {
         }));
         // Skip phone+otp screens; jump straight to booking
         const hash = (location.hash || "").replace("#", "");
-        const validHashes = ["booking", "myBookings", "membership", "confirm", "openplay", "about"];
-        setScreen(validHashes.includes(hash) ? hash : "booking");
+        const validHashes = ["phone", "otp", "booking", "myBookings", "membership", "confirm", "openplay", "about"];
+        // Authenticated users: phone/otp don't make sense; redirect to booking
+        const target = validHashes.includes(hash) ? hash : "booking";
+        const SIGNIN_SCREENS = new Set(["phone", "otp"]);
+        setScreen(SIGNIN_SCREENS.has(target) ? "booking" : target);
       } else {
         setToken("");
       }
@@ -6595,8 +6598,22 @@ function App() {
   }, []);
 
   function go(s) {
-    setScreen(s);
-    try { location.hash = s; } catch (e) {}
+    // Only push a new history entry when the screen actually changes.
+    // Otherwise repeated taps on the same nav button pollute history
+    // (e.g., user taps Membership twice → two history entries → browser
+    // Back has to be pressed twice to actually go back).
+    if (s !== screen) {
+      setScreen(s);
+      try {
+        // Use pushState so each distinct screen change is one history
+        // entry. location.hash = ... ALSO pushes, but Safari sometimes
+        // batches assignments which led to phantom duplicates in
+        // testing. pushState is explicit and reliable.
+        if (location.hash !== "#" + s) {
+          history.pushState(null, "", "#" + s);
+        }
+      } catch (e) {}
+    }
     window.scrollTo(0, 0);
     // Force-blur the currently focused element. On mobile, the last-tapped
     // foot-nav button stays focused, which can make the active indicator
@@ -6607,15 +6624,36 @@ function App() {
   // Keep React state in sync with the URL hash. Without this, back/forward
   // browser navigation would update the URL without updating the visible
   // screen, leaving the foot-nav indicator out of sync with the body.
+  //
+  // IMPORTANT: include "phone" and "otp" in the valid hashes. They were
+  // omitted before, which meant browser Back from any screen back to "#"
+  // (no hash, or #phone) was silently ignored — the screen state stayed
+  // wherever it was, and the visual didn't update. Tapping Back again
+  // appeared to do nothing.
   useEffect(() => {
     function onHashChange() {
       const hash = (location.hash || "").replace("#", "");
-      const validHashes = ["booking", "myBookings", "membership", "confirm", "openplay", "about"];
-      if (validHashes.includes(hash) && hash !== screen) setScreen(hash);
+      const validHashes = ["phone", "otp", "booking", "myBookings", "membership", "confirm", "openplay", "about"];
+      // Auth gate: if no token, unauth-only screens are forbidden. Force
+      // back to "phone" if they try to land on booking/myBookings/openplay/
+      // confirm without authenticating. Public screens (membership/about)
+      // are always allowed.
+      const PUBLIC_SCREENS = new Set(["phone", "otp", "membership", "about"]);
+      const target = validHashes.includes(hash) ? hash : (state.token ? "booking" : "phone");
+      if (!state.token && !PUBLIC_SCREENS.has(target)) {
+        // Force to phone screen and rewrite URL so Back works properly.
+        if (screen !== "phone") setScreen("phone");
+        try { history.replaceState(null, "", "#phone"); } catch (e) {}
+        return;
+      }
+      if (target !== screen) setScreen(target);
     }
     window.addEventListener("hashchange", onHashChange);
+    // Also run once to handle direct URL entry like ouksenghap21.github.io/the-yard-booking/#booking
+    // when there's no token in storage.
+    onHashChange();
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, [screen]);
+  }, [screen, state.token]);
 
   function switchLang(l) {
     setLangState(l);
@@ -6636,14 +6674,23 @@ function App() {
   }
 
   let body = null;
-  if (screen === "phone") body = <ScreenPhone state={state} setState={setState} go={go} lang={lang} />;
-  else if (screen === "otp") body = <ScreenOTP state={state} setState={setState} go={go} lang={lang} />;
-  else if (screen === "booking") body = <ScreenBooking state={state} setState={setState} go={go} lang={lang} config={config} />;
-  else if (screen === "confirm") body = <ScreenConfirm state={state} setState={setState} go={go} lang={lang} />;
-  else if (screen === "myBookings") body = <ScreenMyBookings state={state} setState={setState} go={go} lang={lang} />;
-  else if (screen === "membership") body = <ScreenMembership state={state} setState={setState} go={go} lang={lang} />;
-  else if (screen === "openplay") body = <ScreenOpenPlay state={state} setState={setState} go={go} lang={lang} config={config} />;
-  else if (screen === "about") body = <ScreenAbout state={state} setState={setState} go={go} lang={lang} />;
+  // Auth gate at the router level — defense-in-depth. If the screen state
+  // somehow lands on an auth-only screen without a token (manual URL entry,
+  // stale React state during boot, etc), force-render the phone screen
+  // instead. This protects against the user filling out a booking form
+  // they can't submit (backend would reject for missing phone, but UX-wise
+  // it's better to never let them get that far).
+  const AUTH_ONLY = new Set(["booking", "myBookings", "confirm", "openplay"]);
+  const effectiveScreen = (!state.token && AUTH_ONLY.has(screen)) ? "phone" : screen;
+
+  if (effectiveScreen === "phone") body = <ScreenPhone state={state} setState={setState} go={go} lang={lang} />;
+  else if (effectiveScreen === "otp") body = <ScreenOTP state={state} setState={setState} go={go} lang={lang} />;
+  else if (effectiveScreen === "booking") body = <ScreenBooking state={state} setState={setState} go={go} lang={lang} config={config} />;
+  else if (effectiveScreen === "confirm") body = <ScreenConfirm state={state} setState={setState} go={go} lang={lang} />;
+  else if (effectiveScreen === "myBookings") body = <ScreenMyBookings state={state} setState={setState} go={go} lang={lang} />;
+  else if (effectiveScreen === "membership") body = <ScreenMembership state={state} setState={setState} go={go} lang={lang} />;
+  else if (effectiveScreen === "openplay") body = <ScreenOpenPlay state={state} setState={setState} go={go} lang={lang} config={config} />;
+  else if (effectiveScreen === "about") body = <ScreenAbout state={state} setState={setState} go={go} lang={lang} />;
   else body = <ScreenPhone state={state} setState={setState} go={go} lang={lang} />;
 
   return (
