@@ -124,9 +124,9 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
   /* The lede paragraph below h1 */
   .scr-pad-top > p:nth-of-type(1) { font-size: 16px; max-width: 38ch; }
 
-  /* Cinema (rotating renders) gets more vertical room */
+  /* Cinema (rotating renders) gets more vertical room. Keep the natural
+     16:10 aspect ratio so we don't trigger a layout shift on resize. */
   .yard-cinema { margin: 14px 0 22px; }
-  .yc-frame { aspect-ratio: 16 / 9; }  /* slightly less tall, more cinematic */
 
   /* Discovery tiles get a touch more padding */
   .discover-link { padding: 18px 18px 18px; }
@@ -2353,12 +2353,28 @@ h1.h-display{ text-wrap:balance; }
    ════════════════════════════════════════════════════════════════════ */
 .yard-trail{
   position:absolute;
-  top:-58px; left:-160px;
-  width:calc(100% + 240px); height:220px;
+  /* Anchor the trail's curve endpoint to the ball center. The SVG viewBox
+     is 0 0 580 220, with the path endpoint at x=472 (≈81% across). To
+     make that x=472 sit at the ball center (which is ~58px right of the
+     H1 wrapper's right edge), we offset the trail container so its right
+     edge sits ~108px right of the H1 wrapper edge:
+       container.right = -(ball_center_right + (1 - 472/580) * width)
+                       = -(58 + 0.186 * 560)
+                       = -(58 + 104) ≈ -162? — that goes too far right.
+     Easier: pin the trail's RIGHT edge to the ball center directly, and
+     extend SVG with extra space past x=472 trimmed off. With viewBox set
+     to '0 0 472 220' (snipping the empty right portion), the endpoint
+     sits exactly at the right edge.
+     We'll do the SVG fix in TRAIL_HTML below. The container just pins
+     to ball center via right:-58. */
+  top:-58px;
+  right:-58px;
+  width:560px;
+  max-width:calc(100% + 116px);
+  height:220px;
   pointer-events:none;
   z-index:1;
   overflow:visible;
-  /* Hide entirely on mobile — the curve doesn't have room to breathe */
   display:block;
 }
 .yard-trail svg{
@@ -3082,7 +3098,7 @@ const STRINGS = {
     // ─── Location module ───
     p_location_label: "Find us",
     p_location_area: "Toul Kork, Phnom Penh",
-    p_location_hint: "8 indoor courts · climate-controlled · open daily",
+    p_location_hint: "8 indoor courts · open daily 06:00–22:00",
     p_location_cta: "Open in Maps",
 
     // ─── Founder note (collapsible) ───
@@ -3250,197 +3266,185 @@ const STRINGS = {
   km: {
     open_hours: "០៦:០០ — ២២:០០",
 
-    p_h1_a: "មក​លេង។",
-    p_h1_b: "ដិកនៅទីនេះ។",
-    p_lede: "ក្លឹប​ភីខលបល​នៅ​ទួលគោក។ ប្រាំបី​កួត។",
-    p_lede_em: "កក់​មួយ។",
+    p_h1_a: "Drop in.",
+    p_h1_b: "Dink on.",
+    p_lede: "ក្លឹបភីខលបលជិតផ្ទះអ្នកនៅទួលគោក។ មាន ៨ តារាង។",
+    p_lede_em: "កក់តារាងឥឡូវនេះ។",
     // 2-pillar strip (KM)
     p_pillar_1_v: "៨",
-    p_pillar_1_l: "កួត​ក្នុង​អគារ",
+    p_pillar_1_l: "តារាងមានដំបូល",
     p_pillar_1_s: "",
-    p_pillar_2_v: "១៦ម៉",
-    p_pillar_2_l: "បើក​ប្រចាំ​ថ្ងៃ",
+    p_pillar_2_v: "១៦ ម៉ោង",
+    p_pillar_2_l: "បើកប្រចាំថ្ងៃ",
     p_pillar_2_s: "០៦:០០ — ២២:០០",
-    p_label_phone: "លេខ​ទូរស័ព្ទ",
+    p_label_phone: "លេខទូរស័ព្ទ",
     p_phone_placeholder: "12 345 678",
-    p_phone_hint: "យើង​នឹង​ផ្ញើ​លេខ​សម្ងាត់​៦​ខ្ទង់​ទៅ​អ្នក។",
-    p_cta: "ផ្ញើ​លេខ​សម្ងាត់",
-    p_label_members: "សមាជិក​នៃ​បន្ទាត់​ដិក",
+    p_phone_hint: "យើងនឹងផ្ញើលេខកូដ ៦ ខ្ទង់ទៅកាន់អ្នកតាម SMS។",
+    p_cta: "ផ្ញើលេខកូដឱ្យខ្ញុំ",
+    p_label_members: "សមាជិក Dink Line",
     p_members_right: "សមាជិកភាព",
     p_standard: "ស្តង់ដារ",
-    p_standard_sub: "គ្រប់​កួត​ គ្រប់​ថ្ងៃ។",
+    p_standard_sub: "គ្រប់តារាង គ្រប់ពេលវេលា។",
     p_founding_year: "ស្ថាបនិក · ២០២៦",
-    p_founding_sub: "សម័យ​កើត​ឥត​គិត​ថ្លៃ។",
-    p_founding_progress: "ស្ថាបនិក · {n} នៃ {cap} បាន​ទាមទារ",
-    p_learn: "មើល",
+    p_founding_sub: "លេងហ្វ្រីនៅថ្ងៃខួបកំណើតរបស់អ្នក។",
+    p_founding_progress: "កញ្ចប់ស្ថាបនិក · ទទួលបាន {n} ក្នុងចំណោម {cap} នាក់",
+    p_learn: "ស្វែងយល់បន្ថែម",
     p_footer: "THE YARD · ទួលគោក · ភ្នំពេញ",
-    p_grace_notice: "យឺត​លើស​ពី ៣០​នាទី · កួត​អាច​ត្រូវ​បាន​ដោះ​លែង",
-
+    p_grace_notice: "យឺតលើសពី ៣០ នាទី · តារាងនឹងត្រូវផ្ទេរទៅអ្នកផ្សេង",
     // ─── Discovery row (KM) ───
-    p_discover_kicker_member: "០១ · សម្រាប់​អ្នក​លេង​ទៀង​ទាត់",
+    p_discover_kicker_member: "០១ · សម្រាប់អ្នកលេងទៀងទាត់",
     p_discover_member: "សមាជិកភាព",
-    p_discover_member_sub: "បញ្ចុះ​តម្លៃ ៥០% · មាន​កម្រិត​ស្ថាបនិក",
-    p_discover_more: "មើល​បន្ថែម",
-    p_discover_kicker_about: "០២ · រឿង​ពី​យើង",
-    p_discover_about: "អំពី​យើង",
-    p_discover_about_sub: "មូល​ហេតុ​យើង​សាងសង់ · សំណួរ​ទូទៅ",
-
+    p_discover_member_sub: "បញ្ចុះតម្លៃ ៥០% លើការជួលតារាង · មានកញ្ចប់សម្រាប់ស្ថាបនិក",
+    p_discover_more: "ព័ត៌មានបន្ថែម",
+    p_discover_kicker_about: "០២ · ប្រវត្តិរបស់យើង",
+    p_discover_about: "អំពីយើង",
+    p_discover_about_sub: "មូលហេតុដែលយើងបង្កើតទីលាននេះ · សំណួរដែលសួរញឹកញាប់",
     // ─── Location module (KM) ───
-    p_location_label: "ស្វែងរក​យើង",
+    p_location_label: "ទីតាំងរបស់យើង",
     p_location_area: "ទួលគោក · ភ្នំពេញ",
-    p_location_hint: "កួត​ក្នុង​អគារ ៨ · មាន​ម៉ាស៊ីន​ត្រជាក់ · បើក​ប្រចាំ​ថ្ងៃ",
-    p_location_cta: "បើក​ក្នុង Maps",
-
+    p_location_hint: "តារាងមានដំបូលចំនួន ៨ · បើកជារៀងរាល់ថ្ងៃ ម៉ោង ០៦:០០–២២:០០",
+    p_location_cta: "បើកក្នុង Maps",
     // ─── Founder note (KM) ───
-    p_founder_label: "ពី​ស្ថាបនិក",
-    p_founder_cta_open: "អាន",
+    p_founder_label: "ពីស្ថាបនិក",
+    p_founder_cta_open: "អានបន្ត",
     p_founder_cta_close: "បិទ",
-    p_founder_p1: "ខ្ញុំ​ចាប់​ផ្ដើម​លេង​ភីខលបល​កាល​ពី​ប៉ុន្មាន​ឆ្នាំ​មុន ហើយ​ក៏​ស្រឡាញ់​វា​ឆាប់​ណាស់។ អ្វី​ដែល​ខ្ញុំ​ចូល​ចិត្ត​មិន​មែន​ត្រឹម​តែ​កីឡា​ទេ — គឺ​អ្នក​ដែល​មក​លេង។ មនុស្ស​ដែល​ខ្ញុំ​មិន​ដែល​បាន​ស្គាល់​ពី​មុន។ ការ​ប្រកួត​វែង​ដែល​ប្រែ​ទៅ​ជា​ការ​សន្ទនា​រាប់​ម៉ោង។",
-    p_founder_p2: "ប៉ុន្តែ​នៅ​ភ្នំពេញ​មិន​មាន​កន្លែង​ល្អ​ប្រសើរ​សម្រាប់​លេង​ទេ។ ខ្ចី​កួត ខ្ចី​បន្ទាត់ ខ្ចប់​មុន​ងងឹត។ ខ្ញុំ​ចង់​មាន​កន្លែង​មួយ​ដែល​ដូច​ផ្ទះ​សម្រាប់​កីឡា​នេះ — កន្លែង​មួយ​ក្នុង​សង្កាត់ ដែល​អ្នក​អាច​មក​ហើយ​រក​មិត្ត​លេង​ភ្លាម​បាន។",
-    p_founder_p3: "នោះ​គឺ​ជា The Yard។ កួត​ក្នុង​អគារ​ប្រាំ​បី​នៅ​ទួលគោក។ បើក​ព្រឹក​ព្រលឹម បើក​យឺត​យប់។ មក​ម្នាក់​ឯង ឬ​នាំ​មិត្ត​បី​នាក់​មក​ជាមួយ។ បើ​អ្នក​ទើប​ចាប់​ផ្ដើម យើង​នឹង​ឲ្យ​អ្នក​ឡើង​លេង​ហើយ​បង្រៀន​មូលដ្ឋាន។ បើ​អ្នក​លេង​បាន​ច្រើន​ឆ្នាំ​ហើយ អ្នក​នឹង​រក​ឃើញ​មនុស្ស​សម​នឹង​លេង​ជាមួយ។ ជួប​គ្នា​នៅ​លើ​កួត។",
+    p_founder_p1: "ខ្ញុំចាប់ផ្តើមលេងភីខលបលកាលពីប៉ុន្មានឆ្នាំមុន ហើយក៏ស្រលាញ់វាឆាប់ណាស់។ អ្វីដែលខ្ញុំចូលចិត្តមិនមែនត្រឹមតែកីឡានេះទេ — គឺមនុស្សដែលមកលេង។ មនុស្សដែលខ្ញុំមិនដែលបានស្គាល់ពីមុន។ ការប្រកួតដ៏ជក់ចិត្ត បានប្រែទៅជាការសន្ទនាដ៏មានអត្ថន័យ។",
+    p_founder_p2: "ប៉ុន្តែនៅភ្នំពេញមិនមានកន្លែងល្អប្រសើរសម្រាប់លេងទេ។ ខ្ចីតារាង បន្ទាត់មិនច្បាស់ ហើយត្រូវខ្ចប់មុនងងឹត។ ខ្ញុំចង់បង្កើតកន្លែងមួយដែលផ្តល់អារម្មណ៍កក់ក្តៅដូចផ្ទះសម្រាប់អ្នកស្រឡាញ់កីឡានេះ — ជាទីកន្លែងមួយនៅក្នុងសហគមន៍ដែលអ្នកអាចមកលេងហើយរកមិត្តលេងបាន។",
+    p_founder_p3: "ហើយនេះជាអ្វីដែល The Yard ផ្តល់ជូន។ តារាងមានដំបូលចំនួន ៨ នៅទួលគោក។ បើកតាំងពីព្រលឹមរហូតដល់យប់ជ្រៅ។ មិនថាមកម្នាក់ឯង ឬមកជាមួយមិត្តភក្តិ ៣ នាក់នោះទេ។ បើអ្នកទើបតែលេងដំបូង ពួកយើងនឹងជួយរៀបចំតារាង និងបង្រៀនពីមូលដ្ឋានគ្រឹះជូន។ ចំពោះអ្នកដែលលេងច្រើនឆ្នាំហើយ ក៏នឹងអាចស្វែងរកដៃគូជើងខ្លាំងលេងជាមួយនៅទីនេះផងដែរ។ ជួបគ្នានៅលើតារាង!",
     p_founder_sig: "Hap · ស្ថាបនិក",
 
     // ─── Micro-FAQs (KM) ───
-    p_faq_label: "សំណួរ​ទូទៅ",
-    p_faq_1_q: "ខ្ញុំ​មិន​ដែល​លេង​ភីខលបល — តើ​នៅ​អាច​មក​បាន​ទេ?",
-    p_faq_1_a: "បាន។ គ្រាន់​តែ​កក់​កួត នាំ​មិត្ត​មក​ជាមួយ យើង​នឹង​ឲ្យ​ខ្ចី​ដំបង​និង​បាល់​នៅ​ខ្នង​ទទួល​ភ្ញៀវ។ បើ​អ្នក​ចង់​បាន​ការ​បង្ហាត់ គ្រូ​អាច​ចូល​រួម​លេង​ជាមួយ​អ្នក។",
-    p_faq_2_q: "តើ​ខ្ញុំ​ត្រូវ​នាំ​ដំបង​ផ្ទាល់​ខ្លួន​មក​ឬ?",
-    p_faq_2_a: "មិន​ចាំបាច់​ទេ។ ដំបង​និង​បាល់​សម្រាប់​ខ្ចី​មាន​នៅ​ខ្នង​ទទួល​ភ្ញៀវ​ក្នុង​តម្លៃ ១ដុល្លារ ក្នុង​មួយ​លើក។ បើ​អ្នក​ចង់​បាន​ផ្ទាល់​ខ្លួន យើង​លក់​ឧបករណ៍​កម្រិត​ប្រកួត​ប្រជែង​នៅ​ហាង​ក្នុង​ទីតាំង។",
-    p_faq_3_q: "តើ​មាន​កន្លែង​ចត​យាន​ជំនិះ​ទេ?",
-    p_faq_3_a: "មាន — កន្លែង​ចត​ឡាន​និង​ម៉ូតូ​មាន​សុវត្ថិភាព​នៅ​ក្នុង​ទីតាំង។ ចុច 'ស្វែងរក​យើង' ខាង​លើ​ដើម្បី​មើល​ផ្លូវ។",
-    p_faq_4_q: "តើ​ការ​កក់​ដំណើរ​ការ​ដូច​ម្ដេច?",
-    p_faq_4_a: "ជ្រើស​ថ្ងៃ ម៉ោង និង​ចំនួន​កួត។ បង់​ប្រាក់​នៅ​ខ្នង​ទទួល​ភ្ញៀវ​ពេល​មក​ដល់។ បោះ​បង់​បាន​មុន ២​ម៉ោង ដើម្បី​ទទួល​បាន​ការ​សង​ប្រាក់​វិញ។ យឺត​លើស​ពី ៣០​នាទី? កួត​របស់​អ្នក​អាច​ត្រូវ​បាន​ដោះ​លែង​ឲ្យ​អ្នក​លេង​ផ្សេង។",
-
+    p_faq_label: "សំណួរដែលសួរញឹកញាប់",
+    p_faq_1_q: "ខ្ញុំមិនដែលលេងភីខលបល — តើនៅអាចមកបានទេ?",
+    p_faq_1_a: "បានច្បាស់ណាស់! គ្រាន់តែធ្វើការកក់តារាង នាំមិត្តភក្តិមកជាមួយ ពួកយើងមាន Paddle និងបាល់ឱ្យខ្ចីនៅបញ្ជរខាងមុខ។ គ្រូបង្វឹករបស់យើងក៏អាចចូលរួមណែនាំ និងបង្រៀនអ្នកផ្ទាល់ក្នុងការលេងលើកដំបូងផងដែរ ប្រសិនបើអ្នកត្រូវការ។",
+    p_faq_2_q: "តើខ្ញុំត្រូវយក Paddle ផ្ទាល់ខ្លួនមកដែរឬទេ?",
+    p_faq_2_a: "មិនបាច់ក៏បាន! យើងមាន Paddle និងបាល់សម្រាប់ជួលនៅបញ្ជរក្នុងតម្លៃត្រឹមតែ $1 ក្នុងមួយវគ្គលេង។ ប្រសិនបើអ្នកចង់បានជារបស់ផ្ទាល់ខ្លួន យើងក៏មានលក់ឧបករណ៍ស្តង់ដារប្រកួតនៅហាង (Pro Shop) នៅក្នុងទីលានផ្ទាល់ផងដែរ។",
+    p_faq_3_q: "តើមានកន្លែងចតយានយន្តដែរឬទេ?",
+    p_faq_3_a: "បាទមាន — ទីលានយើងមានកន្លែងចតរថយន្ត និងម៉ូតូប្រកបដោយសុវត្ថិភាព។ ចុចលើពាក្យ 'ទីតាំងរបស់យើង' ខាងលើដើម្បីមើលផ្លូវ។",
+    p_faq_4_q: "តើការកក់ដំណើរការដូចម្តេច?",
+    p_faq_4_a: "គ្រាន់តែជ្រើសរើសថ្ងៃ ម៉ោង និងចំនួនតារាង។ លោកអ្នកអាចទូទាត់ប្រាក់នៅទីលានផ្ទាល់។ ការលុបចោលការកក់អាចធ្វើទៅបានមុនពេលលេង ២ ម៉ោង ដើម្បីទទួលបានការប្រគល់ប្រាក់ជូនវិញពេញលេញ។ ករណីមកយឺតលើសពី ៣០ នាទី តារាងរបស់អ្នកអាចនឹងត្រូវផ្ទេរជូនទៅអ្នកលេងផ្សេងទៀត។",
     // ─── Confirmation actions (KM) ───
-    c_action_calendar: "បន្ថែម​ទៅ​ប្រតិទិន",
-    c_action_directions: "បង្ហាញ​ផ្លូវ",
-    c_action_share: "ចែករំលែក​ការ​កក់",
-
-    grace_kicker: "ចំណាំ",
-    grace_title: "មក​ដល់​ក្នុង​រយៈ​ពេល ៣០​នាទី។",
-    grace_body: "បើ​អ្នក​យឺត​លើស​ពី ៣០​នាទី បុគ្គលិក​យើង​អាច​ដោះ​លែង​កួត​ឱ្យ​អ្នក​ដទៃ។ អ្នក​នឹង​ទទួល​បាន​សារ SMS ប្រសិន​បើ​មាន​ការ​ដោះ​លែង។",
-
-    o_back: "← ត្រឡប់",
+    c_action_calendar: "ដាក់ចូលក្នុងប្រតិទិន",
+    c_action_directions: "មើលក្នុងផែនទី",
+    c_action_share: "Share link ការកក់",
+    grace_kicker: "សូមចំណាំ",
+    grace_title: "អាចមកយឺតបានត្រឹម ៣០ នាទី ពីម៉ោងចាប់ផ្តើម។",
+    grace_body: "ប្រសិនបើលោកអ្នកមកយឺតលើសពី ៣០ នាទី បុគ្គលិករបស់យើងនឹងផ្ទេរតារាងជូនទៅអ្នកដែលមកផ្ទាល់ (Walk-ins)។ ប្រព័ន្ធនឹងផ្ញើសារ SMS ទៅអ្នកភ្លាមៗ ប្រសិនបើមានករណីនេះកើតឡើង។",
+    o_back: "← ត្រឡប់ក្រោយ",
     o_step: "ជំហាន ២ / ២",
-    o_sent_to: "បាន​ផ្ញើ​ទៅ +855 {phone}",
-    o_h1_a: "ពិនិត្យ​មើល",
-    o_h1_b: "ទូរស័ព្ទ។",
-    o_sub: "យើង​ទើបតែ​ផ្ញើ​លេខ​សម្ងាត់​៦​ខ្ទង់។ ចុច​បញ្ចូល។",
-    o_label: "បញ្ចូល​លេខ​សម្ងាត់",
-    o_resend_in: "ផ្ញើ​ឡើងវិញ​ក្នុង {s}វិ",
-    o_resend: "ផ្ញើ​ឡើងវិញ",
-    o_remember: "ឧបករណ៍​នេះ​នៅ​ភ្ជាប់​៣០​ថ្ងៃ។",
-    o_verifying: "កំពុង​ផ្ទៀងផ្ទាត់…",
-
-    b_title: "កក់​កួត",
-    b_welcome: "សួស្តី​ត្រឡប់​មក​វិញ",
+    o_sent_to: "លេខកូដត្រូវបានផ្ញើទៅកាន់ +855 {phone}",
+    o_h1_a: "សូមពិនិត្យមើល",
+    o_h1_b: "ទូរស័ព្ទរបស់អ្នក។",
+    o_sub: "យើងទើបតែបានផ្ញើលេខកូដ ៦ ខ្ទង់ទៅកាន់អ្នក។ សូមបញ្ចូលលេខកូដ — ប្រព័ន្ធនឹងបន្តទៅមុខដោយស្វ័យប្រវត្តិ។",
+    o_label: "បញ្ចូលលេខកូដ",
+    o_resend_in: "ផ្ញើឡើងវិញក្នុង {s}វិ",
+    o_resend: "ផ្ញើលេខកូដម្តងទៀត",
+    o_remember: "ចងចាំការចូលប្រើប្រាស់នៅលើឧបករណ៍នេះរយៈពេល ៣០ ថ្ងៃ។",
+    o_verifying: "កំពុងផ្ទៀងផ្ទាត់…",
+    b_title: "កក់តារាង",
+    b_welcome: "សូមស្វាគមន៍ការត្រឡប់មកវិញ",
     b_member_no: "សមាជិក",
-    b_expires: "ផុត​កំណត់",
-    b_guest_top: "មក​ដំបូង",
-    b_guest_returning: "សួស្តី​ត្រឡប់​មក​វិញ · {n} លើក",
-    b_guest_h: "ប្រាប់​ឈ្មោះ​អ្នក។",
+    b_expires: "ផុតកំណត់",
+    b_guest_top: "មកលេងដំបូង",
+    b_guest_returning: "រីករាយដែលបានជួបគ្នាទៀត · មកលេងចំនួន {n} លើក",
+    b_guest_h: "សូមបំពេញឈ្មោះរបស់អ្នក។",
     b_guest_h_back: "សួស្តី {name}។",
-    b_guest_placeholder: "ឈ្មោះ​ពេញ",
-    b_label_date: "ជ្រើស​ថ្ងៃ",
-    b_date_right: "{n} ថ្ងៃ​មុន​មក",
-    b_label_time: "ជ្រើស​ម៉ោង",
-    b_label_duration: "រយៈពេល?",
-    b_duration_right: "ជំហាន​៣០​នាទី · យ៉ាង​តិច​១​ម៉ោង",
-    b_duration_hint: "កួត​ស្លុត​ ៣០​នាទី។ យ៉ាង​តិច​១​ម៉ោង។",
-    b_locked_gift: "ចាក់សោ · អំណោយ",
-    b_label_courts: "កួត​មួយ​ណា?",
-    b_courts_right: "ចុច​ដើម្បី​ជ្រើស",
+    b_guest_placeholder: "ឈ្មោះពេញ",
+    b_label_date: "ជ្រើសរើសថ្ងៃ",
+    b_date_right: "កក់ទុកមុនបាន {n} ថ្ងៃ",
+    b_label_time: "ជ្រើសរើសម៉ោង",
+    b_label_duration: "រយៈពេលលេង?",
+    b_duration_right: "រាប់រៀងរាល់ ៣០ នាទី · យ៉ាងតិច ១ ម៉ោង",
+    b_duration_hint: "រាល់វេនលេងគឺគិតម្តង ៣០ នាទី។ ការកក់ចាប់ពី ១ ម៉ោងឡើងទៅ។",
+    b_locked_gift: "ជាប់កំណត់ · កញ្ចប់កាដូ",
+    b_label_courts: "ជ្រើសរើសតារាង?",
+    b_courts_right: "ចុចដើម្បីជ្រើស",
     b_court_open: "ទំនេរ",
-    b_court_yours: "របស់​អ្នក",
+    b_court_yours: "របស់អ្នក",
     b_court_taken: "ពេញ",
-    b_court_hint_one: "១ កួត​បាន​ជ្រើស។",
-    b_court_hint_many: "{n} កួត​បាន​ជ្រើស។",
-    b_court_lock_hint: "អំណោយ​មាន​១​កួត។",
-    b_dur_lock_hint: "អំណោយ​ខួប​កំណើត​គឺ ២​ម៉ោង​ច្បាស់។",
-    b_label_summary: "សង្ខេប",
-    b_pay_at_counter: "បង់​សាច់​ប្រាក់ ឬ​ប័ណ្ណ​នៅ​បញ្ជរ។ មិន​មាន​ការ​បង់​តាម​អ៊ីនធឺណិត។",
-    b_cta_confirm: "បញ្ជាក់​ការ​កក់",
-    b_cta_claim: "ទាមទារ​សម័យ​ឥត​គិត​ថ្លៃ",
-    b_cta_add_name: "បន្ថែម​ឈ្មោះ",
+    b_court_hint_one: "បានជ្រើសរើស ១ តារាង។",
+    b_court_hint_many: "បានជ្រើសរើស {n} តារាង។",
+    b_court_lock_hint: "កាដូរបស់អ្នក រួមបញ្ចូលការលេងថែមជូន ១ តារាង។",
+    b_dur_lock_hint: "កាដូខួបកំណើត គឺកំណត់រយៈពេលលេង ២ ម៉ោងពេញ។",
+    b_label_summary: "ព័ត៌មានសង្ខេប",
+    b_pay_at_counter: "លោកអ្នកអាចទូទាត់ប្រាក់នៅទីលានផ្ទាល់។",
+    b_cta_confirm: "បញ្ជាក់ការកក់",
+    b_cta_claim: "ទទួលយកការលេងហ្វ្រី",
+    b_cta_add_name: "បំពេញឈ្មោះរបស់អ្នក",
     b_total: "សរុប",
-    b_standard_rate: "តម្លៃ​ស្តង់ដារ",
-    b_birthday_gift: "អំណោយ​ខួប​កំណើត",
+    b_standard_rate: "តម្លៃស្តង់ដារ",
+    b_birthday_gift: "កាដូខួបកំណើត",
     b_founding_disc: "ស្ថាបនិក −៥០%",
     b_member_disc: "សមាជិក −៣០%",
-    b_peak: "ម៉ោង​ខ្ពស់ · $15/ម៉ោង",
-    b_offpeak: "ម៉ោង​ទាប · $13/ម៉ោង",
-    b_peak_line: "តម្លៃ​ម៉ោង​ខ្ពស់",
-    b_offpeak_line: "តម្លៃ​ម៉ោង​ទាប",
-    b_subtotal: "សរុប​រង",
-    b_mixed: "តម្លៃ​ចម្រុះ",
-    b_peak_pip_hint: "Prime = តម្លៃ​ម៉ោង​ខ្ពស់។ ថ្ងៃ​ធ្វើ​ការ​ក្រោយ​ម៉ោង​៥​ល្ងាច និង​ចុង​សប្តាហ៍។",
-    b_no_slots: "គ្មាន​ស្លុត​ទំនេរ​ថ្ងៃ​នេះ​ទេ។",
-
-    g_kicker: "សប្តាហ៍​ខួប​កំណើត",
-    g_h_unclaimed: "អំណោយ​សម្រាប់​អ្នក។",
-    g_h_claimed: "បាន​ទាមទារ។",
-    g_p_founding: "ពីរ​ម៉ោង មួយ​កួត ឥត​គិត​ថ្លៃ។ ម្តង​ក្នុង​មួយ​ឆ្នាំ។",
-    g_p_standard: "ពីរ​ម៉ោង មួយ​កួត ៥០%​នៃ​តម្លៃ។ ម្តង​ក្នុង​មួយ​ឆ្នាំ។",
-    g_claim: "ទាមទារ",
-    g_claimed_note: "យើង​នឹង​កំណត់​២​ម៉ោង និង​១​កួត។",
-
-    pr_head: "ក្លាយ​ជា​សមាជិក",
-    pr_h_save: "សន្សំ",
-    pr_h_today: "លើ​ការ​កក់​នេះ។",
+    b_peak: "ម៉ោងមមាញឹក (Peak) · $15/ម៉ោង",
+    b_offpeak: "ម៉ោងធម្មតា (Off-Peak) · $13/ម៉ោង",
+    b_peak_line: "តម្លៃម៉ោងមមាញឹក",
+    b_offpeak_line: "តម្លៃម៉ោងធម្មតា",
+    b_subtotal: "តម្លៃសរុបបណ្តោះអាសន្ន",
+    b_mixed: "តម្លៃចម្រុះ",
+    b_peak_pip_hint: "ម៉ោងមមាញឹក (Peak)៖ ថ្ងៃធ្វើការចាប់ពីម៉ោង ៥ ល្ងាច និងពេញមួយចុងសប្តាហ៍។",
+    b_no_slots: "មិនមានម៉ោងទំនេរសម្រាប់ថ្ងៃនេះទេ។ សូមព្យាយាមម្តងទៀតនៅថ្ងៃស្អែក។",
+    g_kicker: "សប្តាហ៍ខួបកំណើត",
+    g_h_unclaimed: "កាដូពិសេសជូនអ្នក!",
+    g_h_claimed: "ទទួលបានកាដូរួចរាល់",
+    g_p_founding: "លេងហ្វ្រី ២ ម៉ោង សម្រាប់តារាង ១ (ម្តងក្នុងមួយឆ្នាំ)។",
+    g_p_standard: "បញ្ចុះតម្លៃ ៥០% សម្រាប់ការលេង ២ ម៉ោង លើតារាង ១ (ម្តងក្នុងមួយឆ្នាំ)។",
+    g_claim: "ទទួលយកកាដូ",
+    g_claimed_note: "ប្រព័ន្ធនឹងកំណត់រយៈពេល ២ ម៉ោង សម្រាប់តារាង ១ ដោយស្វ័យប្រវត្តិ។",
+    pr_head: "ក្លាយជាសមាជិក",
+    pr_h_save: "សន្សំសំចៃថវិកា",
+    pr_h_today: "លើការកក់នេះ។",
     pr_standard: "ស្តង់ដារ · $150/ឆ្នាំ",
     pr_founding: "ស្ថាបនិក · $200/ឆ្នាំ",
-    pr_off: "បញ្ចុះ",
-    pr_seats: "ស្ថាបនិក · សល់ {n} កៅអី",
+    pr_off: "បញ្ចុះតម្លៃ",
+    pr_seats: "កញ្ចប់ស្ថាបនិក · នៅសល់តែ {n} នាក់ប៉ុណ្ណោះ",
     pr_learn: "សមាជិកភាព →",
 
-    c_back: "← ត្រឡប់​ទៅ​ដើម",
-    c_stamp: "បាន​កក់។",
-    c_sub: "ជួប​គ្នា​នៅ​កួត។",
-    c_booking_id: "លេខ​កក់",
+    c_back: "← ត្រឡប់ទៅទំព័រដើម",
+    c_stamp: "បានកក់។",
+    c_sub: "ជួបគ្នានៅលើតារាង!",
+    c_booking_id: "លេខកូដកក់តារាង",
     c_copy: "ចម្លង",
-    c_copied: "បាន​ចម្លង",
+    c_copied: "បានចម្លង",
     c_date: "ថ្ងៃ",
     c_time: "ម៉ោង",
-    c_court: "កួត",
-    c_courts: "កួត",
+    c_court: "តារាង",
+    c_courts: "តារាង",
     c_duration: "រយៈពេល",
-    c_player: "អ្នក​លេង",
+    c_player: "អ្នកលេង",
     c_total: "សរុប",
-    c_sms: "បាន​ផ្ញើ​ការ​បញ្ជាក់​ទៅ ***{p}",
-    c_reminder: "យើង​នឹង​រំលឹក ២​ម៉ោង​មុន។",
-    c_book_another: "កក់​មួយ​ទៀត →",
-    c_view_my: "មើល​ការ​កក់​របស់​ខ្ញុំ →",
-
-    mb_title: "គ្រប់គ្រង​ការ​កក់",
-    mb_kicker: "YARD របស់​អ្នក",
-    mb_upcoming: "ខាង​មុខ",
-    mb_past: "កន្លង​មក",
-    mb_cancelled: "បាន​បោះបង់ និង​មិន​មក",
-    mb_cancelled_tag: "បាន​បោះបង់",
-    mb_no_show: "មិន​មក",
-    mb_empty_upcoming_h: "គ្មាន​ការ​កក់​ខាង​មុខ​ទេ។",
-    mb_empty_upcoming_p: "ចុច​ខាង​ក្រោម​ដើម្បី​កក់។",
-    mb_book_now: "កក់​កួត",
-    mb_empty_past: "មិន​មាន​ប្រវត្តិ​ទេ។",
-    mb_cancel: "បោះបង់",
-    mb_confirm_cancel: "បោះបង់​ការ​កក់​នេះ?",
-    mb_confirm_cancel_sub: "នឹង​បាន​ដោះ​លែង​កួត​និង​ផ្ញើ SMS។",
-    mb_keep: "រក្សា​ទុក",
-    mb_confirm_cancel_yes: "បាទ បោះបង់",
-
+    c_sms: "បានផ្ញើការបញ្ជាក់ទៅ ***{p}",
+    c_reminder: "យើងនឹងផ្ញើសាររំលឹកលោកអ្នក ២ ម៉ោងមុនម៉ោងលេង។",
+    c_book_another: "កក់តារាងបន្ថែម →",
+    c_view_my: "គ្រប់គ្រងការកក់របស់ខ្ញុំ →",
+    mb_title: "គ្រប់គ្រងការកក់",
+    mb_kicker: "YARD របស់អ្នក",
+    mb_upcoming: "ការកក់ខាងមុខ",
+    mb_past: "ប្រវត្តិកក់លេង",
+    mb_cancelled: "បានលុបចោល និងមិនបានមកលេង",
+    mb_cancelled_tag: "បានលុបចោល",
+    mb_no_show: "មិនបានមកលេង",
+    mb_empty_upcoming_h: "គ្មានការកក់ខាងមុខទេ។",
+    mb_empty_upcoming_p: "ចុចខាងក្រោមដើម្បីកក់ម៉ោងលេងបន្ទាប់របស់អ្នក។",
+    mb_book_now: "កក់តារាង",
+    mb_empty_past: "មិនមានប្រវត្តិតេ។",
+    mb_cancel: "លុបចោល",
+    mb_confirm_cancel: "តើអ្នកពិតជាចង់លុបចោលការកក់នេះមែនទេ?",
+    mb_confirm_cancel_sub: "តារាងនេះនឹងត្រូវបើកឱ្យអ្នកផ្សេងកក់វិញ ហើយប្រព័ន្ធនឹងជូនដំណឹងដល់អ្នកតាម SMS។",
+    mb_keep: "រក្សាទុកការកក់",
+    mb_confirm_cancel_yes: "បាទ/ចាស លុបចោល",
     m_title: "សមាជិកភាព",
-    m_kicker: "ពីរ​កម្រិត · ប្រចាំ​ឆ្នាំ",
-    m_lede: "យើង​មិន​លក់​សមាជិកភាព​តាម​អ៊ីនធឺណិត​ទេ។ មក​បញ្ជរ​ដើម្បី​ចុះ​ឈ្មោះ។ បន្ទាប់​មក លេខ​ទូរស័ព្ទ​របស់​អ្នក​នឹង​ដោះ​សោ​ការ​បញ្ចុះ​តម្លៃ​ដោយ​ស្វ័យ​ប្រវត្តិ។",
+    m_kicker: "ជម្រើស ២ កញ្ចប់ · គិតថ្លៃប្រចាំឆ្នាំ",
+    m_lede: "សមាជិកភាពមិនមានលក់តាមអនឡាញទេ។ សូមអញ្ជើញមកកាន់បញ្ជរផ្ទាល់ដើម្បីចុះឈ្មោះ។ នៅពេលចុះឈ្មោះរួចរាល់ ប្រព័ន្ធនឹងភ្ជាប់លេខទូរស័ព្ទរបស់អ្នកដើម្បីទទួលបានការបញ្ចុះតម្លៃដោយស្វ័យប្រវត្តិ។",
     m_standard_h: "ស្តង់ដារ",
     m_standard_price: "$150 / ឆ្នាំ",
     m_founding_h: "ស្ថាបនិក",
-    m_founding_price: "$200 / ឆ្នាំ (ចាក់​សោ​មួយ​ជីវិត)",
-    m_seats_left: "សល់ {n} នៃ​ {cap} កៅអី​ស្ថាបនិក",
-    m_visit: "មក​ទួលគោក​ដើម្បី​ចុះ​ឈ្មោះ។",
-
-    loading: "កំពុង​ផ្ទុក…",
-    error: "មាន​បញ្ហា",
-    retry: "ព្យាយាម​ម្តង​ទៀត",
+    m_founding_price: "$200 / ឆ្នាំ (រក្សាតម្លៃនេះមួយជីវិត)",
+    m_seats_left: "កញ្ចប់ស្ថាបនិក នៅសល់តែ {n} នាក់ ក្នុងចំណោម {cap} នាក់ប៉ុណ្ណោះ",
+    m_visit: "សូមអញ្ជើញមកកាន់ទីលានទួលគោកដើម្បីចុះឈ្មោះលេង។",
+    loading: "កំពុងផ្ទុក…",
+    error: "មានបញ្ហាអ្វីមួយមិនប្រក្រតី",
+    retry: "ព្យាយាមម្តងទៀត",
     back: "ត្រឡប់",
     close: "បិទ",
   }
@@ -3448,7 +3452,14 @@ const STRINGS = {
 
 function t(key, vars, lang) {
   const dict = STRINGS[lang || "en"] || STRINGS.en;
-  let s = dict[key] || STRINGS.en[key] || key;
+  // Use nullish lookup, NOT truthy — an empty string IS a valid translation
+  // (we use "" intentionally for optional subtitles like pillar 1's, to
+  // hide them without removing the key). With `||`, "" falls through to
+  // the language fallback, then to the literal key name, which renders
+  // the developer-facing identifier on screen. `??` returns "" correctly.
+  let s = dict[key] !== undefined ? dict[key]
+        : STRINGS.en[key] !== undefined ? STRINGS.en[key]
+        : key;
   if (vars) {
     Object.keys(vars).forEach(k => {
       s = s.replace(new RegExp("\\{" + k + "\\}", "g"), vars[k]);
@@ -6875,10 +6886,16 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
          The path arcs from off-screen lower-left to the pickleball's
          position, animated with stroke-dasharray "draw" + animateMotion
          for the traveling balls. Loops every 7s, matching the CSS
-         keyframes above. ─── */
+         keyframes above.
+         viewBox is tightened to 0 0 472 220 so the path endpoint at
+         x=472 sits exactly at the right edge of the container, which is
+         pinned to the ball center in the .yard-trail CSS rule above.
+         The container is 560px wide on a 520px column — the SVG scales
+         to fill, stretching the curve slightly, but the endpoint stays
+         pinned to the ball. ─── */
   const TRAIL_PATH = 'M 0 210 Q 220 -90, 472 108';
   const TRAIL_HTML = ''
-    + '<svg viewBox="0 0 580 220" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">'
+    + '<svg viewBox="0 0 472 220" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">'
       // The drawn curve
     + '<path class="yt-line" d="' + TRAIL_PATH + '"/>'
       // Impact pulse at the landing point (animated via CSS r:)
@@ -7049,7 +7066,15 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
   document.addEventListener('scroll', onScroll, { passive: true });
 
   /* ─── Boot + re-init after React re-renders ─── */
+  let _lastInit = 0;
   function initAll(){
+    // Throttle to prevent rapid-fire reinit on dense React rerenders.
+    // The cinema, ball, and trail animations restart visibly when their
+    // DOM nodes get replaced. Limiting reinits to once per 250ms keeps
+    // things steady on laptop where React rerenders can chain.
+    const now = Date.now();
+    if (now - _lastInit < 250) return;
+    _lastInit = now;
     initBalls();
     refreshCardTilt();
     refreshMagnets();
@@ -7058,18 +7083,20 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
   }
 
   // Initial + periodic check (React rerenders aren't always caught
-  // by MutationObserver if subtree is dense; a 600ms poll is cheap).
+  // by MutationObserver if subtree is dense; a 1.2s poll is cheap).
+  // Shorter polling interval was triggering flicker on laptop where
+  // React-CDN's reconciliation produces many small DOM mutations.
   initAll();
   let pollCount = 0;
   const poll = setInterval(() => {
     initAll();
-    if (++pollCount > 20) clearInterval(poll); // 12s, then trust MutationObserver
-  }, 600);
+    if (++pollCount > 10) clearInterval(poll); // 12s, then trust MutationObserver
+  }, 1200);
 
   const mo = new MutationObserver(() => {
-    // Debounce
+    // Debounce — slightly longer than before to ride out React rerender bursts
     if (mo._t) return;
-    mo._t = setTimeout(() => { mo._t = null; initAll(); }, 120);
+    mo._t = setTimeout(() => { mo._t = null; initAll(); }, 200);
   });
   mo.observe(document.body, { childList: true, subtree: true });
 
