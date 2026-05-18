@@ -87,6 +87,74 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
 .screen{ padding:8px 22px 120px; position:relative; }
 .scr-pad-top{ padding-top:8px; }
 
+/* ========== Desktop/laptop layout (Path A — widen + scale) ==========
+ *
+ * The site is mobile-first. On wider viewports it would otherwise look
+ * stranded — a narrow 520px column floating in vast empty space, with
+ * the trajectory line + 3D ball positioned absolutely outside the
+ * column to the left (because they extend past the container border).
+ *
+ * Strategy: widen the root container at two breakpoints, scale type
+ * proportionally, keep all components in their current single-column
+ * flow. Trajectory + ball stay positioned absolutely but now relative
+ * to a wider parent, so they sit naturally within the content area.
+ *
+ *   720px+   → 720px column, modest type bump
+ *   1024px+  → 820px column, slightly larger type, taller cinema
+ *
+ * Phone layout (<720px) is completely unchanged.
+ */
+@media (min-width: 720px) {
+  #root { max-width: 720px; }
+  .foot-nav { max-width: 720px; }
+  .modal { max-width: 720px; }
+
+  /* Slightly larger overall padding for breathing room */
+  .screen { padding: 14px 32px 120px; }
+
+  /* Type scales — gentle, not dramatic. Each h-display has a different
+     baseline inline size per screen (landing 72, booking 60, others 48);
+     we scale each up proportionally rather than flattening them. */
+  .h-display[style*="font-size: 72"],
+  .h-display[style*="fontSize:72"] { font-size: 96px !important; }
+  .h-display[style*="font-size: 60"],
+  .h-display[style*="fontSize:60"] { font-size: 76px !important; }
+  .h-display[style*="font-size: 48"],
+  .h-display[style*="fontSize:48"] { font-size: 60px !important; }
+  /* The lede paragraph below h1 */
+  .scr-pad-top > p:nth-of-type(1) { font-size: 16px; max-width: 38ch; }
+
+  /* Cinema (rotating renders) gets more vertical room */
+  .yard-cinema { margin: 14px 0 22px; }
+  .yc-frame { aspect-ratio: 16 / 9; }  /* slightly less tall, more cinematic */
+
+  /* Discovery tiles get a touch more padding */
+  .discover-link { padding: 18px 18px 18px; }
+  .discover-link .discover-title { font-size: 26px; }
+
+  /* Phone input slightly taller for desktop ergonomics */
+  .input { min-height: 56px; }
+}
+
+@media (min-width: 1024px) {
+  #root { max-width: 820px; }
+  .foot-nav { max-width: 820px; }
+  .modal { max-width: 820px; }
+
+  /* Headline reaches its full impact size at large viewport */
+  .h-display[style*="font-size: 72"],
+  .h-display[style*="fontSize:72"] { font-size: 116px !important; }
+  .h-display[style*="font-size: 60"],
+  .h-display[style*="fontSize:60"] { font-size: 88px !important; }
+  .h-display[style*="font-size: 48"],
+  .h-display[style*="fontSize:48"] { font-size: 68px !important; }
+  .scr-pad-top > p:nth-of-type(1) { font-size: 17px; }
+
+  /* Section labels grow with the header type */
+  .label { font-size: 13px; }
+  .label .num { font-size: 12px; }
+}
+
 /* ========== Top utility bar (date + lang toggle) ========== */
 .topbar{
   position:sticky; top:0; z-index:50;
@@ -1167,27 +1235,50 @@ a.ulink, button.ulink{
  * mono-caps kicker + serif title + small hint — same typographic
  * language as the rest of the site so it doesn't feel bolted-on.
  */
+/* ========== Discovery links (phone screen) ==========
+ * Two-up tile row that surfaces Membership and About to unauth visitors.
+ * Each tile has:
+ *   - A small SVG illustration in the top-right (brand vocabulary:
+ *     dink ball, paddle, court silhouette)
+ *   - Mono-caps kicker
+ *   - Serif italic title
+ *   - Hint line
+ *   - "Learn more →" affordance at the bottom (explicit call-out so
+ *     users don't have to guess the tile is clickable)
+ */
 .discover-link{
   display:block;
+  position:relative;
   text-align:left;
-  background:var(--paper);
+  background:linear-gradient(145deg, var(--paper) 0%, var(--cream-2,#ebe4cc) 100%);
   border:1.5px solid var(--ink);
   border-radius:14px;
-  padding:14px 14px 16px;
+  padding:14px 14px 14px;
   cursor:pointer;
-  transition:background .15s ease, transform .15s ease;
+  transition:background .15s ease, transform .15s ease, box-shadow .15s ease;
   color:var(--ink);
+  overflow:hidden;
 }
 .discover-link:hover{
-  background:var(--cream-2,#ebe4cc);
-  transform:translateY(-1px);
+  transform:translateY(-2px);
+  box-shadow:0 4px 0 -1px var(--ink);
 }
-.discover-link:active{ transform:translateY(0); }
+.discover-link:hover .discover-more{ gap:10px; }
+.discover-link:hover .discover-more-arrow{ transform:translateX(4px); }
+.discover-link:active{ transform:translateY(0); box-shadow:none; }
+.discover-link .discover-icon{
+  position:absolute;
+  top:10px; right:10px;
+  width:48px; height:48px;
+  opacity:0.16;
+  pointer-events:none;
+}
 .discover-link .discover-kicker{
   font-family:var(--mono); font-size:9px;
   letter-spacing:0.18em; text-transform:uppercase;
   font-weight:600; opacity:0.55;
   margin-bottom:6px;
+  padding-right:48px;  /* leave room for the icon */
 }
 .discover-link .discover-title{
   font-family:var(--serif); font-style:italic;
@@ -1198,7 +1289,48 @@ a.ulink, button.ulink{
 .discover-link .discover-hint{
   font-size:11px; line-height:1.4;
   opacity:0.7;
+  margin-bottom:14px;
 }
+.discover-link .discover-more{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  font-family:var(--mono); font-size:10.5px;
+  letter-spacing:0.14em; text-transform:uppercase;
+  font-weight:700;
+  border-bottom:1.5px solid var(--ink);
+  padding-bottom:1px;
+  transition:gap .2s ease;
+}
+.discover-link .discover-more-arrow{
+  font-size:14px;
+  font-weight:400;
+  line-height:1;
+  transition:transform .2s ease;
+}
+
+/* ========== Back-to-home affordance ==========
+ * Used on subscreens (Membership, About) so visitors can return to the
+ * landing screen via an explicit text link rather than guessing the
+ * Lockup logo is clickable. Mono-caps, small, ink color, no chrome.
+ */
+.back-link{
+  display:inline-block;
+  background:transparent;
+  border:0;
+  padding:6px 0 14px;
+  font-family:var(--mono);
+  font-size:10.5px;
+  letter-spacing:0.16em;
+  text-transform:uppercase;
+  font-weight:600;
+  color:var(--ink);
+  cursor:pointer;
+  opacity:0.7;
+  transition:opacity .15s ease;
+}
+.back-link:hover{ opacity:1; }
+.back-link:active{ transform:translateY(1px); }
 
 /* ========== Location module ==========
  * Visual: cream card with a subtle 1px border, monospace label,
@@ -2919,7 +3051,7 @@ const STRINGS = {
     // is set per court rather than per member tier in practice.)
     p_pillar_1_v: "8",
     p_pillar_1_l: "Indoor courts",
-    p_pillar_1_s: "Climate-controlled",
+    p_pillar_1_s: "",
     p_pillar_2_v: "16h",
     p_pillar_2_l: "Daily open",
     p_pillar_2_s: "06:00 — 22:00",
@@ -2942,6 +3074,7 @@ const STRINGS = {
     p_discover_kicker_member: "01 · For regulars",
     p_discover_member: "Membership",
     p_discover_member_sub: "50% off court rental · founding tier available",
+    p_discover_more: "Learn more",
     p_discover_kicker_about: "02 · The story",
     p_discover_about: "About",
     p_discover_about_sub: "Why we built this · common questions",
@@ -2956,10 +3089,10 @@ const STRINGS = {
     p_founder_label: "From the founder",
     p_founder_cta_open: "Read",
     p_founder_cta_close: "Close",
-    p_founder_p1: "Pickleball is the fastest-growing sport in the world. Phnom Penh deserved its first proper home for it.",
-    p_founder_p2: "The Yard is what eighteen months of late nights, design revisions, and import paperwork produced: eight tournament-grade indoor courts in Toul Kork, built specifically for this sport and nothing else.",
-    p_founder_p3: "If you're new to pickleball, we'll teach you. If you've been waiting for a real venue, you've found it. Memberships are limited; founding members get fifty percent off court time, forever.",
-    p_founder_sig: "Ouk · Founder",
+    p_founder_p1: "I started playing pickleball a couple of years ago and got hooked fast. The thing I loved wasn't just the game — it was who showed up. People I'd never have met otherwise. Long matches that turned into longer conversations.",
+    p_founder_p2: "But there was nowhere proper to play in Phnom Penh. Borrowed courts, makeshift lines, packing up before dark. I wanted somewhere that felt like home for this sport — a place in the neighborhood where you could just turn up and find a game.",
+    p_founder_p3: "That's what The Yard is. Eight indoor courts in Toul Kork. Open early, open late. Come alone or bring three friends. If you're brand new, we'll get you on a court and teach you the basics. If you've been playing for years, you'll find your level here too. See you on a court.",
+    p_founder_sig: "Hap · Founder",
 
     // ─── Micro-FAQs (collapsible accordion) ───
     p_faq_label: "Common questions",
@@ -3124,7 +3257,7 @@ const STRINGS = {
     // 2-pillar strip (KM)
     p_pillar_1_v: "៨",
     p_pillar_1_l: "កួត​ក្នុង​អគារ",
-    p_pillar_1_s: "មាន​ម៉ាស៊ីន​ត្រជាក់",
+    p_pillar_1_s: "",
     p_pillar_2_v: "១៦ម៉",
     p_pillar_2_l: "បើក​ប្រចាំ​ថ្ងៃ",
     p_pillar_2_s: "០៦:០០ — ២២:០០",
@@ -3147,6 +3280,7 @@ const STRINGS = {
     p_discover_kicker_member: "០១ · សម្រាប់​អ្នក​លេង​ទៀង​ទាត់",
     p_discover_member: "សមាជិកភាព",
     p_discover_member_sub: "បញ្ចុះ​តម្លៃ ៥០% · មាន​កម្រិត​ស្ថាបនិក",
+    p_discover_more: "មើល​បន្ថែម",
     p_discover_kicker_about: "០២ · រឿង​ពី​យើង",
     p_discover_about: "អំពី​យើង",
     p_discover_about_sub: "មូល​ហេតុ​យើង​សាងសង់ · សំណួរ​ទូទៅ",
@@ -3161,10 +3295,10 @@ const STRINGS = {
     p_founder_label: "ពី​ស្ថាបនិក",
     p_founder_cta_open: "អាន",
     p_founder_cta_close: "បិទ",
-    p_founder_p1: "ភីខលបល ជា​កីឡា​ដែល​លូត​លាស់​លឿន​បំផុត​ក្នុង​ពិភពលោក។ ភ្នំពេញ​សម​នឹង​មាន​កន្លែង​លេង​ដ៏​ត្រឹមត្រូវ​ដំបូង​សម្រាប់​កីឡា​នេះ។",
-    p_founder_p2: "The Yard គឺ​ជា​លទ្ធផល​នៃ​ការ​ខិតខំ​អស់​មួយ​ឆ្នាំ​កន្លះ — យប់​យូរ ការ​កែ​សម្រួល​ការ​រចនា និង​ឯកសារ​នាំ​ចូល។ កួត​ភីខលបល​ក្នុង​អគារ​កម្រិត​ប្រកួត​ប្រជែង​ចំនួន​ប្រាំ​បី នៅ​ទួលគោក សាងសង់​ឡើង​ដើម្បី​កីឡា​នេះ​តែ​ប៉ុណ្ណោះ។",
-    p_founder_p3: "បើ​អ្នក​ចាប់​ផ្ដើម​លេង​ភីខលបល យើង​នឹង​បង្រៀន​អ្នក។ បើ​អ្នក​រង់ចាំ​កន្លែង​ពិត​ប្រាកដ​មួយ អ្នក​បាន​រក​ឃើញ​ហើយ។ សមាជិកភាព​មាន​កំណត់ សមាជិក​ស្ថាបនិក​ទទួល​បាន​ការ​បញ្ចុះ​តម្លៃ ៥០% លើ​ការ​កក់​កួត​អស់​មួយ​ជីវិត។",
-    p_founder_sig: "អ៊ូក · ស្ថាបនិក",
+    p_founder_p1: "ខ្ញុំ​ចាប់​ផ្ដើម​លេង​ភីខលបល​កាល​ពី​ប៉ុន្មាន​ឆ្នាំ​មុន ហើយ​ក៏​ស្រឡាញ់​វា​ឆាប់​ណាស់។ អ្វី​ដែល​ខ្ញុំ​ចូល​ចិត្ត​មិន​មែន​ត្រឹម​តែ​កីឡា​ទេ — គឺ​អ្នក​ដែល​មក​លេង។ មនុស្ស​ដែល​ខ្ញុំ​មិន​ដែល​បាន​ស្គាល់​ពី​មុន។ ការ​ប្រកួត​វែង​ដែល​ប្រែ​ទៅ​ជា​ការ​សន្ទនា​រាប់​ម៉ោង។",
+    p_founder_p2: "ប៉ុន្តែ​នៅ​ភ្នំពេញ​មិន​មាន​កន្លែង​ល្អ​ប្រសើរ​សម្រាប់​លេង​ទេ។ ខ្ចី​កួត ខ្ចី​បន្ទាត់ ខ្ចប់​មុន​ងងឹត។ ខ្ញុំ​ចង់​មាន​កន្លែង​មួយ​ដែល​ដូច​ផ្ទះ​សម្រាប់​កីឡា​នេះ — កន្លែង​មួយ​ក្នុង​សង្កាត់ ដែល​អ្នក​អាច​មក​ហើយ​រក​មិត្ត​លេង​ភ្លាម​បាន។",
+    p_founder_p3: "នោះ​គឺ​ជា The Yard។ កួត​ក្នុង​អគារ​ប្រាំ​បី​នៅ​ទួលគោក។ បើក​ព្រឹក​ព្រលឹម បើក​យឺត​យប់។ មក​ម្នាក់​ឯង ឬ​នាំ​មិត្ត​បី​នាក់​មក​ជាមួយ។ បើ​អ្នក​ទើប​ចាប់​ផ្ដើម យើង​នឹង​ឲ្យ​អ្នក​ឡើង​លេង​ហើយ​បង្រៀន​មូលដ្ឋាន។ បើ​អ្នក​លេង​បាន​ច្រើន​ឆ្នាំ​ហើយ អ្នក​នឹង​រក​ឃើញ​មនុស្ស​សម​នឹង​លេង​ជាមួយ។ ជួប​គ្នា​នៅ​លើ​កួត។",
+    p_founder_sig: "Hap · ស្ថាបនិក",
 
     // ─── Micro-FAQs (KM) ───
     p_faq_label: "សំណួរ​ទូទៅ",
@@ -4090,13 +4224,15 @@ function ScreenPhone({ state, setState, go, lang }) {
               }}>
                 {t(lKey, null, lang)}
               </div>
-              <div className="hint" style={{
-                fontSize: 11,
-                marginTop: 3,
-                opacity: 0.65
-              }}>
-                {t(sKey, null, lang)}
-              </div>
+              {t(sKey, null, lang) && (
+                <div className="hint" style={{
+                  fontSize: 11,
+                  marginTop: 3,
+                  opacity: 0.65
+                }}>
+                  {t(sKey, null, lang)}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -4142,17 +4278,52 @@ function ScreenPhone({ state, setState, go, lang }) {
             className="discover-link"
             onClick={(e) => { e.preventDefault(); go("membership"); }}
           >
+            {/* Icon: small Lockup-style court silhouette — same visual
+                language as the brand mark in the topbar. Sits at 16%
+                opacity in the top-right corner, so it's atmospheric not
+                attention-grabbing. */}
+            <svg className="discover-icon" viewBox="0 0 48 48" fill="none">
+              <rect x="4" y="8" width="40" height="32" rx="2"
+                    stroke="var(--ink)" strokeWidth="1.5"/>
+              <line x1="24" y1="8" x2="24" y2="40" stroke="var(--ink)" strokeWidth="1.5"/>
+              <line x1="4" y1="18" x2="44" y2="18" stroke="var(--ink)" strokeWidth="0.8"/>
+              <line x1="4" y1="30" x2="44" y2="30" stroke="var(--ink)" strokeWidth="0.8"/>
+              {/* Small ball on left court */}
+              <circle cx="14" cy="24" r="2" fill="var(--clay,#C64F3A)"/>
+            </svg>
             <div className="discover-kicker">{t("p_discover_kicker_member", null, lang)}</div>
             <div className="discover-title">{t("p_discover_member", null, lang)}</div>
             <div className="discover-hint">{t("p_discover_member_sub", null, lang)}</div>
+            <span className="discover-more">
+              {t("p_discover_more", null, lang)}
+              <span className="discover-more-arrow">→</span>
+            </span>
           </button>
           <button
             className="discover-link"
             onClick={(e) => { e.preventDefault(); go("about"); }}
           >
+            {/* Icon: dink ball with a small arc trajectory — echoes the
+                hero trajectory + ball motif. */}
+            <svg className="discover-icon" viewBox="0 0 48 48" fill="none">
+              <path d="M 6 38 Q 24 8, 42 14"
+                    stroke="var(--clay,#C64F3A)" strokeWidth="1.5" fill="none"
+                    strokeLinecap="round"/>
+              <circle cx="42" cy="14" r="5" fill="var(--green,#7E9C70)"
+                      stroke="var(--ink)" strokeWidth="1"/>
+              {/* Pickleball holes */}
+              <circle cx="40" cy="13" r="0.8" fill="var(--ink)"/>
+              <circle cx="43" cy="12" r="0.8" fill="var(--ink)"/>
+              <circle cx="44" cy="15" r="0.8" fill="var(--ink)"/>
+              <circle cx="41" cy="16" r="0.8" fill="var(--ink)"/>
+            </svg>
             <div className="discover-kicker">{t("p_discover_kicker_about", null, lang)}</div>
             <div className="discover-title">{t("p_discover_about", null, lang)}</div>
             <div className="discover-hint">{t("p_discover_about_sub", null, lang)}</div>
+            <span className="discover-more">
+              {t("p_discover_more", null, lang)}
+              <span className="discover-more-arrow">→</span>
+            </span>
           </button>
         </div>
 
@@ -5414,6 +5585,15 @@ function ScreenMembership({ state, setState, go, lang }) {
 
   return (
     <div className="screen scr-pad-top">
+      {/* Back-to-home affordance for ScreenMembership */}
+      <button
+        className="back-link"
+        onClick={() => go(state.token ? "booking" : "phone")}
+      >
+        ← {state.token
+            ? (lang === "km" ? "ត្រឡប់​ទៅ​កក់" : "Back to booking")
+            : (lang === "km" ? "ត្រឡប់​ទៅ​ទំព័រ​ដើម" : "Back to home")}
+      </button>
       <div className="row-between" style={{ marginBottom: 12 }}>
         <Lockup size={0.92} onClick={() => go(state.token ? "booking" : "phone")} />
         <span className="pill">{t("m_kicker", null, lang)}</span>
@@ -6288,6 +6468,15 @@ function FAQList({ lang }) {
 function ScreenAbout({ state, setState, go, lang }) {
   return (
     <div className="screen scr-pad-top">
+      {/* Back-to-home affordance for ScreenAbout */}
+      <button
+        className="back-link"
+        onClick={() => go(state.token ? "booking" : "phone")}
+      >
+        ← {state.token
+            ? (lang === "km" ? "ត្រឡប់​ទៅ​កក់" : "Back to booking")
+            : (lang === "km" ? "ត្រឡប់​ទៅ​ទំព័រ​ដើម" : "Back to home")}
+      </button>
       <div className="row-between" style={{ marginBottom: 14 }}>
         <Lockup size={0.92} onClick={() => go(state.token ? "booking" : "phone")} />
         <span className="pill">{lang === "km" ? "អំពី​យើង" : "ABOUT"}</span>
