@@ -398,7 +398,7 @@ button { font-family: inherit; cursor: pointer; }
 .stat-card {
   background: var(--paper);
   border: 1.5px solid var(--ink);
-  padding: 16px 18px;
+  padding: 18px 22px 20px;
   border-radius: 4px;
   position: relative;
   overflow: hidden;
@@ -409,15 +409,18 @@ button { font-family: inherit; cursor: pointer; }
   letter-spacing: 0.16em;
   text-transform: uppercase;
   opacity: 0.6;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .stat-card .value {
   font-family: var(--serif);
   font-style: italic;
   font-weight: 400;
   font-size: 36px;
-  line-height: 1;
+  line-height: 1.15;
   letter-spacing: -0.01em;
+  /* Slight bottom padding so italic descenders (g, p, j, $) don't kiss
+     the "sub" line below or the card's bottom edge */
+  padding-bottom: 2px;
 }
 .stat-card .value .unit {
   font-family: var(--mono);
@@ -4308,7 +4311,7 @@ const { createRoot } = ReactDOM;
  * It should match the URL used by the customer-facing index.html.
  * Find it in Apps Script → Deploy → Manage deployments → copy "Web app" URL.
  */
-const API_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
+const API_URL = "https://script.google.com/macros/s/AKfycbySSk--iEFY8vTvldpARENCQ6KApJik0UHqASKa7PfJ1IkIJkmEAvOQPCsKR84MFtAY/exec";
 
 const COURTS_COUNT = 8;
 const OPEN_HOUR = 6;       // 06:00
@@ -21052,7 +21055,11 @@ function App() {
       const today = todayISO();
       const now = new Date();
       setTimeout(() => {
-        api("adminListTimelineEntries", { dateFrom: today, dateTo: today }).catch(() => {});
+        // Use { date: today } not { dateFrom, dateTo } — the dashboard's
+        // own fetch uses { date }, so the cache key must match for the
+        // prewarm to actually serve as a cache hit. Same data, different
+        // cache key — without matching shape the prewarm is wasted.
+        api("adminListTimelineEntries", { date: today }).catch(() => {});
         api("tabListOpen").catch(() => {});
       }, 200);
       setTimeout(() => {
