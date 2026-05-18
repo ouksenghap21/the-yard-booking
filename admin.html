@@ -15319,7 +15319,15 @@ function FinancesRangeView({ data, granularity, opOnly }) {
             <div className="label">★ Memberships</div>
             <div
               className="value"
-              style={{ color: "var(--green)" }}
+              style={{
+                color: "var(--green)",
+                // Shrink the font when the number gets 4+ digits so it
+                // doesn't crowd the card edge. Default .value is 36px;
+                // we step down to 30px ($1k–$10k) and 26px ($10k+).
+                fontSize: h.membershipRev < 1000 ? undefined
+                        : h.membershipRev < 10000 ? "30px"
+                        : "26px"
+              }}
               title={
                 "Membership fees this period: " + fmtMoney(h.membershipRev) +
                 " · " + fmtInt(h.newFoundingCount || 0) + " founding @ $200" +
@@ -15519,7 +15527,15 @@ function FinancesView({ data, onChanged, opOnly }) {
             <div className="label">★ Memberships</div>
             <div
               className="value"
-              style={{ color: "var(--green)" }}
+              style={{
+                color: "var(--green)",
+                // Shrink the font when the number gets 4+ digits so it
+                // doesn't crowd the card edge. Default .value is 36px;
+                // we step down to 30px ($1k–$10k) and 26px ($10k+).
+                fontSize: h.membershipRev < 1000 ? undefined
+                        : h.membershipRev < 10000 ? "30px"
+                        : "26px"
+              }}
               title={
                 "Membership fees this period: " + fmtMoney(h.membershipRev) +
                 " · " + fmtInt(h.newFoundingCount || 0) + " founding @ $200" +
@@ -21059,6 +21075,10 @@ function App() {
   const prefetchTimer = useRef(null);
   const [showShortcutHelp, setShowShortcutHelp] = useState(false);
   const gPrefixRef = useRef(0);  // timestamp of last "g" press for "g X" combos
+  // Tracks which tabs we've bundled this session — avoids redundant bundle
+  // calls when re-navigating to a recently-visited tab. Defined here at top
+  // so hooks order stays stable.
+  const _bundledRef = useRef(new Set());
 
   // Keyboard shortcuts effect — must be declared at top level alongside other hooks
   useEffect(() => {
@@ -21231,6 +21251,72 @@ function App() {
     const t = tabs.find(x => x.id === id);
     if (!t || !t.ready) return;
     setScreen(id);
+    // Fire the bundle endpoint to load ALL of this tab's data in one
+    // server round-trip. The bundle hydrates the per-endpoint cache,
+    // so when the Screen component mounts and fires its own loaders,
+    // they find data already cached and skip the network entirely.
+    //
+    // Without this: 4 calls to POS tab queue serially on Apps Script
+    // (single-threaded). With this: 1 call returns everything.
+    // Saves 5-10 seconds per tab switch on slow connections.
+    fireTabBundle(id);
+  }
+
+  // Tracks which tabs we've already bundled this session — avoids redundant
+  // bundle calls when the user re-navigates to a tab they recently visited.
+  // The per-endpoint caches will serve subsequent visits; bundle is only
+  // for the FIRST visit (or after a long idle when caches expired).
+  // The useRef itself is declared at the top of App() with the other refs.
+
+  function fireTabBundle(id) {
+    // Map screen IDs to bundle tab names (mostly 1:1)
+    const bundleTab = id;
+    // Don't re-bundle within 60s of last successful bundle — endpoint
+    // caches handle short-term repeats. The 60s window matches the
+    // longest typical cache TTL we use.
+    const lastKey = "lastBundle:" + bundleTab;
+    const lastBundle = _bundledRef.current.has(lastKey) ? parseInt(localStorage.getItem(lastKey) || "0") : 0;
+    if (lastBundle && (Date.now() - lastBundle) < 60000) return;
+
+    api("adminTabBundle", { tab: bundleTab }, { bypassCache: true })
+      .then(r => {
+        if (!r || !r.ok || !r.sections) return;
+        // Hydrate each section into the per-endpoint cache, using the
+        // same key shape api() would generate (no params, since bundle
+        // sections use the default empty-param call shape).
+        for (const [action, data] of Object.entries(r.sections)) {
+          if (!data || data.ok === false) continue;
+          // Special-case actions where the bundle uses a renamed key
+          // because we passed specific params (e.g., finances ranges).
+          let realAction = action;
+          let realParams = {};
+          if (action === "adminFinancesRangeDaily") {
+            realAction = "adminFinancesRange";
+            realParams = { granularity: "daily", periodOffset: 0 };
+          } else if (action === "adminFinancesRangeWeekly") {
+            realAction = "adminFinancesRange";
+            realParams = { granularity: "weekly", periodOffset: 0 };
+          } else if (action === "adminFinancesMonth") {
+            const now = new Date();
+            realParams = { year: now.getFullYear(), month: now.getMonth() + 1 };
+          } else if (action === "adminListTimelineEntries") {
+            realParams = { dateFrom: todayISO(), dateTo: todayISO() };
+          } else if (action === "posListSales") {
+            realParams = { date: todayISO() };
+          } else if (action === "adminListSmsLog") {
+            realParams = { type: "", status: "", limit: 200 };
+          } else if (action === "adminListCustomers") {
+            realParams = { search: "", type: "" };
+          } else if (action === "adminListCoachingSessions") {
+            realParams = { dateFrom: todayISO(), dateTo: todayISO() };
+          }
+          cacheApi(realAction, realParams, data);
+        }
+        // Mark this tab as bundled — skip re-bundling for 60s
+        _bundledRef.current.add(lastKey);
+        localStorage.setItem(lastKey, String(Date.now()));
+      })
+      .catch(() => { /* non-fatal; per-screen loaders will pick up the slack */ });
   }
 
   let body;
