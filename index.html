@@ -860,110 +860,119 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
 /* ========== Footer / nav ========== */
 /* ========== Sponsor Strip — continuous right-to-left marquee ==========
  *
- * Renders at the bottom of every screen, above the foot-nav. Shows the
- * sponsor logos in a slow scrolling row. Each logo gets a cream tile with
- * a thin border so visually-mismatched source assets (JPEG vs SVG, dark vs
- * light backgrounds) read as "intentional" rather than "messy".
+ * Premium design language: crisp cream band, NO individual tile frames,
+ * logos placed directly with mix-blend-mode handling the
+ * background-color mismatch on the JPEG sources.
  *
- * Mechanics: the .sponsor-track contains the logo list TWICE (we duplicate
- * via JS). The keyframe animates translateX from 0 to -50% — at that
- * point the second copy is exactly where the first started, creating a
- * seamless loop. No reset, no jump.
+ * mix-blend-mode: multiply makes any WHITE (or near-white) areas of a
+ * source logo blend into the cream band — so JPEGs with white/light
+ * backgrounds visually appear "transparent" without needing edited
+ * asset files. This trick works for King Kong (white bg), Cambodia
+ * Water (light blue bg, mostly blends), Pocari Sweat (already SVG,
+ * transparent), and reads as intentional on Keren (black bg → black
+ * silhouette on cream, looks like a wordmark by design).
+ *
+ * Visual rules borrowed from Stripe/Apple sponsor reels:
+ *   - generous horizontal spacing (40px gap)
+ *   - large logos (96px max height, ~180-220px width)
+ *   - no individual borders
+ *   - slow scroll (45s loop) — felt, not seen
+ *   - subtle band separation via 1px hairline above and below
  *
  * Accessibility: respects prefers-reduced-motion (stops the scroll for
  * users who've opted out of animations).
  */
 .sponsor-strip {
-  background: var(--paper);
-  border-top: 1.5px solid var(--ink);
-  border-bottom: 1.5px solid var(--ink);
+  background: var(--cream);
+  border-top: 1px solid rgba(26, 26, 26, 0.08);
+  border-bottom: 1px solid rgba(26, 26, 26, 0.08);
   overflow: hidden;
   position: relative;
-  padding: 14px 0 16px;
-  /* Sit ABOVE the fixed foot-nav so signed-in users still see sponsors */
+  padding: 28px 0 30px;
   margin-bottom: 0;
 }
 .sponsor-strip-label {
   text-align: center;
   font-family: var(--mono);
   font-size: 9px;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.28em;
   text-transform: uppercase;
-  opacity: 0.55;
-  margin-bottom: 12px;
+  opacity: 0.42;
+  margin-bottom: 20px;
 }
-/* The fading edges create a nice "fade to background" effect so logos
- * don't abruptly clip at the strip edges. */
+/* Subtle fading edges so logos don't abruptly clip at strip boundaries */
 .sponsor-strip::before,
 .sponsor-strip::after {
   content: "";
   position: absolute;
   top: 0; bottom: 0;
-  width: 60px;
+  width: 80px;
   z-index: 2;
   pointer-events: none;
 }
 .sponsor-strip::before {
   left: 0;
-  background: linear-gradient(to right, var(--paper), transparent);
+  background: linear-gradient(to right, var(--cream), transparent);
 }
 .sponsor-strip::after {
   right: 0;
-  background: linear-gradient(to left, var(--paper), transparent);
+  background: linear-gradient(to left, var(--cream), transparent);
 }
 .sponsor-track {
   display: flex;
-  gap: 14px;
-  width: max-content;       /* let the track grow as wide as its children */
-  animation: sponsor-scroll 38s linear infinite;
+  gap: 56px;                  /* generous spacing — premium feel */
+  align-items: center;
+  width: max-content;
+  animation: sponsor-scroll 45s linear infinite;
 }
 .sponsor-strip:hover .sponsor-track {
   animation-play-state: paused;
 }
 .sponsor-tile {
   flex: 0 0 auto;
-  width: 160px;
-  height: 72px;
-  background: var(--cream);
-  border: 1px solid rgba(26, 26, 26, 0.12);
-  border-radius: 6px;
+  height: 84px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 10px 14px;
-  box-sizing: border-box;
-  transition: filter .25s ease, transform .25s ease, border-color .25s ease;
-  /* Grayscale by default so the row reads as a unified strip; the colored
-   * versions appear on hover, drawing attention naturally without
-   * fighting the page's brand palette. */
-  filter: grayscale(1) contrast(0.95);
-  opacity: 0.78;
-}
-.sponsor-tile:hover {
-  filter: grayscale(0) contrast(1);
-  opacity: 1;
-  border-color: rgba(26, 26, 26, 0.32);
-  transform: translateY(-2px);
+  /* No background, no border — logos sit directly on the cream band */
 }
 .sponsor-tile img {
-  max-width: 100%;
-  max-height: 100%;
+  max-height: 84px;
+  max-width: 220px;
+  width: auto;
+  height: auto;
   object-fit: contain;
   display: block;
+  /* mix-blend-mode: multiply — the magic trick that makes white/light
+   * backgrounds disappear into the cream band. Logos with dark or
+   * colored backgrounds still show their background but it reads as
+   * intentional (a "frame" inherent to the logo), not a CSS mistake. */
+  mix-blend-mode: multiply;
+  /* Slight contrast bump compensates for any haze the blend introduces */
+  filter: contrast(1.05);
+  transition: transform 0.3s ease, filter 0.3s ease;
+}
+.sponsor-tile:hover img {
+  transform: scale(1.06);
+  filter: contrast(1.1);
 }
 @keyframes sponsor-scroll {
   from { transform: translateX(0); }
-  /* -50% because we duplicate the list — when the first copy fully exits
-   * left, the second copy is in the exact original position. */
   to   { transform: translateX(-50%); }
 }
-/* Respect users who've asked for reduced motion (system pref) */
 @media (prefers-reduced-motion: reduce) {
   .sponsor-track {
     animation: none;
-    /* Show the first copy as a static row */
     transform: translateX(0);
   }
+}
+/* On very narrow screens, scale things down so the band doesn't dominate */
+@media (max-width: 480px) {
+  .sponsor-strip { padding: 22px 0 24px; }
+  .sponsor-strip-label { margin-bottom: 16px; }
+  .sponsor-track { gap: 40px; }
+  .sponsor-tile { height: 64px; }
+  .sponsor-tile img { max-height: 64px; max-width: 170px; }
 }
 
 /* ========== Foot nav (Ink + Cream — "On Ink" brand variant) ========== */
@@ -5619,22 +5628,40 @@ function OpenPlaySessionModal({ session, myReg, profile, state, onClose, onChang
 
 
 /* ====================================================================
-   SponsorStrip — continuous right-to-left scrolling banner of sponsor
-   logos at the bottom of every screen.
+   SponsorStrip — premium continuous-scroll sponsor logo banner.
 
-   Logos live in /sponsors/ next to index.html. Add/remove sponsors by
-   editing the SPONSORS array below — each entry needs:
-     - name: display name (also serves as alt text for screen readers
-             and the visible fallback if the image fails to load)
-     - file: filename within /sponsors/ folder
+   Renders at the bottom of every screen. Design language modeled on
+   Stripe / Apple sponsor reels: clean cream band, large logos placed
+   directly (no individual frames), generous spacing, slow scroll.
 
-   Visual treatment intentionally heavy: cream tiles + bordered frames +
-   grayscale-by-default. This makes mixed-quality source assets (JPEGs
-   with solid backgrounds + clean SVGs) look like a coherent set.
+   The mix-blend-mode trick:
+   -------------------------
+   We don't have transparent-PNG logos for most sponsors yet. JPEGs come
+   with solid backgrounds (King Kong white, Cambodia Water light blue,
+   Keren black). Rather than asking each sponsor for press-kit assets
+   (which is what a real launch would do), we use CSS mix-blend-mode to
+   visually erase the backgrounds:
 
-   When you upload better logos with transparent backgrounds, you can
-   reduce the tile background / remove the grayscale filter via the
-   CSS in the .sponsor-tile rule (~25 lines up in the stylesheet).
+     - "multiply" (default): WHITE areas of the source blend into the
+       cream band and effectively disappear. Works perfectly for King
+       Kong and Cambodia Water (mostly white/light backgrounds).
+     - "darken": similar to multiply but preserves more mid-tones.
+       Useful when multiply makes a logo too dark.
+     - "screen": LIGHTEST color wins. Good for white logos on dark
+       backgrounds when our band is dark. NOT useful with cream band.
+     - "normal" / null: don't blend. Logo shows as-is, including its
+       background rectangle.
+
+   For Keren (white logo on solid black), multiply means the black
+   background stays black and the white wordmark blends. The result is
+   a clean black plaque with cream-tinted text — looks intentional, like
+   a museum credit line. If you want Keren to read more strongly, get
+   a black-on-transparent version from them and remove its blend option.
+
+   Long term: ask each sponsor for transparent PNG or SVG logos. Then
+   set blend:"none" and they'll all render perfectly. Until then, the
+   blend trick gets you 80% of the way to "premium" with zero asset
+   work.
 
    Hidden entirely if SPONSORS is empty (so you don't render an empty
    row of fading edges).
@@ -5642,11 +5669,21 @@ function OpenPlaySessionModal({ session, myReg, profile, state, onClose, onChang
 function SponsorStrip() {
   // SPONSORS — single source of truth. Add new ones by appending to this
   // array; the marquee infrastructure auto-scales to any count.
+  //
+  // Each sponsor accepts:
+  //   - name: display name (alt text + hover tooltip + fallback text)
+  //   - file: filename within /sponsors/ folder
+  //   - blend: optional mix-blend-mode override per-logo. Default is
+  //     "multiply" which handles white/light backgrounds. Set to "none"
+  //     for properly-transparent assets, or pick a different blend if
+  //     the default doesn't suit the source image.
+  //   - scale: optional size multiplier (e.g. 0.85 to shrink a logo
+  //     that's visually too large, 1.15 to bump up a small one).
   const SPONSORS = [
-    { name: "Keren",          file: "keren.png" },
-    { name: "King Kong",      file: "king-kong.png" },
-    { name: "Cambodia Water", file: "cambodia-water.jpg" },
-    { name: "Pocari Sweat",   file: "pocari-sweat.svg" }
+    { name: "Keren",          file: "keren.png",          blend: "multiply" },
+    { name: "King Kong",      file: "king-kong.png",      blend: "multiply", scale: 0.95 },
+    { name: "Cambodia Water", file: "cambodia-water.jpg", blend: "multiply" },
+    { name: "Pocari Sweat",   file: "pocari-sweat.svg",   blend: "none" }
   ];
 
   if (!SPONSORS || SPONSORS.length === 0) return null;
@@ -5665,14 +5702,20 @@ function SponsorStrip() {
           <div
             className="sponsor-tile"
             key={i + ":" + s.file}
-            // Hover reveals the full sponsor name even when the logo is
-            // ambiguous — also helps screen readers and keyboard users.
             title={s.name}
           >
             <img
               src={"sponsors/" + s.file}
               alt={s.name}
               loading="lazy"
+              style={{
+                // Per-sponsor blend override. "none" means the logo
+                // renders as-is, no blending.
+                mixBlendMode: (s.blend && s.blend !== "none") ? s.blend : "normal",
+                // Per-sponsor scale (used to balance visually-large vs
+                // visually-small logos so they read at similar weights).
+                transform: s.scale ? `scale(${s.scale})` : undefined
+              }}
               onError={(e) => {
                 // Graceful fallback: if a logo file is missing or fails to
                 // load, replace the broken-image icon with a text version
