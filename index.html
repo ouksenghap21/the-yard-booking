@@ -858,6 +858,114 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
 @keyframes toastIn{ from { transform:translate(-50%, 20px); opacity:0; } to { transform:translate(-50%, 0); opacity:1; } }
 
 /* ========== Footer / nav ========== */
+/* ========== Sponsor Strip — continuous right-to-left marquee ==========
+ *
+ * Renders at the bottom of every screen, above the foot-nav. Shows the
+ * sponsor logos in a slow scrolling row. Each logo gets a cream tile with
+ * a thin border so visually-mismatched source assets (JPEG vs SVG, dark vs
+ * light backgrounds) read as "intentional" rather than "messy".
+ *
+ * Mechanics: the .sponsor-track contains the logo list TWICE (we duplicate
+ * via JS). The keyframe animates translateX from 0 to -50% — at that
+ * point the second copy is exactly where the first started, creating a
+ * seamless loop. No reset, no jump.
+ *
+ * Accessibility: respects prefers-reduced-motion (stops the scroll for
+ * users who've opted out of animations).
+ */
+.sponsor-strip {
+  background: var(--paper);
+  border-top: 1.5px solid var(--ink);
+  border-bottom: 1.5px solid var(--ink);
+  overflow: hidden;
+  position: relative;
+  padding: 14px 0 16px;
+  /* Sit ABOVE the fixed foot-nav so signed-in users still see sponsors */
+  margin-bottom: 0;
+}
+.sponsor-strip-label {
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  margin-bottom: 12px;
+}
+/* The fading edges create a nice "fade to background" effect so logos
+ * don't abruptly clip at the strip edges. */
+.sponsor-strip::before,
+.sponsor-strip::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 60px;
+  z-index: 2;
+  pointer-events: none;
+}
+.sponsor-strip::before {
+  left: 0;
+  background: linear-gradient(to right, var(--paper), transparent);
+}
+.sponsor-strip::after {
+  right: 0;
+  background: linear-gradient(to left, var(--paper), transparent);
+}
+.sponsor-track {
+  display: flex;
+  gap: 14px;
+  width: max-content;       /* let the track grow as wide as its children */
+  animation: sponsor-scroll 38s linear infinite;
+}
+.sponsor-strip:hover .sponsor-track {
+  animation-play-state: paused;
+}
+.sponsor-tile {
+  flex: 0 0 auto;
+  width: 160px;
+  height: 72px;
+  background: var(--cream);
+  border: 1px solid rgba(26, 26, 26, 0.12);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 14px;
+  box-sizing: border-box;
+  transition: filter .25s ease, transform .25s ease, border-color .25s ease;
+  /* Grayscale by default so the row reads as a unified strip; the colored
+   * versions appear on hover, drawing attention naturally without
+   * fighting the page's brand palette. */
+  filter: grayscale(1) contrast(0.95);
+  opacity: 0.78;
+}
+.sponsor-tile:hover {
+  filter: grayscale(0) contrast(1);
+  opacity: 1;
+  border-color: rgba(26, 26, 26, 0.32);
+  transform: translateY(-2px);
+}
+.sponsor-tile img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+@keyframes sponsor-scroll {
+  from { transform: translateX(0); }
+  /* -50% because we duplicate the list — when the first copy fully exits
+   * left, the second copy is in the exact original position. */
+  to   { transform: translateX(-50%); }
+}
+/* Respect users who've asked for reduced motion (system pref) */
+@media (prefers-reduced-motion: reduce) {
+  .sponsor-track {
+    animation: none;
+    /* Show the first copy as a static row */
+    transform: translateX(0);
+  }
+}
+
 /* ========== Foot nav (Ink + Cream — "On Ink" brand variant) ========== */
 .foot-nav{
   display:flex; gap:0;
@@ -2536,18 +2644,17 @@ const STRINGS = {
     p_h1_b: "Dink on.",
     p_lede: "A neighborhood pickleball club in Toul Kork. Eight courts.",
     p_lede_em: "Book one.",
-    // 3-pillar strip — concrete value props between the hero and the action.
+    // 2-pillar strip — concrete value props between the hero and the action.
     // Pre-launch visitors landing from social need to see what we actually offer
     // in 3 seconds. Short fragments, mono caps, brand consistent.
+    // (Was 3 pillars; the third — "$5 member rate" — was removed as pricing
+    // is set per court rather than per member tier in practice.)
     p_pillar_1_v: "8",
     p_pillar_1_l: "Indoor courts",
     p_pillar_1_s: "Climate-controlled",
     p_pillar_2_v: "16h",
     p_pillar_2_l: "Daily open",
     p_pillar_2_s: "06:00 — 22:00",
-    p_pillar_3_v: "$5",
-    p_pillar_3_l: "Member rate",
-    p_pillar_3_s: "Per court · per hour",
     p_label_phone: "Phone number",
     p_phone_placeholder: "12 345 678",
     p_phone_hint: "We'll text you a 6-digit code. Standard SMS rates apply.",
@@ -2707,16 +2814,13 @@ const STRINGS = {
     p_h1_b: "ដិកនៅទីនេះ។",
     p_lede: "ក្លឹប​ភីខលបល​នៅ​ទួលគោក។ ប្រាំបី​កួត។",
     p_lede_em: "កក់​មួយ។",
-    // 3-pillar strip (KM)
+    // 2-pillar strip (KM)
     p_pillar_1_v: "៨",
     p_pillar_1_l: "កួត​ក្នុង​អគារ",
     p_pillar_1_s: "មាន​ម៉ាស៊ីន​ត្រជាក់",
     p_pillar_2_v: "១៦ម៉",
     p_pillar_2_l: "បើក​ប្រចាំ​ថ្ងៃ",
     p_pillar_2_s: "០៦:០០ — ២២:០០",
-    p_pillar_3_v: "$៥",
-    p_pillar_3_l: "តម្លៃ​សមាជិក",
-    p_pillar_3_s: "ក្នុង​មួយ​កួត · ក្នុង​មួយ​ម៉ោង",
     p_label_phone: "លេខ​ទូរស័ព្ទ",
     p_phone_placeholder: "12 345 678",
     p_phone_hint: "យើង​នឹង​ផ្ញើ​លេខ​សម្ងាត់​៦​ខ្ទង់​ទៅ​អ្នក។",
@@ -3600,21 +3704,21 @@ function ScreenPhone({ state, setState, go, lang }) {
             between cells, hairline border around the whole strip, paper bg.
             No icons — wordmark/typography only, to stay on brand.
 
-            Layout: equal-width 3-column grid that collapses to a single
-            column on very narrow screens via the inline media query. */}
+            Layout: equal-width 2-column grid (was 3; the third pillar — a
+            member-rate teaser — was removed since pricing is per-court rather
+            than per-tier in practice). */}
         <div style={{
           margin: "0 0 28px",
           border: "1.5px solid var(--ink)",
           borderRadius: 14,
           background: "var(--paper)",
           display: "grid",
-          gridTemplateColumns: "1fr 1fr 1fr",
+          gridTemplateColumns: "1fr 1fr",
           overflow: "hidden"
         }}>
           {[
             ["p_pillar_1_v", "p_pillar_1_l", "p_pillar_1_s"],
-            ["p_pillar_2_v", "p_pillar_2_l", "p_pillar_2_s"],
-            ["p_pillar_3_v", "p_pillar_3_l", "p_pillar_3_s"]
+            ["p_pillar_2_v", "p_pillar_2_l", "p_pillar_2_s"]
           ].map(([vKey, lKey, sKey], i) => (
             <div key={vKey} style={{
               padding: "16px 12px 14px",
@@ -5515,6 +5619,81 @@ function OpenPlaySessionModal({ session, myReg, profile, state, onClose, onChang
 
 
 /* ====================================================================
+   SponsorStrip — continuous right-to-left scrolling banner of sponsor
+   logos at the bottom of every screen.
+
+   Logos live in /sponsors/ next to index.html. Add/remove sponsors by
+   editing the SPONSORS array below — each entry needs:
+     - name: display name (also serves as alt text for screen readers
+             and the visible fallback if the image fails to load)
+     - file: filename within /sponsors/ folder
+
+   Visual treatment intentionally heavy: cream tiles + bordered frames +
+   grayscale-by-default. This makes mixed-quality source assets (JPEGs
+   with solid backgrounds + clean SVGs) look like a coherent set.
+
+   When you upload better logos with transparent backgrounds, you can
+   reduce the tile background / remove the grayscale filter via the
+   CSS in the .sponsor-tile rule (~25 lines up in the stylesheet).
+
+   Hidden entirely if SPONSORS is empty (so you don't render an empty
+   row of fading edges).
+   ==================================================================== */
+function SponsorStrip() {
+  // SPONSORS — single source of truth. Add new ones by appending to this
+  // array; the marquee infrastructure auto-scales to any count.
+  const SPONSORS = [
+    { name: "Keren",          file: "keren.png" },
+    { name: "King Kong",      file: "king-kong.png" },
+    { name: "Cambodia Water", file: "cambodia-water.jpg" },
+    { name: "Pocari Sweat",   file: "pocari-sweat.svg" }
+  ];
+
+  if (!SPONSORS || SPONSORS.length === 0) return null;
+
+  // We render the list TWICE inside the track. The CSS animation
+  // translates -50% (exactly the width of one copy), so the visual loop
+  // is seamless: at the moment the first copy fully exits left, the
+  // second copy is positioned exactly where the first started.
+  const doubled = SPONSORS.concat(SPONSORS);
+
+  return (
+    <div className="sponsor-strip" aria-label="Our sponsors">
+      <div className="sponsor-strip-label">Supported by</div>
+      <div className="sponsor-track">
+        {doubled.map((s, i) => (
+          <div
+            className="sponsor-tile"
+            key={i + ":" + s.file}
+            // Hover reveals the full sponsor name even when the logo is
+            // ambiguous — also helps screen readers and keyboard users.
+            title={s.name}
+          >
+            <img
+              src={"sponsors/" + s.file}
+              alt={s.name}
+              loading="lazy"
+              onError={(e) => {
+                // Graceful fallback: if a logo file is missing or fails to
+                // load, replace the broken-image icon with a text version
+                // of the sponsor name. Keeps the row visually consistent
+                // even when one asset is bad.
+                const parent = e.target.parentNode;
+                if (parent && !parent.dataset.fallback) {
+                  parent.dataset.fallback = "1";
+                  parent.innerHTML = '<span style="font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.7; text-align: center;">' + s.name + '</span>';
+                }
+              }}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+/* ====================================================================
    8. APP SHELL — top bar, language toggle, screen routing, foot nav
    ==================================================================== */
 
@@ -5628,6 +5807,19 @@ function App() {
       </div>
 
       {body}
+
+      {/* Sponsor strip — continuous-scroll logo banner. Appears at the
+          bottom of every screen, above the foot-nav (which is fixed-pos
+          and overlays this naturally when signed in). Hidden when the
+          SPONSORS array inside is empty. */}
+      <SponsorStrip />
+
+      {/* When foot-nav is showing, add bottom padding to prevent the
+          sponsor strip's last bit from being hidden under the fixed
+          navigation. 64px ≈ foot-nav height + breathing room. */}
+      {isSignedIn && screen !== "phone" && screen !== "otp" && screen !== "confirm" && (
+        <div style={{ height: 64 }} aria-hidden="true" />
+      )}
 
       {/* Foot nav appears only after sign-in */}
       {isSignedIn && screen !== "phone" && screen !== "otp" && screen !== "confirm" && (
