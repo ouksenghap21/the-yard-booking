@@ -87,74 +87,6 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
 .screen{ padding:8px 22px 120px; position:relative; }
 .scr-pad-top{ padding-top:8px; }
 
-/* ========== Desktop/laptop layout (Path A — widen + scale) ==========
- *
- * The site is mobile-first. On wider viewports it would otherwise look
- * stranded — a narrow 520px column floating in vast empty space, with
- * the trajectory line + 3D ball positioned absolutely outside the
- * column to the left (because they extend past the container border).
- *
- * Strategy: widen the root container at two breakpoints, scale type
- * proportionally, keep all components in their current single-column
- * flow. Trajectory + ball stay positioned absolutely but now relative
- * to a wider parent, so they sit naturally within the content area.
- *
- *   720px+   → 720px column, modest type bump
- *   1024px+  → 820px column, slightly larger type, taller cinema
- *
- * Phone layout (<720px) is completely unchanged.
- */
-@media (min-width: 720px) {
-  #root { max-width: 720px; }
-  .foot-nav { max-width: 720px; }
-  .modal { max-width: 720px; }
-
-  /* Slightly larger overall padding for breathing room */
-  .screen { padding: 14px 32px 120px; }
-
-  /* Type scales — gentle, not dramatic. Each h-display has a different
-     baseline inline size per screen (landing 72, booking 60, others 48);
-     we scale each up proportionally rather than flattening them. */
-  .h-display[style*="font-size: 72"],
-  .h-display[style*="fontSize:72"] { font-size: 96px !important; }
-  .h-display[style*="font-size: 60"],
-  .h-display[style*="fontSize:60"] { font-size: 76px !important; }
-  .h-display[style*="font-size: 48"],
-  .h-display[style*="fontSize:48"] { font-size: 60px !important; }
-  /* The lede paragraph below h1 */
-  .scr-pad-top > p:nth-of-type(1) { font-size: 16px; max-width: 38ch; }
-
-  /* Cinema (rotating renders) gets more vertical room. Keep the natural
-     16:10 aspect ratio so we don't trigger a layout shift on resize. */
-  .yard-cinema { margin: 14px 0 22px; }
-
-  /* Discovery tiles get a touch more padding */
-  .discover-link { padding: 18px 18px 18px; }
-  .discover-link .discover-title { font-size: 26px; }
-
-  /* Phone input slightly taller for desktop ergonomics */
-  .input { min-height: 56px; }
-}
-
-@media (min-width: 1024px) {
-  #root { max-width: 820px; }
-  .foot-nav { max-width: 820px; }
-  .modal { max-width: 820px; }
-
-  /* Headline reaches its full impact size at large viewport */
-  .h-display[style*="font-size: 72"],
-  .h-display[style*="fontSize:72"] { font-size: 116px !important; }
-  .h-display[style*="font-size: 60"],
-  .h-display[style*="fontSize:60"] { font-size: 88px !important; }
-  .h-display[style*="font-size: 48"],
-  .h-display[style*="fontSize:48"] { font-size: 68px !important; }
-  .scr-pad-top > p:nth-of-type(1) { font-size: 17px; }
-
-  /* Section labels grow with the header type */
-  .label { font-size: 13px; }
-  .label .num { font-size: 12px; }
-}
-
 /* ========== Top utility bar (date + lang toggle) ========== */
 .topbar{
   position:sticky; top:0; z-index:50;
@@ -2353,20 +2285,12 @@ h1.h-display{ text-wrap:balance; }
    ════════════════════════════════════════════════════════════════════ */
 .yard-trail{
   position:absolute;
-  /* The yard-ball sits at right:-12px width:140px, so its center is
-     58px LEFT of the H1 wrapper's right edge (H1.right - 58).
-     We pin the trail's right edge to that ball center via right:58px
-     (positive — pulls the trail's right edge INTO the H1 wrapper by 58px).
-     Then the SVG's viewBox right edge (x=472) lines up with the ball
-     center in screen space. */
-  top:-58px;
-  right:58px;
-  width:560px;
-  max-width:calc(100% + 0px);  /* don't extend past the H1's left edge */
-  height:220px;
+  top:-58px; left:-160px;
+  width:calc(100% + 240px); height:220px;
   pointer-events:none;
   z-index:1;
   overflow:visible;
+  /* Hide entirely on mobile — the curve doesn't have room to breathe */
   display:block;
 }
 .yard-trail svg{
@@ -2407,10 +2331,9 @@ h1.h-display{ text-wrap:balance; }
 /* All moving balls share the same offset-path. Each ball has its own
    fade-keyframes so opacity peak is bakable (var() in @keyframes is
    unreliable for interpolated values). Motion: 0→100% over 0-55%
-   so the lead ball lands at the same moment the line finishes drawing.
-   The path MUST match TRAIL_PATH in the JS below — keep them in sync. */
+   so the lead ball lands at the same moment the line finishes drawing. */
 .yt-mover{
-  offset-path:path('M 0 200 Q 220 -40, 472 200');
+  offset-path:path('M 0 210 Q 220 -90, 472 108');
   offset-rotate:0deg;
   offset-distance:0%;
   opacity:0;
@@ -6879,27 +6802,14 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
          The path arcs from off-screen lower-left to the pickleball's
          position, animated with stroke-dasharray "draw" + animateMotion
          for the traveling balls. Loops every 7s, matching the CSS
-         keyframes above.
-         viewBox is tightened to 0 0 472 220 so the path endpoint at
-         x=472 sits exactly at the right edge of the container, which is
-         pinned to the ball center in the .yard-trail CSS rule above.
-         The container is 560px wide on a 520px column — the SVG scales
-         to fill, stretching the curve slightly, but the endpoint stays
-         pinned to the ball.
-
-         The curve now lands BELOW the ball, not at its center. With the
-         trail container at top:-58 height:220, the ball sits in viewBox
-         y range ~36–176 (top to bottom), centered around y=106. The
-         curve endpoint and impact splash are at y=200 — that's 24px
-         BELOW the ball bottom in viewBox units, so the splash appears
-         beneath the ball like a real bounce point. ─── */
-  const TRAIL_PATH = 'M 0 200 Q 220 -40, 472 200';
+         keyframes above. ─── */
+  const TRAIL_PATH = 'M 0 210 Q 220 -90, 472 108';
   const TRAIL_HTML = ''
-    + '<svg viewBox="0 0 472 220" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">'
+    + '<svg viewBox="0 0 580 220" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">'
       // The drawn curve
     + '<path class="yt-line" d="' + TRAIL_PATH + '"/>'
-      // Impact pulse BELOW the ball at the landing point (animated via CSS r:)
-    + '<circle class="yt-impact" cx="472" cy="200" r="6"/>'
+      // Impact pulse at the landing point (animated via CSS r:)
+    + '<circle class="yt-impact" cx="472" cy="108" r="6"/>'
       // Trailing fade dots — earliest arrives first, larger/brighter.
       // All move along TRAIL_PATH via CSS offset-path.
     + '<circle class="yt-trail-4 yt-mover" r="2"/>'
