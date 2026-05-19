@@ -12649,20 +12649,20 @@ function SaleHistoryModal({ onClose }) {
 
   function rangeDates(r) {
     const now = new Date();
-    const to = new Date(now);
+    const to = new Date(now);  // always cap at today — POS sales can't be future-dated
     const from = new Date(now);
     if (r === "1w") from.setDate(from.getDate() - 7);
     else if (r === "2w") from.setDate(from.getDate() - 14);
     else if (r === "1m") from.setMonth(from.getMonth() - 1);
     else if (r === "3m") from.setMonth(from.getMonth() - 3);
     else {
-      // "all" — back to Y2000, forward to Y2100. The `to` bound was previously
-      // left at today, which silently excluded future-dated sales (e.g. test
-      // data from a load-test seed scattered across the full month). For real
-      // operations this rarely matters since sales don't happen in the future,
-      // but for any tooling that pre-loads future dates the cutoff hid rows.
+      // "all" — back to Y2000, forward to today. In production, real POS
+      // sales cannot be future-dated (posCreateSale hardcodes nowTZ() for
+      // Created_At), so `to = today` is the correct semantic cap for
+      // all ranges. The previous version extended `to` to Y2100 for "all"
+      // only — that was inconsistent with the other range chips and made
+      // load-test data appear in "all" but not "3 months" / "1 month".
       from.setFullYear(2000, 0, 1);
-      to.setFullYear(2100, 11, 31);
     }
     const fmt = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
     return { from: fmt(from), to: fmt(to) };
@@ -12670,14 +12670,28 @@ function SaleHistoryModal({ onClose }) {
 
   async function load() {
     const { from, to } = rangeDates(range);
-    const r = await api("posListSales", {
-      dateFrom: from,
-      dateTo: to,
-      includeVoided: "true"  // show voided too with a label
-    });
-    if (r.ok) {
-      setSales(r.sales || []);
-      setTotal(r.total || 0);
+    // Show "Loading..." state while the API call is in flight. The previous
+    // version left stale sales visible on screen during the fetch, which made
+    // it look like nothing was happening when you clicked a different range
+    // chip. Setting sales=null triggers the loading-spinner branch below.
+    setSales(null);
+    try {
+      const r = await api("posListSales", {
+        dateFrom: from,
+        dateTo: to,
+        includeVoided: "true"  // show voided too with a label
+      });
+      if (r.ok) {
+        setSales(r.sales || []);
+        setTotal(r.total || 0);
+      } else {
+        // On error, keep empty list rather than spinning forever
+        setSales([]);
+        setTotal(0);
+      }
+    } catch (err) {
+      setSales([]);
+      setTotal(0);
     }
   }
 
@@ -12756,6 +12770,8 @@ function SaleHistoryModal({ onClose }) {
                 key={r.id}
                 className={"filter-chip" + (range === r.id ? " on" : "")}
                 onClick={() => setRange(r.id)}
+                disabled={sales === null}
+                style={sales === null ? { opacity: 0.6, cursor: "wait" } : {}}
               >{r.label}</button>
             ))}
           </div>
@@ -12772,21 +12788,22 @@ function SaleHistoryModal({ onClose }) {
           />
         </div>
 
-        {/* Headline stats */}
+        {/* Headline stats — show "—" placeholders during fetch so the
+            previous range's values don't visibly persist while loading. */}
         <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginBottom: 14 }}>
           <div className="stat-card accent-green">
             <div className="label">Revenue</div>
-            <div className="value">${aggregate.revenue.toFixed(2)}</div>
+            <div className="value">{sales === null ? "…" : "$" + aggregate.revenue.toFixed(2)}</div>
             <div className="sub">in selected range</div>
           </div>
           <div className="stat-card">
             <div className="label">Sales</div>
-            <div className="value">{aggregate.count}</div>
-            <div className="sub">{aggregate.voided > 0 ? aggregate.voided + " voided" : "0 voided"}</div>
+            <div className="value">{sales === null ? "…" : aggregate.count}</div>
+            <div className="sub">{sales === null ? "loading…" : (aggregate.voided > 0 ? aggregate.voided + " voided" : "0 voided")}</div>
           </div>
           <div className="stat-card">
             <div className="label">Avg ticket</div>
-            <div className="value">${aggregate.count > 0 ? (aggregate.revenue / Math.max(1, aggregate.count - aggregate.voided)).toFixed(2) : "0.00"}</div>
+            <div className="value">{sales === null ? "…" : "$" + (aggregate.count > 0 ? (aggregate.revenue / Math.max(1, aggregate.count - aggregate.voided)).toFixed(2) : "0.00")}</div>
           </div>
         </div>
 
