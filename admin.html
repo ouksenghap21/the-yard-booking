@@ -1235,6 +1235,8 @@ button { font-family: inherit; cursor: pointer; }
 .btn.primary:hover { background: var(--clay); border-color: var(--clay); }
 .btn.danger { background: var(--clay); color: var(--cream); border-color: var(--clay); }
 .btn.danger:hover { background: var(--ink); border-color: var(--ink); }
+.btn.success { background: var(--green, #3D7A4F); color: var(--cream); border-color: var(--green, #3D7A4F); }
+.btn.success:hover { background: var(--ink); border-color: var(--ink); }
 .btn.ghost { background: transparent; }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -1372,6 +1374,17 @@ button { font-family: inherit; cursor: pointer; }
 .section-group .head .count.urgent { background: var(--clay); }
 .section-group .head .count.warn { background: var(--warn); color: var(--ink); }
 .section-group .head .count.wood { background: var(--wood); }
+/* Small explanatory text under section headers in the dashboard's Needs
+ * Attention panel — clarifies what each list is for so staff don't have
+ * to guess. Kept very low-key (small, faded) so it doesn't visually
+ * compete with the action items themselves. */
+.section-group .helper-text {
+  font-size: 11px;
+  opacity: 0.55;
+  font-style: italic;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
 
 .empty-mini {
   font-family: var(--mono);
@@ -1684,6 +1697,8 @@ button { font-family: inherit; cursor: pointer; }
 .btn-sm.primary:hover { background: var(--clay); border-color: var(--clay); }
 .btn-sm.danger { background: var(--clay); color: var(--cream); border-color: var(--clay); }
 .btn-sm.danger:hover { background: var(--ink); border-color: var(--ink); }
+.btn-sm.success { background: var(--green, #3D7A4F); color: var(--cream); border-color: var(--green, #3D7A4F); }
+.btn-sm.success:hover { background: var(--ink); border-color: var(--ink); }
 .btn-sm.ghost { background: transparent; }
 .btn-sm:disabled { opacity: 0.35; cursor: not-allowed; }
 
@@ -1793,6 +1808,7 @@ button { font-family: inherit; cursor: pointer; }
 
 .modal .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   justify-content: flex-end;
   margin-top: 20px;
@@ -6439,7 +6455,10 @@ function ScreenDashboard() {
       {/* Action Queue + Today's Pulse */}
       <div className="two-col">
         <ActionQueuePanel data={data} onMarkPaid={refresh} />
-        <TodaysPulsePanel data={data} />
+        <TodaysPulsePanel
+          data={data}
+          onOpenPlayClick={(sid) => setOpenPlayDetailId(sid)}
+        />
       </div>
 
       {/* Click-to-detail modals from the timeline */}
@@ -6779,6 +6798,10 @@ function ActionQueuePanel({ data, onMarkPaid }) {
   const [optimisticPaid, setOptimisticPaid] = useState(new Set());
   // Same idea for refunds — IDs the user just marked as refunded
   const [optimisticRefunded, setOptimisticRefunded] = useState(new Set());
+  // Same idea for "They're here" — IDs the user just confirmed arrived.
+  // These should disappear from At-Risk immediately; the next refresh will
+  // re-emit them via derivedStatus="checked_in" which isn't in atRisk anyway.
+  const [optimisticArrived, setOptimisticArrived] = useState(new Set());
   // How many overdue items to show by default (rest collapsed)
   const [showAllOverdue, setShowAllOverdue] = useState(false);
 
@@ -6786,6 +6809,7 @@ function ActionQueuePanel({ data, onMarkPaid }) {
   const overdueKey = (o) => o.entryType + ":" + o.id;
   const visibleOverdue = overdue.filter(o => !optimisticPaid.has(overdueKey(o)));
   const visibleRefunds = refundsOwed.filter(r => !optimisticRefunded.has(r.bookingId));
+  const visibleAtRisk = atRisk.filter(b => !optimisticArrived.has(b.bookingId) && !optimisticPaid.has("booking:" + b.bookingId));
 
   const total =
     payments.filter(p => !optimisticPaid.has(p.bookingId)).length +
@@ -6870,13 +6894,23 @@ function ActionQueuePanel({ data, onMarkPaid }) {
   }
 
   async function confirmArrival(bookingId) {
-    // No confirm prompt — this is a low-stakes positive action.
-    // Just marks the booking as "customer is here" without taking payment.
+    // Optimistic UI — remove from at-risk list immediately. Backend round-trip
+    // can take ~1-2s; users perceive that as a frozen click. The local Set
+    // hides the row right away; the next dashboard refresh reconciles by
+    // re-fetching, which won't include this booking in atRisk anymore (its
+    // derivedStatus is now "checked_in").
+    setOptimisticArrived(prev => new Set([...prev, bookingId]));
     const r = await api("adminConfirmArrival", { bookingId: bookingId });
     if (r.ok) {
       showToast(r.message || "Arrival confirmed", "success");
       onMarkPaid && onMarkPaid();  // triggers data reload — same callback name
     } else {
+      // Roll back optimistic update on failure
+      setOptimisticArrived(prev => {
+        const next = new Set(prev);
+        next.delete(bookingId);
+        return next;
+      });
       showToast(r.error || "Failed", "error");
     }
   }
@@ -6907,6 +6941,9 @@ function ActionQueuePanel({ data, onMarkPaid }) {
               ? 0
               : visibleOverdue.length + " · " + fmtMoney(overdueTotal)}
           </span>
+        </div>
+        <div className="helper-text">
+          Customers who played but never paid · 24h+ since their booking ended · chase by phone
         </div>
         {visibleOverdue.length === 0 ? (
           <div className="empty-mini">Nothing overdue · all caught up</div>
@@ -6959,6 +6996,9 @@ function ActionQueuePanel({ data, onMarkPaid }) {
             {payments.filter(p => !optimisticPaid.has(p.bookingId)).length}
           </span>
         </div>
+        <div className="helper-text">
+          Today's games finishing now or recently · take payment at the counter before they leave
+        </div>
         {payments.filter(p => !optimisticPaid.has(p.bookingId)).length === 0 ? (
           <div className="empty-mini">No outstanding payments</div>
         ) : (
@@ -6982,14 +7022,17 @@ function ActionQueuePanel({ data, onMarkPaid }) {
       <div className="section-group">
         <div className="head">
           <span>At-Risk Bookings</span>
-          <span className={"count" + (atRisk.length === 0 ? " zero" : " warn")}>
-            {atRisk.length}
+          <span className={"count" + (visibleAtRisk.length === 0 ? " zero" : " warn")}>
+            {visibleAtRisk.length}
           </span>
         </div>
-        {atRisk.length === 0 ? (
+        <div className="helper-text">
+          Booked but past the 15-min grace and end time not yet reached · &ldquo;They're here&rdquo; if they showed up · Release if they didn't
+        </div>
+        {visibleAtRisk.length === 0 ? (
           <div className="empty-mini">No-one past grace period</div>
         ) : (
-          atRisk.map(b => (
+          visibleAtRisk.map(b => (
             <div className="action-item" key={b.bookingId}>
               <span className="badge warn">{b.time}</span>
               <div className="body">
@@ -6998,11 +7041,12 @@ function ActionQueuePanel({ data, onMarkPaid }) {
               </div>
               {/* "They're here" is the most common case for an at-risk booking
                   — the customer arrived a bit late but is now playing. Primary
-                  green button. "Release" stays available for actual no-shows. */}
+                  green button. "Release" stays available for actual no-shows.
+                  Both buttons use the .btn-sm class with new .success / .danger
+                  variants so they share identical hover/press animations. */}
               <div style={{ display: "flex", gap: 6 }}>
                 <button
-                  className="btn-sm"
-                  style={{ background: "var(--green,#3D7A4F)", color: "var(--cream)", border: "1.5px solid var(--green,#3D7A4F)" }}
+                  className="btn-sm success"
                   onClick={() => confirmArrival(b.bookingId)}
                 >They're here</button>
                 <button className="btn-sm danger" onClick={() => noShowRelease(b.bookingId)}>Release</button>
@@ -7019,6 +7063,9 @@ function ActionQueuePanel({ data, onMarkPaid }) {
           <span className={"count" + (lowStock.length === 0 ? " zero" : " urgent")}>
             {lowStock.length}
           </span>
+        </div>
+        <div className="helper-text">
+          POS items below their reorder level · time to restock from supplier
         </div>
         {lowStock.length === 0 ? (
           <div className="empty-mini">All products stocked above reorder level</div>
@@ -7043,6 +7090,9 @@ function ActionQueuePanel({ data, onMarkPaid }) {
           <span className={"count" + (birthdayWeek.length === 0 ? " zero" : " wood")}>
             {birthdayWeek.length}
           </span>
+        </div>
+        <div className="helper-text">
+          Members with a birthday in the next 7 days · eligible for a free 1h court session this week
         </div>
         {birthdayWeek.length === 0 ? (
           <div className="empty-mini">No members in birthday window</div>
@@ -7084,6 +7134,9 @@ function ActionQueuePanel({ data, onMarkPaid }) {
           <span className={"count" + (visibleRefunds.length === 0 ? " zero" : " urgent")}>
             {visibleRefunds.length}
           </span>
+        </div>
+        <div className="helper-text">
+          Cancelled bookings that were paid · refund the customer (cash, ABA, or Wing) then mark refunded here
         </div>
         {visibleRefunds.length === 0 ? (
           <div className="empty-mini">No outstanding refunds</div>
@@ -7128,7 +7181,7 @@ function ActionQueuePanel({ data, onMarkPaid }) {
 /* ====================================================================
    TODAY'S PULSE PANEL
    ==================================================================== */
-function TodaysPulsePanel({ data }) {
+function TodaysPulsePanel({ data, onOpenPlayClick }) {
   const util = data.utilization || {};
   const cmp = data.comparison || {};
 
@@ -7170,6 +7223,9 @@ function TodaysPulsePanel({ data }) {
             style={{ transform: "scaleX(" + ((util.courtsInUseNow || 0) / (util.courtsTotal || 8)) + ")" }}
           />
         </div>
+        <div className="delta flat" style={{ fontSize: 10.5, opacity: 0.55 }}>
+          Courts with a booking, walk-in, coaching session, open play or tournament happening at this exact moment
+        </div>
       </div>
 
       <div className="pulse-metric">
@@ -7184,6 +7240,9 @@ function TodaysPulsePanel({ data }) {
         <div className="delta flat">
           {util.bookedCourtHours || 0}h booked of {util.totalCourtHours || 0}h available
         </div>
+        <div className="delta flat" style={{ fontSize: 10.5, opacity: 0.55, marginTop: 2 }}>
+          All court-hours booked today (06:00–22:00 across 8 courts = 128h capacity)
+        </div>
       </div>
 
       <div className="pulse-metric">
@@ -7194,6 +7253,13 @@ function TodaysPulsePanel({ data }) {
             className={"fill " + peakCls}
             style={{ transform: "scaleX(" + ((util.peakUtilizationPct || 0) / 100) + ")" }}
           />
+        </div>
+        <div className="delta flat" style={{ fontSize: 10.5, opacity: 0.55 }}>
+          {/* Weekdays: 17:00–22:00 (5h × 8 courts = 40h capacity). Weekends:
+              all 16 open hours (128h capacity). The label adapts based on
+              what server reports for today; the explanation here just calls
+              out what % is being computed against. */}
+          % of peak window's court-hours that are booked today
         </div>
       </div>
 
@@ -7221,17 +7287,36 @@ function TodaysPulsePanel({ data }) {
         (data.openPlay && data.openPlay.sessions > 0)) && (
         <div className="pulse-metric" style={{ borderTop: "1px dashed var(--rule-strong)", paddingTop: 12 }}>
           <div className="label">Programs running</div>
-          {data.openPlay && data.openPlay.sessions > 0 && (
-            <div style={{
-              display: "flex",
-              alignItems: "baseline",
-              justifyContent: "space-between",
-              marginBottom: 6,
-              padding: "6px 10px",
-              background: "rgba(91,107,168,0.08)",
-              borderRadius: 4,
-              borderLeft: "3px solid #5B6BA8"
-            }}>
+          {/* Open Play row — only shown when sessions are CURRENTLY active
+              (backend filters out sessions whose end time has passed). If
+              all of today's sessions have ended already, we don't surface
+              them here even though they contributed revenue earlier today.
+              Clicking the row opens the first active session's detail modal;
+              if multiple sessions are running we still open the first one
+              (rare in practice — usually 0 or 1 active at a time). */}
+          {data.openPlay && data.openPlay.sessions > 0 && (() => {
+            const activeIds = data.openPlay.activeSessionIds || [];
+            const firstActive = activeIds[0];
+            const clickable = !!firstActive && !!onOpenPlayClick;
+            return (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  justifyContent: "space-between",
+                  marginBottom: 6,
+                  padding: "6px 10px",
+                  background: "rgba(91,107,168,0.08)",
+                  borderRadius: 4,
+                  borderLeft: "3px solid #5B6BA8",
+                  cursor: clickable ? "pointer" : "default",
+                  transition: "background 0.12s ease"
+                }}
+                onClick={clickable ? () => onOpenPlayClick(firstActive) : undefined}
+                onMouseEnter={clickable ? (e) => e.currentTarget.style.background = "rgba(91,107,168,0.16)" : undefined}
+                onMouseLeave={clickable ? (e) => e.currentTarget.style.background = "rgba(91,107,168,0.08)" : undefined}
+                title={clickable ? "Click to view session details" : undefined}
+              >
               <div>
                 <span style={{ fontWeight: 700, fontSize: 14 }}>◎ Drop-in</span>
                 <span style={{ opacity: 0.65, marginLeft: 8, fontSize: 12 }}>
@@ -7243,7 +7328,8 @@ function TodaysPulsePanel({ data }) {
                 ${((data.openPlay.revenuePaid || 0) + (data.openPlay.revenuePending || 0)).toFixed(2)}
               </div>
             </div>
-          )}
+            );
+          })()}
           {data.tournaments && data.tournaments.activeToday > 0 && (
             <div style={{
               padding: "6px 10px",
@@ -8452,18 +8538,17 @@ function BookingDetailModal({ booking, onClose, onAction }) {
         </div>
 
         <div className="actions">
-          {/* Confirm arrival — most customers pay AFTER they play. This
+          {/* "They're here" — most customers pay AFTER they play. This
               option lets staff mark the customer as physically present
               without recording a payment yet. Available for awaiting and
               at_risk (during play); not needed once status is checked_in
-              or completed. */}
+              or completed. Label matches the dashboard's at-risk button. */}
           {(d === "awaiting" || d === "at_risk") && (
             <button
-              className="btn"
-              style={{ background: "var(--green,#3D7A4F)", color: "var(--cream)", borderColor: "var(--green,#3D7A4F)" }}
+              className="btn success"
               onClick={() => doAction("adminConfirmArrival")}
               disabled={acting}
-            >Confirm arrival</button>
+            >They're here</button>
           )}
           {(d === "awaiting" || d === "at_risk" || d === "checked_in" || d === "completed") && (
             <button
