@@ -713,6 +713,17 @@ button { font-family: inherit; cursor: pointer; }
   z-index: 5;  /* slightly raised so the ring isn't clipped by neighbors */
 }
 
+/* CHECKED IN: green ring — customer is here, no payment yet. Calm signal
+ * (not urgent like at_risk) so staff knows the booking is being played
+ * and they'll collect payment at the counter when the game ends. */
+.booking-block.state-checked_in {
+  box-shadow: 0 0 0 2px var(--green,#3D7A4F);
+  z-index: 4;
+}
+.booking-block.state-checked_in::before {
+  background: transparent;
+}
+
 /* PAID: full color, no overlay */
 .booking-block.state-paid::before {
   background: transparent;
@@ -1633,6 +1644,7 @@ button { font-family: inherit; cursor: pointer; }
 }
 .status-pill.awaiting    { background: var(--concrete-2); color: var(--ink); }
 .status-pill.at_risk     { background: var(--warn); color: var(--ink); }
+.status-pill.checked_in  { background: var(--green); color: var(--cream); border-color: var(--green); opacity: 0.85; }
 .status-pill.paid        { background: var(--green); color: var(--cream); border-color: var(--green); }
 .status-pill.no_show_freed { background: var(--clay); color: var(--cream); border-color: var(--clay); opacity: 0.8; }
 .status-pill.no_show_kept  { background: var(--clay-2); color: var(--cream); border-color: var(--clay); }
@@ -4605,7 +4617,7 @@ function _invalidateForMutation(action) {
   // Categorize the mutation. Multiple categories can fire — e.g., creating a
   // booking affects dashboard + timeline + bookings list + availability.
   const isBookingMutation = (
-    /^(adminCreateBooking|createBooking|adminCancelBooking|cancelBooking|adminMarkPaid|adminMarkNoShow|adminUndoCancellation|adminUpdateBooking|adminUpdateNotes)/.test(action)
+    /^(adminCreateBooking|createBooking|adminCancelBooking|cancelBooking|adminMarkPaid|adminMarkNoShow|adminConfirmArrival|adminFlagNoShow|adminNoShowAndRelease|adminUndoCancellation|adminUpdateBooking|adminUpdateNotes)/.test(action)
   );
   const isWalkInMutation = (
     /^(adminCreateWalkInBlock|adminCloseWalkInBlock|adminAddWalkInPlayer|adminRemoveWalkInPlayer|adminMarkWalkInPlayerPaid|adminUpdateWalkInBlock)/.test(action)
@@ -6857,6 +6869,18 @@ function ActionQueuePanel({ data, onMarkPaid }) {
     }
   }
 
+  async function confirmArrival(bookingId) {
+    // No confirm prompt — this is a low-stakes positive action.
+    // Just marks the booking as "customer is here" without taking payment.
+    const r = await api("adminConfirmArrival", { bookingId: bookingId });
+    if (r.ok) {
+      showToast(r.message || "Arrival confirmed", "success");
+      onMarkPaid && onMarkPaid();  // triggers data reload — same callback name
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
   return (
     <div className="panel">
       <div className="panel-head">
@@ -6972,7 +6996,17 @@ function ActionQueuePanel({ data, onMarkPaid }) {
                 <div className="title">{b.name}</div>
                 <div className="meta">C·{b.courts} · ${(b.total || 0).toFixed(2)} · {b.phone}</div>
               </div>
-              <button className="btn-sm danger" onClick={() => noShowRelease(b.bookingId)}>Release</button>
+              {/* "They're here" is the most common case for an at-risk booking
+                  — the customer arrived a bit late but is now playing. Primary
+                  green button. "Release" stays available for actual no-shows. */}
+              <div style={{ display: "flex", gap: 6 }}>
+                <button
+                  className="btn-sm"
+                  style={{ background: "var(--green,#3D7A4F)", color: "var(--cream)", border: "1.5px solid var(--green,#3D7A4F)" }}
+                  onClick={() => confirmArrival(b.bookingId)}
+                >They're here</button>
+                <button className="btn-sm danger" onClick={() => noShowRelease(b.bookingId)}>Release</button>
+              </div>
             </div>
           ))
         )}
@@ -7254,6 +7288,7 @@ const STATUS_LABELS = {
   all: "All",
   awaiting: "Awaiting",
   at_risk: "At-risk",
+  checked_in: "Checked in",  // arrived, not yet paid — payment happens after play
   paid: "Paid",
   no_show_freed: "Released",
   no_show_kept: "No-show",
@@ -7460,7 +7495,7 @@ function ScreenBookings() {
 
   // Status counts (guest bookings only)
   const counts = useMemo(() => {
-    const c = { all: 0, awaiting: 0, at_risk: 0, paid: 0, no_show_freed: 0, no_show_kept: 0, completed: 0, cancelled: 0 };
+    const c = { all: 0, awaiting: 0, at_risk: 0, checked_in: 0, paid: 0, no_show_freed: 0, no_show_kept: 0, completed: 0, cancelled: 0 };
     if (!entries) return c;
     for (const b of entries) {
       if (b.entryType !== "booking") continue;
@@ -8178,7 +8213,15 @@ function BookingRow({ booking, onAction, onOpen }) {
 
   const isMember = !!(booking.memberTier && booking.memberTier.length > 0);
   const isAtRisk = booking.derivedStatus === "at_risk";
-  const canQuickPay = (booking.derivedStatus === "awaiting" || booking.derivedStatus === "at_risk" || booking.derivedStatus === "completed");
+  const isCheckedIn = booking.derivedStatus === "checked_in";
+  // Quick-pay button is available whenever the booking is unpaid and
+  // active/recently-ended (anything before final completion or cancellation).
+  const canQuickPay = (
+    booking.derivedStatus === "awaiting" ||
+    booking.derivedStatus === "at_risk" ||
+    booking.derivedStatus === "checked_in" ||
+    booking.derivedStatus === "completed"
+  );
 
   // Past: the booking's end time is before "now" today, OR derivedStatus === "completed"
   const isPast = (() => {
@@ -8409,7 +8452,20 @@ function BookingDetailModal({ booking, onClose, onAction }) {
         </div>
 
         <div className="actions">
-          {(d === "awaiting" || d === "at_risk" || d === "completed") && (
+          {/* Confirm arrival — most customers pay AFTER they play. This
+              option lets staff mark the customer as physically present
+              without recording a payment yet. Available for awaiting and
+              at_risk (during play); not needed once status is checked_in
+              or completed. */}
+          {(d === "awaiting" || d === "at_risk") && (
+            <button
+              className="btn"
+              style={{ background: "var(--green,#3D7A4F)", color: "var(--cream)", borderColor: "var(--green,#3D7A4F)" }}
+              onClick={() => doAction("adminConfirmArrival")}
+              disabled={acting}
+            >Confirm arrival</button>
+          )}
+          {(d === "awaiting" || d === "at_risk" || d === "checked_in" || d === "completed") && (
             <button
               className="btn primary"
               onClick={() => doAction("adminMarkPaid")}
