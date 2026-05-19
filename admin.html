@@ -6635,7 +6635,7 @@ function OperationalKpiPanel({ data }) {
     },
     {
       label: "Active Members",
-      sub: "played in last 30 days",
+      sub: "booked in last 30 days or upcoming",
       pct: am.target > 0
         ? Math.min(100, Math.round((am.recent30d / am.target) * 100))
         : (am.totalActive > 0 ? am.pct : 0),
