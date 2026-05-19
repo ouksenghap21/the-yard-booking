@@ -1374,16 +1374,119 @@ button { font-family: inherit; cursor: pointer; }
 .section-group .head .count.urgent { background: var(--clay); }
 .section-group .head .count.warn { background: var(--warn); color: var(--ink); }
 .section-group .head .count.wood { background: var(--wood); }
-/* Small explanatory text under section headers in the dashboard's Needs
- * Attention panel — clarifies what each list is for so staff don't have
- * to guess. Kept very low-key (small, faded) so it doesn't visually
- * compete with the action items themselves. */
-.section-group .helper-text {
-  font-size: 11px;
-  opacity: 0.55;
-  font-style: italic;
-  margin-bottom: 8px;
-  line-height: 1.4;
+
+/* ─── InfoTip ──────────────────────────────────────────────────────────
+ * Small "ⓘ" badge that reveals an explanation on hover (desktop) or tap
+ * (touch devices). Used in section headers and KPI labels where the
+ * literal explanation would clutter the layout. The tip itself is
+ * absolutely-positioned next to the trigger.
+ *
+ * Pattern: <span class="info-tip" data-tip="...">ⓘ</span>
+ * Activated via :hover for desktop and .open class (toggled by tap) for
+ * touch devices, so the same markup works in both modes.
+ */
+.info-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: rgba(26,26,26,0.08);
+  color: var(--ink);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+  cursor: help;
+  position: relative;
+  transition: background 0.12s ease, color 0.12s ease;
+  text-transform: none;
+  letter-spacing: 0;
+  user-select: none;
+  flex-shrink: 0;
+}
+.info-tip:hover,
+.info-tip.open {
+  background: var(--ink);
+  color: var(--cream);
+}
+.info-tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  /* Sit above the trigger, but if the trigger is near the top of the
+   * viewport the bubble will be clipped — pulse cards near the top use
+   * .info-tip--below to flip the position. */
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: var(--cream);
+  padding: 8px 11px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  font-family: var(--sans);
+  font-weight: 400;
+  font-style: normal;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: normal;
+  width: max-content;
+  max-width: 240px;
+  text-align: left;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease, visibility 0s linear 0.12s;
+  z-index: 50;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+}
+.info-tip::before {
+  /* Caret */
+  content: "";
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--ink);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease, visibility 0s linear 0.12s;
+  z-index: 50;
+}
+.info-tip:hover::after,
+.info-tip:hover::before,
+.info-tip.open::after,
+.info-tip.open::before {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.12s ease, visibility 0s;
+}
+/* Flip below when near the top edge (e.g. Pulse panel KPIs) */
+.info-tip--below::after { bottom: auto; top: calc(100% + 8px); }
+.info-tip--below::before {
+  bottom: auto;
+  top: calc(100% + 2px);
+  border-top-color: transparent;
+  border-bottom-color: var(--ink);
+}
+/* On narrow screens, anchor the tooltip to the right so it doesn't
+ * overflow off the left edge when the trigger sits in the left half. */
+@media (max-width: 640px) {
+  .info-tip::after {
+    left: auto;
+    right: -4px;
+    transform: none;
+    max-width: 220px;
+  }
+  .info-tip::before {
+    left: auto;
+    right: 2px;
+    transform: none;
+  }
 }
 
 .empty-mini {
@@ -5020,6 +5123,55 @@ function calculatePriceClient({ config, isMember, tier, date, time, slots, court
   };
 }
 
+/* ====== InfoTip ======
+ * A small "ⓘ" badge that reveals an explanation on hover (desktop) or
+ * tap (touch). Used to keep dashboard sections clean: instead of a
+ * permanent line of italic helper text under every section header, the
+ * explanation lives inside the tip and only appears when the user
+ * actually wants it. Desktop: CSS :hover handles it. Touch: tap toggles
+ * the .open class on the element. We listen for outside taps to close.
+ *
+ * Props:
+ *   - text: the explanation string
+ *   - flip: "below" to anchor the tooltip below instead of above (useful
+ *           near the top of the viewport where above would clip)
+ */
+function InfoTip({ text, flip }) {
+  const ref = React.useRef(null);
+  const [open, setOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open) return;
+    // Close on next outside click. Capture phase so we beat the trigger's
+    // own click handler.
+    function onDocClick(e) {
+      if (!ref.current) return;
+      if (ref.current.contains(e.target)) return;
+      setOpen(false);
+    }
+    document.addEventListener("click", onDocClick, true);
+    return () => document.removeEventListener("click", onDocClick, true);
+  }, [open]);
+
+  function onClick(e) {
+    e.stopPropagation();
+    setOpen(o => !o);
+  }
+
+  const cls = "info-tip" + (open ? " open" : "") + (flip === "below" ? " info-tip--below" : "");
+  return (
+    <span
+      ref={ref}
+      className={cls}
+      data-tip={text}
+      onClick={onClick}
+      aria-label={text}
+      role="button"
+      tabIndex={0}
+    >ⓘ</span>
+  );
+}
+
 /* ====== TOAST ====== */
 let toastTimeout = null;
 function showToast(text, kind = "default") {
@@ -6930,6 +7082,7 @@ function ActionQueuePanel({ data, onMarkPaid }) {
         <div className="head">
           <span>
             Overdue · &gt;24h
+            <InfoTip text="Customers who played but never paid · 24h+ since their booking ended · chase by phone" />
             {coachingShareOwed > 0 && (
               <span className="meta" style={{ marginLeft: 8, fontSize: 11, opacity: 0.7 }}>
                 · {fmtMoney(coachingShareOwed)} from coaches
@@ -6941,9 +7094,6 @@ function ActionQueuePanel({ data, onMarkPaid }) {
               ? 0
               : visibleOverdue.length + " · " + fmtMoney(overdueTotal)}
           </span>
-        </div>
-        <div className="helper-text">
-          Customers who played but never paid · 24h+ since their booking ended · chase by phone
         </div>
         {visibleOverdue.length === 0 ? (
           <div className="empty-mini">Nothing overdue · all caught up</div>
@@ -6991,13 +7141,13 @@ function ActionQueuePanel({ data, onMarkPaid }) {
           leave the counter. Anything still unpaid 24h later moves to Overdue. */}
       <div className="section-group">
         <div className="head">
-          <span>Ending Soon · Unpaid</span>
+          <span>
+            Ending Soon · Unpaid
+            <InfoTip text="Today's games finishing now or recently · take payment at the counter before they leave" />
+          </span>
           <span className={"count" + (payments.filter(p => !optimisticPaid.has(p.bookingId)).length === 0 ? " zero" : " urgent")}>
             {payments.filter(p => !optimisticPaid.has(p.bookingId)).length}
           </span>
-        </div>
-        <div className="helper-text">
-          Today's games finishing now or recently · take payment at the counter before they leave
         </div>
         {payments.filter(p => !optimisticPaid.has(p.bookingId)).length === 0 ? (
           <div className="empty-mini">No outstanding payments</div>
@@ -7021,13 +7171,13 @@ function ActionQueuePanel({ data, onMarkPaid }) {
       {/* At-risk bookings */}
       <div className="section-group">
         <div className="head">
-          <span>At-Risk Bookings</span>
+          <span>
+            At-Risk Bookings
+            <InfoTip text={"Booked but past the 15-min grace and end time not yet reached · \u201cThey\u2019re here\u201d if they showed up · Release if they didn\u2019t"} />
+          </span>
           <span className={"count" + (visibleAtRisk.length === 0 ? " zero" : " warn")}>
             {visibleAtRisk.length}
           </span>
-        </div>
-        <div className="helper-text">
-          Booked but past the 15-min grace and end time not yet reached · &ldquo;They're here&rdquo; if they showed up · Release if they didn't
         </div>
         {visibleAtRisk.length === 0 ? (
           <div className="empty-mini">No-one past grace period</div>
@@ -7059,13 +7209,13 @@ function ActionQueuePanel({ data, onMarkPaid }) {
       {/* Low stock */}
       <div className="section-group">
         <div className="head">
-          <span>Low Stock</span>
+          <span>
+            Low Stock
+            <InfoTip text="POS items below their reorder level · time to restock from supplier" />
+          </span>
           <span className={"count" + (lowStock.length === 0 ? " zero" : " urgent")}>
             {lowStock.length}
           </span>
-        </div>
-        <div className="helper-text">
-          POS items below their reorder level · time to restock from supplier
         </div>
         {lowStock.length === 0 ? (
           <div className="empty-mini">All products stocked above reorder level</div>
@@ -7086,13 +7236,13 @@ function ActionQueuePanel({ data, onMarkPaid }) {
       {/* Members in birthday week */}
       <div className="section-group">
         <div className="head">
-          <span>Birthday-Week Members</span>
+          <span>
+            Birthday-Week Members
+            <InfoTip text="Members with a birthday in the next 7 days · eligible for a free 1h court session this week" />
+          </span>
           <span className={"count" + (birthdayWeek.length === 0 ? " zero" : " wood")}>
             {birthdayWeek.length}
           </span>
-        </div>
-        <div className="helper-text">
-          Members with a birthday in the next 7 days · eligible for a free 1h court session this week
         </div>
         {birthdayWeek.length === 0 ? (
           <div className="empty-mini">No members in birthday window</div>
@@ -7130,13 +7280,13 @@ function ActionQueuePanel({ data, onMarkPaid }) {
           or ABA/Wing transfer). */}
       <div className="section-group">
         <div className="head">
-          <span>Refunds Owed</span>
+          <span>
+            Refunds Owed
+            <InfoTip text="Cancelled bookings that were paid · refund the customer (cash, ABA, or Wing) then mark refunded here" />
+          </span>
           <span className={"count" + (visibleRefunds.length === 0 ? " zero" : " urgent")}>
             {visibleRefunds.length}
           </span>
-        </div>
-        <div className="helper-text">
-          Cancelled bookings that were paid · refund the customer (cash, ABA, or Wing) then mark refunded here
         </div>
         {visibleRefunds.length === 0 ? (
           <div className="empty-mini">No outstanding refunds</div>
@@ -7215,7 +7365,10 @@ function TodaysPulsePanel({ data, onOpenPlayClick }) {
       </div>
 
       <div className="pulse-metric">
-        <div className="label">Courts in use right now</div>
+        <div className="label">
+          Courts in use right now
+          <InfoTip flip="below" text="Courts with a booking, walk-in, coaching session, open play or tournament happening at this exact moment" />
+        </div>
         <div className="value">{util.courtsInUseNow || 0}<span className="unit">of {util.courtsTotal || 8}</span></div>
         <div className="util-bar">
           <div
@@ -7223,13 +7376,13 @@ function TodaysPulsePanel({ data, onOpenPlayClick }) {
             style={{ transform: "scaleX(" + ((util.courtsInUseNow || 0) / (util.courtsTotal || 8)) + ")" }}
           />
         </div>
-        <div className="delta flat" style={{ fontSize: 10.5, opacity: 0.55 }}>
-          Courts with a booking, walk-in, coaching session, open play or tournament happening at this exact moment
-        </div>
       </div>
 
       <div className="pulse-metric">
-        <div className="label">Day utilization</div>
+        <div className="label">
+          Day utilization
+          <InfoTip flip="below" text="All court-hours booked today (06:00–22:00 across 8 courts = 128h capacity)" />
+        </div>
         <div className="value">{util.utilizationPct || 0}<span className="unit">%</span></div>
         <div className="util-bar">
           <div
@@ -7240,26 +7393,19 @@ function TodaysPulsePanel({ data, onOpenPlayClick }) {
         <div className="delta flat">
           {util.bookedCourtHours || 0}h booked of {util.totalCourtHours || 0}h available
         </div>
-        <div className="delta flat" style={{ fontSize: 10.5, opacity: 0.55, marginTop: 2 }}>
-          All court-hours booked today (06:00–22:00 across 8 courts = 128h capacity)
-        </div>
       </div>
 
       <div className="pulse-metric">
-        <div className="label">Peak utilization · {util.peakHoursToday || 5}h peak window</div>
+        <div className="label">
+          Peak utilization · {util.peakHoursToday || 5}h peak window
+          <InfoTip flip="below" text="% of peak window's court-hours booked today. Weekdays: 17:00–22:00 (5h × 8 courts = 40h). Weekends: all open hours." />
+        </div>
         <div className="value">{util.peakUtilizationPct || 0}<span className="unit">%</span></div>
         <div className="util-bar">
           <div
             className={"fill " + peakCls}
             style={{ transform: "scaleX(" + ((util.peakUtilizationPct || 0) / 100) + ")" }}
           />
-        </div>
-        <div className="delta flat" style={{ fontSize: 10.5, opacity: 0.55 }}>
-          {/* Weekdays: 17:00–22:00 (5h × 8 courts = 40h capacity). Weekends:
-              all 16 open hours (128h capacity). The label adapts based on
-              what server reports for today; the explanation here just calls
-              out what % is being computed against. */}
-          % of peak window's court-hours that are booked today
         </div>
       </div>
 
