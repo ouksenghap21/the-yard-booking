@@ -4805,6 +4805,30 @@ function fmtMoneyWhole(n) {
   const sign = +n < 0 ? "-" : "";
   return sign + "$" + Math.round(Math.abs(+n)).toLocaleString("en-US");
 }
+/**
+ * Auto-shrink font size for stat-card values so they fit the card width
+ * regardless of magnitude. Cards are ~140-170px wide; the default 36px
+ * serif italic at width fits ~6 chars before touching the edge.
+ *
+ * Returns inline style object — spread into the value div's style prop.
+ *
+ *   $0 to $999       → 36px  (1-4 chars)  ✓ fits comfortably
+ *   $1,000-$9,999    → 32px  ($1,234)     ✓ 6 chars, was tight
+ *   $10,000-$99,999  → 26px  ($12,345)    ✓ 7 chars
+ *   $100,000+        → 22px  ($123,456+)  ✓ 8+ chars
+ *
+ * Use for ALL stat-card .value elements that display money so growth
+ * doesn't break the layout when revenue scales up.
+ */
+function valueFitStyle(n) {
+  const v = Math.abs(+n || 0);
+  let fontSize;
+  if (v < 1000) fontSize = 36;
+  else if (v < 10000) fontSize = 32;
+  else if (v < 100000) fontSize = 26;
+  else fontSize = 22;
+  return { fontSize: fontSize };
+}
 function fmtPct(n, decimals) {
   if (n === null || n === undefined || isNaN(+n)) return "0%";
   const d = decimals === undefined ? 1 : decimals;
@@ -6336,7 +6360,7 @@ function ScreenDashboard() {
               if (opP > 0) breakdown.push("Open Play: " + fmtMoney(opP));
               return (
                 <>
-                  <div className="value" title={breakdown.join("\n")}>{fmtMoneyWhole(totalP)}</div>
+                  <div className="value" style={valueFitStyle(totalP)} title={breakdown.join("\n")}>{fmtMoneyWhole(totalP)}</div>
                   <div className="sub">awaiting payment</div>
                 </>
               );
@@ -12631,7 +12655,15 @@ function SaleHistoryModal({ onClose }) {
     else if (r === "2w") from.setDate(from.getDate() - 14);
     else if (r === "1m") from.setMonth(from.getMonth() - 1);
     else if (r === "3m") from.setMonth(from.getMonth() - 3);
-    else from.setFullYear(2000, 0, 1);  // "all"
+    else {
+      // "all" — back to Y2000, forward to Y2100. The `to` bound was previously
+      // left at today, which silently excluded future-dated sales (e.g. test
+      // data from a load-test seed scattered across the full month). For real
+      // operations this rarely matters since sales don't happen in the future,
+      // but for any tooling that pre-loads future dates the cutoff hid rows.
+      from.setFullYear(2000, 0, 1);
+      to.setFullYear(2100, 11, 31);
+    }
     const fmt = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
     return { from: fmt(from), to: fmt(to) };
   }
@@ -15529,28 +15561,28 @@ function FinancesView({ data, onChanged, opOnly }) {
         </div>
         <div className="stat-card">
           <div className="label">Court rental</div>
-          <div className="value" title={"Court rental this month: " + fmtMoney(h.courtRev) + " from " + fmtInt(data.summary.paidBookings) + " paid bookings"}>{fmtMoneyWhole(h.courtRev)}</div>
+          <div className="value" style={valueFitStyle(h.courtRev)} title={"Court rental this month: " + fmtMoney(h.courtRev) + " from " + fmtInt(data.summary.paidBookings) + " paid bookings"}>{fmtMoneyWhole(h.courtRev)}</div>
           <div className="sub">{fmtPct(pct(h.courtRev), 0)} · {fmtInt(data.summary.paidBookings)} paid bookings</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}>
           <div className="label">◉ Walk-in</div>
-          <div className="value" title={"Walk-in revenue: " + fmtMoney(h.walkinRev) + " from " + fmtInt(data.summary.paidWalkInPlayers) + " players"} style={{ color: "var(--peach,#D9785C)" }}>{fmtMoneyWhole(h.walkinRev)}</div>
+          <div className="value" title={"Walk-in revenue: " + fmtMoney(h.walkinRev) + " from " + fmtInt(data.summary.paidWalkInPlayers) + " players"} style={Object.assign({ color: "var(--peach,#D9785C)" }, valueFitStyle(h.walkinRev))}>{fmtMoneyWhole(h.walkinRev)}</div>
           <div className="sub">{fmtPct(pct(h.walkinRev), 0)} · {fmtInt(data.summary.paidWalkInPlayers)} players</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
           <div className="label">★ Coaching</div>
-          <div className="value" title={"Coaching facility share: " + fmtMoney(h.coachingRev) + " across " + fmtInt(data.summary.paidCoachingSessions) + " sessions"} style={{ color: "var(--wood)" }}>{fmtMoneyWhole(h.coachingRev)}</div>
+          <div className="value" title={"Coaching facility share: " + fmtMoney(h.coachingRev) + " across " + fmtInt(data.summary.paidCoachingSessions) + " sessions"} style={Object.assign({ color: "var(--wood)" }, valueFitStyle(h.coachingRev))}>{fmtMoneyWhole(h.coachingRev)}</div>
           <div className="sub">{fmtPct(pct(h.coachingRev), 0)} · {fmtInt(data.summary.paidCoachingSessions)} sessions</div>
         </div>
         <div className="stat-card">
           <div className="label">POS</div>
-          <div className="value" title={"POS revenue: " + fmtMoney(h.posRev) + " across " + fmtInt(data.summary.posTransactions) + " transactions"}>{fmtMoneyWhole(h.posRev)}</div>
+          <div className="value" style={valueFitStyle(h.posRev)} title={"POS revenue: " + fmtMoney(h.posRev) + " across " + fmtInt(data.summary.posTransactions) + " transactions"}>{fmtMoneyWhole(h.posRev)}</div>
           <div className="sub">{fmtPct(pct(h.posRev), 0)} · {fmtInt(data.summary.posTransactions)} txns</div>
         </div>
         {!opOnly && (
           <div className="stat-card" style={{ borderColor: "var(--clay)" }}>
             <div className="label">⬛ Sponsorships</div>
-            <div className="value" style={{ color: "var(--clay)" }}>{fmtMoneyWhole(h.sponsorshipRev || 0)}</div>
+            <div className="value" style={Object.assign({ color: "var(--clay)" }, valueFitStyle(h.sponsorshipRev || 0))}>{fmtMoneyWhole(h.sponsorshipRev || 0)}</div>
             <div className="sub">
               {fmtPct(pct(h.sponsorshipRev || 0), 0)}
               {(h.sponsorshipMonthly || h.sponsorshipOneOff) ? " · " + (h.sponsorshipMonthly ? "MRR " + fmtMoneyWhole(h.sponsorshipMonthly) : "") + (h.sponsorshipMonthly && h.sponsorshipOneOff ? " + " : "") + (h.sponsorshipOneOff ? "one-off " + fmtMoneyWhole(h.sponsorshipOneOff) : "") : ""}
@@ -15974,22 +16006,22 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
       <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr", marginBottom: 22 }}>
         <div className="stat-card" style={{ borderColor: headline.overdueTotal > 0 ? "var(--clay)" : "var(--ink)" }}>
           <div className="label">Overdue · &gt;24h</div>
-          <div className="value" style={{ color: headline.overdueTotal > 0 ? "var(--clay)" : "var(--ink)" }}>${headline.overdueTotal.toFixed(2)}</div>
+          <div className="value" style={Object.assign({ color: headline.overdueTotal > 0 ? "var(--clay)" : "var(--ink)" }, valueFitStyle(headline.overdueTotal))}>${headline.overdueTotal.toFixed(2)}</div>
           <div className="sub">{headline.overdueCount} item{headline.overdueCount === 1 ? "" : "s"} · needs chasing</div>
         </div>
         <div className="stat-card">
           <div className="label">Pending · today</div>
-          <div className="value">${headline.pendingTotal.toFixed(2)}</div>
+          <div className="value" style={valueFitStyle(headline.pendingTotal)}>${headline.pendingTotal.toFixed(2)}</div>
           <div className="sub">{headline.pendingCount} item{headline.pendingCount === 1 ? "" : "s"} · settles at counter</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
           <div className="label">★ Coaching share owed</div>
-          <div className="value" style={{ color: "var(--wood)" }}>${headline.overdueCoaching.toFixed(2)}</div>
+          <div className="value" style={Object.assign({ color: "var(--wood)" }, valueFitStyle(headline.overdueCoaching))}>${headline.overdueCoaching.toFixed(2)}</div>
           <div className="sub">facility share unpaid by coaches</div>
         </div>
         <div className="stat-card">
           <div className="label">Court + Walk-in overdue</div>
-          <div className="value">${(headline.overdueBookings + headline.overdueWalkin).toFixed(2)}</div>
+          <div className="value" style={valueFitStyle(headline.overdueBookings + headline.overdueWalkin)}>${(headline.overdueBookings + headline.overdueWalkin).toFixed(2)}</div>
           <div className="sub">customers who left without paying</div>
         </div>
       </div>
