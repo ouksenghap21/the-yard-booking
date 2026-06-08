@@ -4838,22 +4838,41 @@ function _invalidateForMutation(action) {
 async function api(action, params = {}, options = {}) {
   const ttl = options.bypassCache ? 0 : (API_CACHE_TTL[action] || 0);
   if (ttl === 0) {
-    // Not a cacheable read — treat as a mutation/sensitive call. Invalidate
-    // related cache entries after it completes so the next read picks up
-    // fresh data.
-    const result = await _doFetchRaw(action, params);
-    if (result && result.ok && _isMutation(action)) {
-      _invalidateForMutation(action);
-      // OPTIMISTIC LIVE-UPDATE: tell any listener (the dashboard) that
-      // something just changed. The dashboard refreshes immediately rather
-      // than waiting up to 10s for the next pulse to detect the change.
-      try {
-        window.dispatchEvent(new CustomEvent("yard:data-changed", {
-          detail: { action: action }
-        }));
-      } catch (e) { /* non-fatal */ }
+    // MUTATIONS / sensitive calls: always fire fresh, never coalesce, and
+    // announce the change so live views refresh.
+    if (_isMutation(action)) {
+      const result = await _doFetchRaw(action, params);
+      if (result && result.ok) {
+        _invalidateForMutation(action);
+        // Drop any in-flight READ promises so the refresh triggered below
+        // starts a fresh request instead of joining a pre-mutation fetch
+        // that would return stale data.
+        try { _inflightFetches.clear(); } catch (e) { /* non-fatal */ }
+        // OPTIMISTIC LIVE-UPDATE: tell any listener (dashboard, bookings tab)
+        // that something changed so it refreshes immediately rather than
+        // waiting up to 10s for the next pulse.
+        try {
+          window.dispatchEvent(new CustomEvent("yard:data-changed", {
+            detail: { action: action }
+          }));
+        } catch (e) { /* non-fatal */ }
+      }
+      return result;
     }
-    return result;
+    // FORCED-FRESH READS (bypassCache: silent polls, on-change refreshes).
+    // COALESCE identical in-flight requests by key so overlapping refetches
+    // share ONE server round trip instead of serializing N of them on Apps
+    // Script's single thread. The bookings tab alone fires load() from mount,
+    // a 20s poll, AND every yard:data-changed — without this they pile up and
+    // a single booking can take minutes to surface.
+    const fk = _apiCacheKey(action, params);
+    if (_inflightFetches.has(fk)) return _inflightFetches.get(fk);
+    const fp = _doFetchRaw(action, params).then(
+      fresh => { _inflightFetches.delete(fk); return fresh; },
+      err   => { _inflightFetches.delete(fk); throw err; }
+    );
+    _inflightFetches.set(fk, fp);
+    return fp;
   }
   const key = _apiCacheKey(action, params);
   const cached = _apiCache.get(key);
