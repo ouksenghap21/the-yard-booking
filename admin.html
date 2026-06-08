@@ -21625,7 +21625,16 @@ function App() {
     // Without this: 4 calls to POS tab queue serially on Apps Script
     // (single-threaded). With this: 1 call returns everything.
     // Saves 5-10 seconds per tab switch on slow connections.
-    fireTabBundle(id);
+    //
+    // EXCEPTION: the dashboard tab. DashboardView runs its own two-stage
+    // fetch (adminDashboardCore + adminDashboardCombined), and
+    // adminDashboardCombined computes the exact same four sections the
+    // dashboard bundle would (dashboard + timeline + kpi + opKpi). Firing
+    // the bundle here too made Apps Script — which serializes per user —
+    // compute the entire heavy dashboard TWICE per load, stacking ~3-4s
+    // each and pushing the pulse to the back of the queue. Let DashboardView
+    // own it; bundle only the other tabs.
+    if (id !== "dashboard") fireTabBundle(id);
   }
 
   // Tracks which tabs we've already bundled this session — avoids redundant
