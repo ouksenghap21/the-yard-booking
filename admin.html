@@ -18424,6 +18424,19 @@ function TournamentDetailModal({ tournamentId, onClose, onChanged, onEdit }) {
   }
   useEffect(() => { load(); }, [tournamentId]);
 
+  // Live poll: customers self-registering on tournament.html append straight to
+  // the sheet, which the admin's own-action refresh() can't observe. Re-pull the
+  // tournament every 20s (fresh, no spinner) so the roster + counts update
+  // without a manual page reload.
+  useEffect(() => {
+    const id = setInterval(() => {
+      api("adminGetTournament", { tournamentId: tournamentId }, { bypassCache: true })
+        .then(r => { if (r && r.ok) setT(r.tournament); })
+        .catch(() => {});
+    }, 20000);
+    return () => clearInterval(id);
+  }, [tournamentId]);
+
   async function refresh() {
     invalidateApiCache("adminGetTournament");
     invalidateApiCache("adminListTournaments");
