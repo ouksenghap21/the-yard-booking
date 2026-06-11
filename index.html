@@ -5136,21 +5136,24 @@ function ScreenMyBookings({ state, setState, go, lang }) {
 
   async function load() {
     setLoading(true);
-    // Fire all four lookups in PARALLEL so the page paints in one round-trip
-    // window instead of four sequential calls.
+    // ONE combined round-trip. Apps Script serialises a single user's requests,
+    // so the previous four "parallel" calls actually ran back-to-back server-side
+    // (~6-8s). getMyActivity gathers bookings + open play + tournaments + walk-ins
+    // in-process and returns them together.
     const phone = state.phone || "";
-    const [bookings, op, trn, wi] = await Promise.all([
-      api("getMyBookings", { token: state.token || "", phone: phone }),
-      phone ? api("myOpenPlayRegistrations", { phone: phone }) : Promise.resolve({ ok: true, registrations: [] }),
-      phone ? api("myTournamentRegistrations", { phone: phone }) : Promise.resolve({ ok: true, registrations: [] }),
-      phone ? api("myWalkInActivity", { phone: phone }) : Promise.resolve({ ok: true, walkIns: [] })
-    ]);
+    const r = await api("getMyActivity", { token: state.token || "", phone: phone });
     setLoading(false);
-    if (bookings.ok) setData({ upcoming: bookings.upcoming || [], past: bookings.past || [], cancelled: bookings.cancelled || [] });
-    else { setData({ upcoming: [], past: [], cancelled: [] }); showToast(bookings.error || t("error", null, lang), "error"); }
-    setOpRegs(op.ok ? (op.registrations || []) : []);
-    setTrnRegs(trn.ok ? (trn.registrations || []) : []);
-    setWalkIns(wi.ok ? (wi.walkIns || []) : []);
+    if (r.ok) {
+      setData({ upcoming: r.upcoming || [], past: r.past || [], cancelled: r.cancelled || [] });
+      setOpRegs(r.openPlay || []);
+      setTrnRegs(r.tournaments || []);
+      setWalkIns(r.walkIns || []);
+      if (r.bookingsError) showToast(r.bookingsError, "error");
+    } else {
+      setData({ upcoming: [], past: [], cancelled: [] });
+      setOpRegs([]); setTrnRegs([]); setWalkIns([]);
+      showToast(r.error || t("error", null, lang), "error");
+    }
   }
 
   useEffect(() => { load(); }, []);
