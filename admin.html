@@ -4838,41 +4838,22 @@ function _invalidateForMutation(action) {
 async function api(action, params = {}, options = {}) {
   const ttl = options.bypassCache ? 0 : (API_CACHE_TTL[action] || 0);
   if (ttl === 0) {
-    // MUTATIONS / sensitive calls: always fire fresh, never coalesce, and
-    // announce the change so live views refresh.
-    if (_isMutation(action)) {
-      const result = await _doFetchRaw(action, params);
-      if (result && result.ok) {
-        _invalidateForMutation(action);
-        // Drop any in-flight READ promises so the refresh triggered below
-        // starts a fresh request instead of joining a pre-mutation fetch
-        // that would return stale data.
-        try { _inflightFetches.clear(); } catch (e) { /* non-fatal */ }
-        // OPTIMISTIC LIVE-UPDATE: tell any listener (dashboard, bookings tab)
-        // that something changed so it refreshes immediately rather than
-        // waiting up to 10s for the next pulse.
-        try {
-          window.dispatchEvent(new CustomEvent("yard:data-changed", {
-            detail: { action: action }
-          }));
-        } catch (e) { /* non-fatal */ }
-      }
-      return result;
+    // Not a cacheable read — treat as a mutation/sensitive call. Invalidate
+    // related cache entries after it completes so the next read picks up
+    // fresh data.
+    const result = await _doFetchRaw(action, params);
+    if (result && result.ok && _isMutation(action)) {
+      _invalidateForMutation(action);
+      // OPTIMISTIC LIVE-UPDATE: tell any listener (the dashboard) that
+      // something just changed. The dashboard refreshes immediately rather
+      // than waiting up to 10s for the next pulse to detect the change.
+      try {
+        window.dispatchEvent(new CustomEvent("yard:data-changed", {
+          detail: { action: action }
+        }));
+      } catch (e) { /* non-fatal */ }
     }
-    // FORCED-FRESH READS (bypassCache: silent polls, on-change refreshes).
-    // COALESCE identical in-flight requests by key so overlapping refetches
-    // share ONE server round trip instead of serializing N of them on Apps
-    // Script's single thread. The bookings tab alone fires load() from mount,
-    // a 20s poll, AND every yard:data-changed — without this they pile up and
-    // a single booking can take minutes to surface.
-    const fk = _apiCacheKey(action, params);
-    if (_inflightFetches.has(fk)) return _inflightFetches.get(fk);
-    const fp = _doFetchRaw(action, params).then(
-      fresh => { _inflightFetches.delete(fk); return fresh; },
-      err   => { _inflightFetches.delete(fk); throw err; }
-    );
-    _inflightFetches.set(fk, fp);
-    return fp;
+    return result;
   }
   const key = _apiCacheKey(action, params);
   const cached = _apiCache.get(key);
@@ -8455,11 +8436,17 @@ function MonthView({ entries, centerDate, onDayClick }) {
 }
 
 function BookingRow({ booking, onAction, onOpen }) {
+  // Optimistic UI: flip the row to "Paid" the instant the button is clicked,
+  // then run the API in the background. Without this the badge only changes
+  // after BOTH the mark-paid write AND the follow-up refetch return — two
+  // sequential Cambodia->US round-trips (~4-5s) of staring at the old status.
+  const [optimisticPaid, setOptimisticPaid] = useState(false);
   async function quickMarkPaid(e) {
     e.stopPropagation();
+    setOptimisticPaid(true);
     const r = await api("adminMarkPaid", { bookingId: booking.bookingId });
     if (r.ok) { showToast("Marked paid", "success"); onAction && onAction(); }
-    else showToast(r.error || "Failed", "error");
+    else { setOptimisticPaid(false); showToast(r.error || "Failed", "error"); }
   }
 
   const isMember = !!(booking.memberTier && booking.memberTier.length > 0);
@@ -8467,7 +8454,9 @@ function BookingRow({ booking, onAction, onOpen }) {
   const isCheckedIn = booking.derivedStatus === "checked_in";
   // Quick-pay button is available whenever the booking is unpaid and
   // active/recently-ended (anything before final completion or cancellation).
-  const canQuickPay = (
+  // Once optimistically paid, the row reads as paid and the button hides.
+  const effectiveStatus = optimisticPaid ? "paid" : booking.derivedStatus;
+  const canQuickPay = !optimisticPaid && (
     booking.derivedStatus === "awaiting" ||
     booking.derivedStatus === "at_risk" ||
     booking.derivedStatus === "checked_in" ||
@@ -8502,8 +8491,8 @@ function BookingRow({ booking, onAction, onOpen }) {
         <div className="name">
           {booking.name}
           {isMember && <span className={"tier-pill " + booking.memberTier}>{booking.memberTier}</span>}
-          <span className={"status-pill " + booking.derivedStatus}>
-            {STATUS_LABELS[booking.derivedStatus] || booking.derivedStatus}
+          <span className={"status-pill " + effectiveStatus}>
+            {STATUS_LABELS[effectiveStatus] || effectiveStatus}
           </span>
         </div>
         <div className="meta">
@@ -21644,16 +21633,7 @@ function App() {
     // Without this: 4 calls to POS tab queue serially on Apps Script
     // (single-threaded). With this: 1 call returns everything.
     // Saves 5-10 seconds per tab switch on slow connections.
-    //
-    // EXCEPTION: the dashboard tab. DashboardView runs its own two-stage
-    // fetch (adminDashboardCore + adminDashboardCombined), and
-    // adminDashboardCombined computes the exact same four sections the
-    // dashboard bundle would (dashboard + timeline + kpi + opKpi). Firing
-    // the bundle here too made Apps Script — which serializes per user —
-    // compute the entire heavy dashboard TWICE per load, stacking ~3-4s
-    // each and pushing the pulse to the back of the queue. Let DashboardView
-    // own it; bundle only the other tabs.
-    if (id !== "dashboard") fireTabBundle(id);
+    fireTabBundle(id);
   }
 
   // Tracks which tabs we've already bundled this session — avoids redundant
