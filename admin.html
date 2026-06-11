@@ -7626,13 +7626,15 @@ function ScreenBookings() {
         setEntries(cached.entries || []);
         setLoading(false);
         setRefreshing(true);  // subtle indicator while we refresh
-      } else if (entries !== null) {
-        // No cache for new date, but we have data showing from previous date —
-        // keep it visible (dimmed) instead of flashing empty state. Better UX
-        // than the "No bookings" flash that confuses users mid-fetch.
-        setRefreshing(true);
       } else {
-        // No cache and no current data — first load. Show spinner.
+        // No cache for this date range. Any current entries belong to a
+        // DIFFERENT date and get filtered out by `e.date === date`, which
+        // renders as a misleading "No entries for this date" during the ~2s
+        // refetch. Clear to the skeleton (entries === null) so it reads
+        // correctly as "loading", not "empty". The 15s api cache + the
+        // adjacent-day prefetch below make most switches instant; this
+        // skeleton only appears on the first visit to an uncached date.
+        setEntries(null);
         setLoading(true);
       }
     }
@@ -7647,6 +7649,24 @@ function ScreenBookings() {
   }
 
   useEffect(() => { load(); }, [range.from, range.to]);
+
+  // Prefetch adjacent days in the background so date navigation is instant
+  // (the switch becomes a cache hit). Delayed so the foreground load dispatches
+  // first — Apps Script serializes a user's requests, so we must not queue
+  // prefetches ahead of the data the user is actually waiting for. Cancelable,
+  // so rapid navigation doesn't pile up requests. Day view only.
+  useEffect(() => {
+    if (view !== "day") return;
+    const t = setTimeout(() => {
+      const d = new Date(date + "T12:00:00");
+      [-1, 1].forEach(off => {
+        const x = new Date(d); x.setDate(x.getDate() + off);
+        const iso = x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0");
+        Promise.resolve(api("adminListTimelineEntries", { dateFrom: iso, dateTo: iso })).catch(() => {});
+      });
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [date, view]);
 
   // Poll every 20s silently — no loading flicker
   useEffect(() => {
