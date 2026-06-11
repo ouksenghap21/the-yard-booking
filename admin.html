@@ -19065,6 +19065,7 @@ function TournamentRosterTab({ t, onChanged, patchT }) {
           onClose={() => setShowAdd(false)}
           onChanged={onChanged}
           patchT={patchT}
+          existingPhones={t.players.map(p => p.phone)}
         />
       )}
       {showBroadcast && (
@@ -19140,7 +19141,7 @@ function PlayerRow({ player, onChanged, entryFee, patchT }) {
   );
 }
 
-function PlayerAddModal({ tournamentId, defaultFee, onClose, onChanged, patchT }) {
+function PlayerAddModal({ tournamentId, defaultFee, onClose, onChanged, patchT, existingPhones }) {
   const [form, setForm] = useState({
     name: "", phone: "", partnerName: "", skillLevel: "", division: "",
     paid: false, amountPaid: defaultFee || 0, paymentMethod: "Cash"
@@ -19148,6 +19149,15 @@ function PlayerAddModal({ tournamentId, defaultFee, onClose, onChanged, patchT }
   const [busy, setBusy] = useState(false);
   async function submit() {
     if (!form.name.trim()) return showToast("Name required", "error");
+    // Duplicate-phone guard: warn instantly (modal stays open to fix) if this
+    // number already belongs to an active player on this roster. Digit-only
+    // compare mirrors the server normalize; the backend is the authoritative net.
+    const digits = s => String(s || "").replace(/\D/g, "");
+    const entered = digits(form.phone);
+    if (entered && (existingPhones || []).some(p => digits(p) === entered)) {
+      showToast("\u26A0 This phone number is already registered for this tournament", "error");
+      return;
+    }
     // Optimistic: show the player + close instantly; the server reload replaces
     // this placeholder and updates the authoritative paid-count/totals a beat later.
     const optimistic = {
@@ -19160,8 +19170,16 @@ function PlayerAddModal({ tournamentId, defaultFee, onClose, onChanged, patchT }
     patchT(prev => ({ ...prev, players: [...prev.players, optimistic] }));
     onClose();
     const r = await api("adminAddTournamentPlayer", { tournamentId: tournamentId, ...form });
-    if (r.ok) { showToast("Player added", "success"); onChanged(); }
-    else {
+    if (r.ok && r.alreadyRegistered) {
+      // Server caught a duplicate the client check missed (cancelled-then-re-add
+      // edge, or a concurrent add). Undo the optimistic row + warn.
+      patchT(prev => ({ ...prev, players: prev.players.filter(p => p.playerId !== optimistic.playerId) }));
+      showToast("\u26A0 This phone number is already registered for this tournament", "error");
+      onChanged();
+    } else if (r.ok) {
+      showToast("Player added", "success");
+      onChanged();
+    } else {
       patchT(prev => ({ ...prev, players: prev.players.filter(p => p.playerId !== optimistic.playerId) }));
       showToast((r.error || "Failed to add player") + " — please re-enter", "error");
     }
