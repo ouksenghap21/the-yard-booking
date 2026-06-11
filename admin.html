@@ -8556,14 +8556,23 @@ function BookingDetailModal({ booking, onClose, onAction }) {
         if (!confirm(confirmMsg)) return;
       }
     }
-    setActing(true);
+    // Optimistic: close the modal and refresh the list immediately so the
+    // action feels instant; the write runs in the background. The modal holds
+    // no source-of-truth data, so closing early is safe. onAction() reconciles
+    // the list (stale-while-revalidate keeps it visible, no spinner); on
+    // failure we surface an error and refresh again to restore the real state.
+    onClose && onClose();
+    showToast(
+      action === "adminMarkPaid" ? "Marked paid"
+      : action === "adminConfirmArrival" ? "Arrival confirmed"
+      : "Done",
+      "success"
+    );
+    onAction && onAction();
     const r = await api(action, { bookingId: booking.bookingId });
-    setActing(false);
-    if (r.ok) {
-      showToast(r.message || "Done", "success");
+    if (!r.ok) {
+      showToast(r.error || "Action failed — refreshing", "error");
       onAction && onAction();
-    } else {
-      showToast(r.error || "Failed", "error");
     }
   }
 
