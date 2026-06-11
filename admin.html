@@ -17517,49 +17517,61 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
   useEffect(() => { load(); }, [sessionId]);
 
   async function toggleCheckedIn(p) {
-    setActing(true);
-    const r = await api("adminUpdateOpenPlayPlayer", {
-      registrationId: p.id,
-      checkedIn: !p.checkedIn
-    });
-    setActing(false);
-    if (r.ok) { load(); onChanged(); }
-    else showToast(r.error || "Failed", "error");
+    const next = !p.checkedIn;
+    // Optimistic: flip the row now; write in the background, revert on failure.
+    setData(prev => prev && ({ ...prev, players: prev.players.map(x => x.id === p.id ? { ...x, checkedIn: next } : x) }));
+    const r = await api("adminUpdateOpenPlayPlayer", { registrationId: p.id, checkedIn: next });
+    if (r.ok) { onChanged(); }
+    else {
+      setData(prev => prev && ({ ...prev, players: prev.players.map(x => x.id === p.id ? { ...x, checkedIn: !next } : x) }));
+      showToast(r.error || "Failed", "error");
+    }
   }
 
   async function togglePaid(p) {
-    setActing(true);
+    const next = !p.paid;
+    const price = data && data.session.price;
+    // Optimistic: flip paid state now; write in the background, revert on failure.
+    setData(prev => prev && ({ ...prev, players: prev.players.map(x => x.id === p.id ? { ...x, paid: next, amountPaid: next ? price : 0, paymentMethod: next ? "Cash" : "" } : x) }));
     const r = await api("adminUpdateOpenPlayPlayer", {
       registrationId: p.id,
-      paid: !p.paid,
-      amountPaid: !p.paid ? (data && data.session.price) : 0,
-      paymentMethod: !p.paid ? "Cash" : ""
+      paid: next,
+      amountPaid: next ? price : 0,
+      paymentMethod: next ? "Cash" : ""
     });
-    setActing(false);
-    if (r.ok) { load(); onChanged(); }
-    else showToast(r.error || "Failed", "error");
+    if (r.ok) { onChanged(); }
+    else {
+      setData(prev => prev && ({ ...prev, players: prev.players.map(x => x.id === p.id ? { ...x, paid: !next, amountPaid: !next ? price : 0 } : x) }));
+      showToast(r.error || "Failed", "error");
+    }
   }
 
   async function removePlayer(p) {
     if (!confirm("Remove " + p.name + " from this session?")) return;
-    setActing(true);
+    // Optimistic: drop the player from the roster now; restore on failure.
+    const prevPlayers = data.players;
+    setData(prev => prev && ({ ...prev, players: prev.players.filter(x => x.id !== p.id) }));
     const r = await api("adminRemoveOpenPlayPlayer", { registrationId: p.id });
-    setActing(false);
-    if (r.ok) { showToast("Player removed", "success"); load(); onChanged(); }
-    else showToast(r.error || "Failed", "error");
+    if (r.ok) { showToast("Player removed", "success"); onChanged(); }
+    else {
+      setData(prev => prev && ({ ...prev, players: prevPlayers }));
+      showToast(r.error || "Failed", "error");
+    }
   }
 
   async function cancelSession() {
     if (!confirm("Cancel this whole session? Court slots will be freed back to the booking grid. Players keep their record but the session won't run.")) return;
-    setActing(true);
+    // Optimistic: close immediately so the action feels instant. The cancel +
+    // list refresh run in the background; on failure we surface an error and
+    // refresh so the session reappears in its real state.
+    onClose();
     const r = await api("adminCancelOpenPlaySession", { sessionId: sessionId });
-    setActing(false);
     if (r.ok) {
       showToast("Session cancelled · " + r.slotsFreed + " slots freed", "success");
       onChanged();
-      onClose();
     } else {
-      showToast(r.error || "Failed", "error");
+      showToast((r.error || "Failed to cancel session") + " — refreshing", "error");
+      onChanged();
     }
   }
 
@@ -18419,6 +18431,15 @@ function TournamentDetailModal({ tournamentId, onClose, onChanged, onEdit }) {
     onChanged && onChanged();
   }
 
+  // Optimistic local patch of the open tournament so add/remove/flag actions in
+  // the tabs feel instant. CRITICAL: every money + paid-count total
+  // (t.totalRevenue, t.totalExpense, t.netProfit, t.paidPlayers, …) is
+  // SERVER-COMPUTED and is reconciled by refresh() immediately after each
+  // action. We only patch the line/player ARRAYS here (pure list ops) and never
+  // recompute a dollar figure on the client — the displayed numbers are always
+  // the backend's authoritative values, just a beat behind the instant list.
+  const patchT = (fn) => setT(prev => prev ? fn(prev) : prev);
+
   if (!t) {
     return (
       <div className="modal-overlay" onClick={onClose}>
@@ -18551,13 +18572,13 @@ function TournamentDetailModal({ tournamentId, onClose, onChanged, onEdit }) {
             <TournamentOverviewTab t={t} />
           )}
           {activeTab === "revenue" && (
-            <TournamentRevenueTab t={t} onChanged={refresh} />
+            <TournamentRevenueTab t={t} onChanged={refresh} patchT={patchT} />
           )}
           {activeTab === "expenses" && (
-            <TournamentExpenseTab t={t} onChanged={refresh} />
+            <TournamentExpenseTab t={t} onChanged={refresh} patchT={patchT} />
           )}
           {activeTab === "roster" && (
-            <TournamentRosterTab t={t} onChanged={refresh} />
+            <TournamentRosterTab t={t} onChanged={refresh} patchT={patchT} />
           )}
           {activeTab === "actions" && (
             <TournamentActionsTab t={t} onChanged={refresh} onCancel={cancelTournament} onEdit={() => onEdit && onEdit(t)} busy={busy} />
@@ -18626,7 +18647,7 @@ function TournamentOverviewTab({ t }) {
   );
 }
 
-function TournamentRevenueTab({ t, onChanged }) {
+function TournamentRevenueTab({ t, onChanged, patchT }) {
   const [showAdd, setShowAdd] = useState(false);
   return (
     <div>
@@ -18646,7 +18667,7 @@ function TournamentRevenueTab({ t, onChanged }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {t.revenueLines.map(line => (
-            <RevenueLineRow key={line.lineId} line={line} onChanged={onChanged} tournamentId={t.id} />
+            <RevenueLineRow key={line.lineId} line={line} onChanged={onChanged} tournamentId={t.id} patchT={patchT} />
           ))}
         </div>
       )}
@@ -18655,14 +18676,15 @@ function TournamentRevenueTab({ t, onChanged }) {
         <RevenueLineAddModal
           tournamentId={t.id}
           onClose={() => setShowAdd(false)}
-          onAdded={() => { setShowAdd(false); onChanged(); }}
+          onChanged={onChanged}
+          patchT={patchT}
         />
       )}
     </div>
   );
 }
 
-function RevenueLineRow({ line, onChanged, tournamentId }) {
+function RevenueLineRow({ line, onChanged, tournamentId, patchT }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const lineTotal = line.amount * (line.quantity || 1);
@@ -18675,21 +18697,21 @@ function RevenueLineRow({ line, onChanged, tournamentId }) {
       destructive: true,
       confirmLabel: "Delete"
     })) return;
-    setBusy(true);
+    // Optimistic: drop the line now; server reconciles totals via onChanged().
+    patchT(prev => ({ ...prev, revenueLines: prev.revenueLines.filter(l => l.lineId !== line.lineId) }));
     const r = await api("adminDeleteTournamentRevenue", { lineId: line.lineId });
-    setBusy(false);
     if (r.ok) { showToast("Removed", "success"); onChanged(); }
-    else showToast(r.error || "Failed", "error");
+    else { showToast(r.error || "Failed", "error"); onChanged(); }
   }
   async function markReceived() {
-    setBusy(true);
+    // Optimistic: flag received now; totals reconcile from the server reload.
+    patchT(prev => ({ ...prev, revenueLines: prev.revenueLines.map(l => l.lineId === line.lineId ? { ...l, receivedDate: todayISO() } : l) }));
     const r = await api("adminUpdateTournamentRevenue", {
       lineId: line.lineId,
       receivedDate: todayISO()
     });
-    setBusy(false);
     if (r.ok) { showToast("Marked received", "success"); onChanged(); }
-    else showToast(r.error || "Failed", "error");
+    else { showToast(r.error || "Failed", "error"); onChanged(); }
   }
 
   const catLabel = (REVENUE_CATEGORIES.find(c => c.value === line.category) || {}).label || line.category;
@@ -18734,7 +18756,7 @@ function RevenueLineRow({ line, onChanged, tournamentId }) {
   );
 }
 
-function RevenueLineAddModal({ tournamentId, onClose, onAdded }) {
+function RevenueLineAddModal({ tournamentId, onClose, onChanged, patchT }) {
   const [form, setForm] = useState({
     category: "entry-fee", description: "", amount: 0, quantity: 1,
     paymentMethod: "Cash", receivedDate: "", notes: ""
@@ -18743,14 +18765,22 @@ function RevenueLineAddModal({ tournamentId, onClose, onAdded }) {
 
   async function submit() {
     if (isNaN(parseFloat(form.amount))) return showToast("Amount required", "error");
-    setBusy(true);
-    const r = await api("adminAddTournamentRevenue", {
-      tournamentId: tournamentId,
-      ...form
-    });
-    setBusy(false);
-    if (r.ok) onAdded();
-    else showToast(r.error || "Failed", "error");
+    // Optimistic: show the line + close instantly; the server reload replaces
+    // this placeholder and updates the authoritative totals a beat later.
+    const optimistic = {
+      lineId: "tmp-" + Date.now(),
+      category: form.category, description: form.description,
+      amount: parseFloat(form.amount) || 0, quantity: parseInt(form.quantity) || 1,
+      receivedDate: form.receivedDate || "", paymentMethod: form.paymentMethod, notes: form.notes
+    };
+    patchT(prev => ({ ...prev, revenueLines: [...prev.revenueLines, optimistic] }));
+    onClose();
+    const r = await api("adminAddTournamentRevenue", { tournamentId: tournamentId, ...form });
+    if (r.ok) { showToast("Revenue line added", "success"); onChanged(); }
+    else {
+      patchT(prev => ({ ...prev, revenueLines: prev.revenueLines.filter(l => l.lineId !== optimistic.lineId) }));
+      showToast((r.error || "Failed to add line") + " — please re-enter", "error");
+    }
   }
 
   return (
@@ -18822,7 +18852,7 @@ function RevenueLineAddModal({ tournamentId, onClose, onAdded }) {
   );
 }
 
-function TournamentExpenseTab({ t, onChanged }) {
+function TournamentExpenseTab({ t, onChanged, patchT }) {
   const [showAdd, setShowAdd] = useState(false);
   return (
     <div>
@@ -18841,7 +18871,7 @@ function TournamentExpenseTab({ t, onChanged }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {t.expenseLines.map(line => (
-            <ExpenseLineRow key={line.lineId} line={line} onChanged={onChanged} />
+            <ExpenseLineRow key={line.lineId} line={line} onChanged={onChanged} patchT={patchT} />
           ))}
         </div>
       )}
@@ -18849,14 +18879,15 @@ function TournamentExpenseTab({ t, onChanged }) {
         <ExpenseLineAddModal
           tournamentId={t.id}
           onClose={() => setShowAdd(false)}
-          onAdded={() => { setShowAdd(false); onChanged(); }}
+          onChanged={onChanged}
+          patchT={patchT}
         />
       )}
     </div>
   );
 }
 
-function ExpenseLineRow({ line, onChanged }) {
+function ExpenseLineRow({ line, onChanged, patchT }) {
   const [busy, setBusy] = useState(false);
   const paid = !!line.paidDate;
   const catLabel = (EXPENSE_CATEGORIES.find(c => c.value === line.category) || {}).label || line.category;
@@ -18868,21 +18899,21 @@ function ExpenseLineRow({ line, onChanged }) {
       destructive: true,
       confirmLabel: "Delete"
     })) return;
-    setBusy(true);
+    // Optimistic: drop the line now; server reconciles totals via onChanged().
+    patchT(prev => ({ ...prev, expenseLines: prev.expenseLines.filter(l => l.lineId !== line.lineId) }));
     const r = await api("adminDeleteTournamentExpense", { lineId: line.lineId });
-    setBusy(false);
     if (r.ok) { showToast("Removed", "success"); onChanged(); }
-    else showToast(r.error || "Failed", "error");
+    else { showToast(r.error || "Failed", "error"); onChanged(); }
   }
   async function markPaid() {
-    setBusy(true);
+    // Optimistic: flag paid now; totals reconcile from the server reload.
+    patchT(prev => ({ ...prev, expenseLines: prev.expenseLines.map(l => l.lineId === line.lineId ? { ...l, paidDate: todayISO() } : l) }));
     const r = await api("adminUpdateTournamentExpense", {
       lineId: line.lineId,
       paidDate: todayISO()
     });
-    setBusy(false);
     if (r.ok) { showToast("Marked paid", "success"); onChanged(); }
-    else showToast(r.error || "Failed", "error");
+    else { showToast(r.error || "Failed", "error"); onChanged(); }
   }
 
   return (
@@ -18916,7 +18947,7 @@ function ExpenseLineRow({ line, onChanged }) {
   );
 }
 
-function ExpenseLineAddModal({ tournamentId, onClose, onAdded }) {
+function ExpenseLineAddModal({ tournamentId, onClose, onChanged, patchT }) {
   const [form, setForm] = useState({
     category: "prize-pool", description: "", amount: 0,
     paymentMethod: "Cash", paidDate: "", notes: ""
@@ -18925,11 +18956,22 @@ function ExpenseLineAddModal({ tournamentId, onClose, onAdded }) {
 
   async function submit() {
     if (isNaN(parseFloat(form.amount))) return showToast("Amount required", "error");
-    setBusy(true);
+    // Optimistic: show the line + close instantly; the server reload replaces
+    // this placeholder and updates the authoritative totals a beat later.
+    const optimistic = {
+      lineId: "tmp-" + Date.now(),
+      category: form.category, description: form.description,
+      amount: parseFloat(form.amount) || 0,
+      paidDate: form.paidDate || "", paymentMethod: form.paymentMethod, notes: form.notes
+    };
+    patchT(prev => ({ ...prev, expenseLines: [...prev.expenseLines, optimistic] }));
+    onClose();
     const r = await api("adminAddTournamentExpense", { tournamentId: tournamentId, ...form });
-    setBusy(false);
-    if (r.ok) onAdded();
-    else showToast(r.error || "Failed", "error");
+    if (r.ok) { showToast("Expense line added", "success"); onChanged(); }
+    else {
+      patchT(prev => ({ ...prev, expenseLines: prev.expenseLines.filter(l => l.lineId !== optimistic.lineId) }));
+      showToast((r.error || "Failed to add line") + " — please re-enter", "error");
+    }
   }
 
   return (
@@ -18980,7 +19022,7 @@ function ExpenseLineAddModal({ tournamentId, onClose, onAdded }) {
   );
 }
 
-function TournamentRosterTab({ t, onChanged }) {
+function TournamentRosterTab({ t, onChanged, patchT }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showBroadcast, setShowBroadcast] = useState(false);
   return (
@@ -19011,7 +19053,7 @@ function TournamentRosterTab({ t, onChanged }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {t.players.map(p => (
-            <PlayerRow key={p.playerId} player={p} onChanged={onChanged} entryFee={t.entryFee} />
+            <PlayerRow key={p.playerId} player={p} onChanged={onChanged} entryFee={t.entryFee} patchT={patchT} />
           ))}
         </div>
       )}
@@ -19021,7 +19063,8 @@ function TournamentRosterTab({ t, onChanged }) {
           tournamentId={t.id}
           defaultFee={t.entryFee}
           onClose={() => setShowAdd(false)}
-          onAdded={() => { setShowAdd(false); onChanged(); }}
+          onChanged={onChanged}
+          patchT={patchT}
         />
       )}
       {showBroadcast && (
@@ -19035,19 +19078,20 @@ function TournamentRosterTab({ t, onChanged }) {
   );
 }
 
-function PlayerRow({ player, onChanged, entryFee }) {
+function PlayerRow({ player, onChanged, entryFee, patchT }) {
   const [busy, setBusy] = useState(false);
   async function togglePaid() {
-    setBusy(true);
+    const next = !player.paid;
+    // Optimistic: flip the row now; t.paidPlayers + totals reconcile via onChanged().
+    patchT(prev => ({ ...prev, players: prev.players.map(p => p.playerId === player.playerId ? { ...p, paid: next, amountPaid: next ? (entryFee || 0) : 0 } : p) }));
     const r = await api("adminUpdateTournamentPlayer", {
       playerId: player.playerId,
-      paid: !player.paid,
-      amountPaid: !player.paid ? (entryFee || 0) : 0,
-      paymentMethod: !player.paid ? "Cash" : ""
+      paid: next,
+      amountPaid: next ? (entryFee || 0) : 0,
+      paymentMethod: next ? "Cash" : ""
     });
-    setBusy(false);
     if (r.ok) onChanged();
-    else showToast(r.error || "Failed", "error");
+    else { showToast(r.error || "Failed", "error"); onChanged(); }
   }
   async function remove() {
     if (!await confirmAction({
@@ -19056,11 +19100,11 @@ function PlayerRow({ player, onChanged, entryFee }) {
       destructive: true,
       confirmLabel: "Remove"
     })) return;
-    setBusy(true);
+    // Optimistic: drop the player now; counts reconcile from the server reload.
+    patchT(prev => ({ ...prev, players: prev.players.filter(p => p.playerId !== player.playerId) }));
     const r = await api("adminRemoveTournamentPlayer", { playerId: player.playerId });
-    setBusy(false);
     if (r.ok) { showToast("Removed", "success"); onChanged(); }
-    else showToast(r.error || "Failed", "error");
+    else { showToast(r.error || "Failed", "error"); onChanged(); }
   }
   return (
     <div style={{
@@ -19096,7 +19140,7 @@ function PlayerRow({ player, onChanged, entryFee }) {
   );
 }
 
-function PlayerAddModal({ tournamentId, defaultFee, onClose, onAdded }) {
+function PlayerAddModal({ tournamentId, defaultFee, onClose, onChanged, patchT }) {
   const [form, setForm] = useState({
     name: "", phone: "", partnerName: "", skillLevel: "", division: "",
     paid: false, amountPaid: defaultFee || 0, paymentMethod: "Cash"
@@ -19104,11 +19148,23 @@ function PlayerAddModal({ tournamentId, defaultFee, onClose, onAdded }) {
   const [busy, setBusy] = useState(false);
   async function submit() {
     if (!form.name.trim()) return showToast("Name required", "error");
-    setBusy(true);
+    // Optimistic: show the player + close instantly; the server reload replaces
+    // this placeholder and updates the authoritative paid-count/totals a beat later.
+    const optimistic = {
+      playerId: "tmp-" + Date.now(),
+      name: form.name, phone: form.phone, partnerName: form.partnerName,
+      skillLevel: form.skillLevel, division: form.division,
+      paid: !!form.paid, amountPaid: form.paid ? (parseFloat(form.amountPaid) || 0) : 0,
+      paymentMethod: form.paymentMethod
+    };
+    patchT(prev => ({ ...prev, players: [...prev.players, optimistic] }));
+    onClose();
     const r = await api("adminAddTournamentPlayer", { tournamentId: tournamentId, ...form });
-    setBusy(false);
-    if (r.ok) onAdded();
-    else showToast(r.error || "Failed", "error");
+    if (r.ok) { showToast("Player added", "success"); onChanged(); }
+    else {
+      patchT(prev => ({ ...prev, players: prev.players.filter(p => p.playerId !== optimistic.playerId) }));
+      showToast((r.error || "Failed to add player") + " — please re-enter", "error");
+    }
   }
   return (
     <div className="modal-overlay" onClick={onClose}>
