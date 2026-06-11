@@ -7592,6 +7592,16 @@ function ScreenBookings() {
   }
 
   // Compute the date range we need to fetch based on view + selected date
+  // The window of days currently loaded into `entries` (day view). Switching
+  // to any day INSIDE this window is pure client-side filtering — instant, no
+  // network. We only refetch when the selected date reaches the window edge.
+  const [loadedRange, setLoadedRange] = useState(null);
+  const addDaysISO = (iso, n) => {
+    const d = new Date(iso + "T12:00:00");
+    d.setDate(d.getDate() + n);
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  };
+
   const range = useMemo(() => {
     const d = new Date(date + "T12:00:00");
     if (view === "day") {
@@ -7616,63 +7626,66 @@ function ScreenBookings() {
     }
   }, [view, date]);
 
+  // The range we actually FETCH. For day view it's a window centered on the
+  // selected date (RADIUS days each side); we KEEP the already-loaded window
+  // (and skip refetching) while the date stays strictly inside it. So clicking
+  // between nearby days does ZERO network and is instant — a refetch happens
+  // only when the date reaches the window edge or jumps far away.
+  const DAY_WINDOW_RADIUS = 3;
+  const fetchRange = useMemo(() => {
+    if (view !== "day") return range;
+    if (loadedRange &&
+        date >= addDaysISO(loadedRange.from, 1) &&
+        date <= addDaysISO(loadedRange.to, -1)) {
+      return loadedRange;
+    }
+    return { from: addDaysISO(date, -DAY_WINDOW_RADIUS), to: addDaysISO(date, DAY_WINDOW_RADIUS) };
+  }, [view, date, range, loadedRange]);
+
   async function load(opts) {
     const silent = opts && opts.silent;
     // Synchronous cache hit: render stale data instantly so the tab/date switch feels instant
     if (!silent) {
-      const cached = getCachedApi("adminListTimelineEntries", { dateFrom: range.from, dateTo: range.to });
+      const cached = getCachedApi("adminListTimelineEntries", { dateFrom: fetchRange.from, dateTo: fetchRange.to });
       if (cached && cached.ok) {
-        // Best path: we have cached data for THIS date range → show it instantly
+        // Best path: cached data for THIS window → show it instantly.
         setEntries(cached.entries || []);
         setLoading(false);
-        setRefreshing(true);  // subtle indicator while we refresh
+        setRefreshing(true);  // subtle indicator while we revalidate
+      } else if (loadedRange && date >= loadedRange.from && date <= loadedRange.to) {
+        // No cache for the new window, but our current entries still COVER the
+        // selected date (the new window overlaps the old one at the edge). Keep
+        // showing them — the day's rows are present, so the switch stays
+        // instant — and refetch the window in the background.
+        setRefreshing(true);
       } else {
-        // No cache for this date range. Any current entries belong to a
-        // DIFFERENT date and get filtered out by `e.date === date`, which
-        // renders as a misleading "No entries for this date" during the ~2s
-        // refetch. Clear to the skeleton (entries === null) so it reads
-        // correctly as "loading", not "empty". The 15s api cache + the
-        // adjacent-day prefetch below make most switches instant; this
-        // skeleton only appears on the first visit to an uncached date.
+        // Selected date is NOT in our current data (first load, or a jump far
+        // outside the loaded window). Clear to the skeleton (entries === null)
+        // so it reads correctly as "loading", not a false "No entries".
         setEntries(null);
         setLoading(true);
       }
     }
     const r = await api(
       "adminListTimelineEntries",
-      { dateFrom: range.from, dateTo: range.to },
+      { dateFrom: fetchRange.from, dateTo: fetchRange.to },
       { bypassCache: !!silent }  // periodic polls bypass; initial/explicit reads use cache
     );
-    if (r.ok) setEntries(r.entries || []);
+    if (r.ok) {
+      setEntries(r.entries || []);
+      if (!silent && view === "day") setLoadedRange({ from: fetchRange.from, to: fetchRange.to });
+    }
     else if (!silent) showToast(r.error || "Failed to load", "error");
     if (!silent) { setLoading(false); setRefreshing(false); }
   }
 
-  useEffect(() => { load(); }, [range.from, range.to]);
-
-  // Prefetch adjacent days in the background so date navigation is instant
-  // (the switch becomes a cache hit). Delayed so the foreground load dispatches
-  // first — Apps Script serializes a user's requests, so we must not queue
-  // prefetches ahead of the data the user is actually waiting for. Cancelable,
-  // so rapid navigation doesn't pile up requests. Day view only.
-  useEffect(() => {
-    if (view !== "day") return;
-    const t = setTimeout(() => {
-      const d = new Date(date + "T12:00:00");
-      [-1, 1].forEach(off => {
-        const x = new Date(d); x.setDate(x.getDate() + off);
-        const iso = x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0");
-        Promise.resolve(api("adminListTimelineEntries", { dateFrom: iso, dateTo: iso })).catch(() => {});
-      });
-    }, 1200);
-    return () => clearTimeout(t);
-  }, [date, view]);
+  useEffect(() => { load(); }, [fetchRange.from, fetchRange.to]);
 
   // Poll every 20s silently — no loading flicker
   useEffect(() => {
     const id = setInterval(() => load({ silent: true }), 20000);
     return () => clearInterval(id);
-  }, [range.from, range.to]);
+  }, [fetchRange.from, fetchRange.to]);
 
   // OPTIMISTIC LIVE-UPDATE: any mutation done elsewhere in the app fires
   // yard:data-changed. Refresh the bookings list immediately so the admin
@@ -9367,15 +9380,16 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
 
   async function closeBlock() {
     if (!confirm("Close this walk-in block? Players already added remain on record.")) return;
-    setWorking(true);
+    // Optimistic: close immediately; the write runs in the background. Closing a
+    // block is reversible-safe (players stay on record), so if the write fails
+    // the block simply comes back on the next refresh and we surface an error.
+    showToast("Block closed", "success");
+    onChanged && onChanged();
+    onClose && onClose();
     const r = await api("adminCloseWalkInBlock", { blockId: block.blockId });
-    setWorking(false);
-    if (r.ok) {
-      showToast("Block closed", "success");
+    if (!r.ok) {
+      showToast((r.error || "Failed to close block") + " — refreshing", "error");
       onChanged && onChanged();
-      onClose && onClose();
-    } else {
-      showToast(r.error || "Failed", "error");
     }
   }
 
@@ -11087,24 +11101,25 @@ function PaymentsDueView({ data, loading, reload }) {
 
   async function confirmPayment(paymentMethod, paymentDate) {
     if (!paymentModal) return;
+    const coachId = paymentModal.coach.coachId;
+    const sessionIds = paymentModal.sessionIds.join(",");
+    // Optimistic: close the payment modal immediately so the tap feels instant.
+    // The write + refresh run in the background; the coach's rows update when
+    // reload() returns. On failure the sessions stay unpaid and we surface an error.
+    setExpandedCoachId(null);
+    setPaymentModal(null);
     const r = await api("adminMarkCoachingSessionsPaid", {
-      sessionIds: paymentModal.sessionIds.join(","),
+      sessionIds: sessionIds,
       paymentMethod: paymentMethod,
       paymentDate: paymentDate
     });
     if (r.ok) {
       showToast(`Marked ${r.updated} session${r.updated === 1 ? "" : "s"} paid · $${r.totalCollected.toFixed(2)} collected`, "success");
-      // Clear cached sessions for this coach so they reload
-      setCoachSessions(prev => {
-        const next = { ...prev };
-        delete next[paymentModal.coach.coachId];
-        return next;
-      });
-      setExpandedCoachId(null);
-      setPaymentModal(null);
+      setCoachSessions(prev => { const next = { ...prev }; delete next[coachId]; return next; });
       reload();
     } else {
-      showToast(r.error || "Failed", "error");
+      showToast((r.error || "Failed to mark paid") + " — refreshing", "error");
+      reload();
     }
   }
 
