@@ -591,7 +591,6 @@ h1.tournament-name{
 .signup-card.managing{
   text-align:left;
   background:var(--paper);
-  color:var(--ink);
   border:1px solid var(--rule-strong);
 }
 .signup-card.managing .manage-rows{
@@ -617,7 +616,6 @@ h1.tournament-name{
 .signup-card.success{
   text-align:center;
   background:var(--paper);
-  color:var(--ink);
   border:1px solid var(--rule-strong);
 }
 .signup-card .success-icon{
@@ -786,7 +784,7 @@ h1.tournament-name{
 
 <script>
   // Replace with your deployed Apps Script Web App URL (same as admin.html)
-  var API_URL = "https://script.google.com/macros/s/AKfycbySSk--iEFY8vTvldpARENCQ6KApJik0UHqASKa7PfJ1IkIJkmEAvOQPCsKR84MFtAY/exec";
+  var API_URL = "https://script.google.com/macros/s/AKfycbxyZmK0KfQd72-AarUNfTl25tJo-D5pD2Phurbk8XbzkC4Ih3opY2NCKT9ROx1FB1iP/exec";
 
   function getQueryParam(name) {
     var match = window.location.search.match(new RegExp("[?&]" + name + "=([^&]*)"));
@@ -1057,8 +1055,13 @@ h1.tournament-name{
           '<input type="hidden" id="f-skill" value="' + escapeHtml(prefill.skillSelf || "") + '" />' +
         '</div>' +
 
-        '<div class="field"><label>DUPR <span class="opt">(optional)</span></label>' +
-          '<input type="number" id="f-dupr" min="2.0" max="8.0" step="0.1" inputmode="decimal" placeholder="e.g. 3.5" value="' + (prefill.duprSelf != null && prefill.duprSelf !== "" ? prefill.duprSelf : "") + '" />' +
+        '<div class="field-row">' +
+          '<div class="field"><label>DUPR <span class="opt">(optional)</span></label>' +
+            '<input type="number" id="f-dupr" min="2.0" max="8.0" step="0.1" inputmode="decimal" placeholder="e.g. 3.5" value="' + (prefill.duprSelf != null && prefill.duprSelf !== "" ? prefill.duprSelf : "") + '" />' +
+          '</div>' +
+          '<div class="field"><label>Email <span class="opt">(optional)</span></label>' +
+            '<input type="email" id="f-email" maxlength="120" placeholder="for digital receipt" value="' + escapeHtml(prefill.email || "") + '" />' +
+          '</div>' +
         '</div>' +
 
         '<div class="err" id="signup-err"></div>' +
@@ -1113,6 +1116,7 @@ h1.tournament-name{
     var partner = (document.getElementById("f-partner").value || "").trim();
     var skill = document.getElementById("f-skill").value || "";
     var dupr = (document.getElementById("f-dupr").value || "").trim();
+    var email = (document.getElementById("f-email").value || "").trim();
 
     if (!name) { errEl.textContent = "Please enter your name"; return; }
     var digits = phone.replace(/\D/g, "");
@@ -1129,7 +1133,8 @@ h1.tournament-name{
       phone: phone,
       partnerName: partner,
       skillLevel: skill,
-      dupr: dupr
+      dupr: dupr,
+      email: email
     });
 
     fetch(API_URL + "?" + params.toString(), { method: "GET" })
@@ -1140,7 +1145,8 @@ h1.tournament-name{
             name: name,
             phone: phone,
             skillSelf: skill,
-            duprSelf: dupr
+            duprSelf: dupr,
+            email: email
           });
           renderSuccess(t, r);
           // Success path replaces the entire signup card, so the flag is
