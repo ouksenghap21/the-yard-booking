@@ -7681,9 +7681,14 @@ function ScreenBookings() {
 
   useEffect(() => { load(); }, [fetchRange.from, fetchRange.to]);
 
-  // Poll every 20s silently — no loading flicker
+  // Poll every 20s silently — no loading flicker. Skipped while the tab is
+  // hidden: a backgrounded admin tab otherwise competes with customers for
+  // Apps Script's serialized execution slots all day for nothing.
   useEffect(() => {
-    const id = setInterval(() => load({ silent: true }), 20000);
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      load({ silent: true });
+    }, 20000);
     return () => clearInterval(id);
   }, [fetchRange.from, fetchRange.to]);
 
@@ -18430,6 +18435,7 @@ function TournamentDetailModal({ tournamentId, onClose, onChanged, onEdit }) {
   // without a manual page reload.
   useEffect(() => {
     const id = setInterval(() => {
+      if (document.hidden) return;  // don't poll from a backgrounded tab
       api("adminGetTournament", { tournamentId: tournamentId }, { bypassCache: true })
         .then(r => { if (r && r.ok) setT(r.tournament); })
         .catch(() => {});
