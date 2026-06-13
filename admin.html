@@ -6198,6 +6198,17 @@ function ScreenDashboard() {
     }
   }
 
+  // Open the EXACT booking a Refunds-Owed (or any action-queue) row refers to,
+  // so its amount/court/status can be verified against the real record.
+  async function openRefundBooking(bookingId) {
+    const r = await api("adminGetBookingById", { bookingId: bookingId });
+    if (r.ok && r.booking) {
+      setDetailBooking(r.booking);
+    } else {
+      showToast(r.error || "Could not load booking " + bookingId, "error");
+    }
+  }
+
   async function refresh(opts = {}) {
     const today = todayISO();
     const bypass = !!opts.fresh;
@@ -6606,7 +6617,7 @@ function ScreenDashboard() {
 
       {/* Action Queue + Today's Pulse */}
       <div className="two-col">
-        <ActionQueuePanel data={data} onMarkPaid={refresh} />
+        <ActionQueuePanel data={data} onMarkPaid={refresh} onOpenBooking={openRefundBooking} />
         <TodaysPulsePanel
           data={data}
           onOpenPlayClick={(sid) => setOpenPlayDetailId(sid)}
@@ -6932,7 +6943,7 @@ function OperationalKpiPanel({ data }) {
 /* ====================================================================
    ACTION QUEUE PANEL
    ==================================================================== */
-function ActionQueuePanel({ data, onMarkPaid }) {
+function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
   const aq = data.actionQueue || {};
   const payments = aq.paymentsToCollect || [];
   const overdue = aq.overdue || [];
@@ -7309,7 +7320,12 @@ function ActionQueuePanel({ data, onMarkPaid }) {
             {visibleRefunds.map(r => (
               <div className="action-item" key={r.bookingId}>
                 <span className="badge urgent">{r.date}</span>
-                <div className="body">
+                <div
+                  className="body"
+                  onClick={() => onOpenBooking && onOpenBooking(r.bookingId)}
+                  style={{ cursor: onOpenBooking ? "pointer" : "default" }}
+                  title={onOpenBooking ? "Open booking to verify" : undefined}
+                >
                   <div className="title">{r.name || "(no name)"}</div>
                   <div className="meta">
                     {r.bookingId} · C·{r.courts} · {r.time} · ${(r.total || 0).toFixed(2)}
@@ -8603,6 +8619,7 @@ function BookingDetailModal({ booking, onClose, onAction }) {
     showToast(
       action === "adminMarkPaid" ? "Marked paid"
       : action === "adminConfirmArrival" ? "Arrival confirmed"
+      : action === "adminMarkRefunded" ? "Marked refunded"
       : "Done",
       "success"
     );
@@ -8779,6 +8796,13 @@ function BookingDetailModal({ booking, onClose, onAction }) {
               onClick={() => doAction("adminCancelBooking")}
               disabled={acting}
             >Cancel booking</button>
+          )}
+          {booking.refundable && (
+            <button
+              className="btn primary"
+              onClick={() => doAction("adminMarkRefunded", "Mark this cancelled booking as refunded?")}
+              disabled={acting}
+            >Mark refunded</button>
           )}
           <button className="btn ghost" onClick={onClose} disabled={acting}>Close</button>
         </div>
