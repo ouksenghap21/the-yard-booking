@@ -7902,14 +7902,14 @@ function ScreenBookings() {
           </div>
 
           {entries === null ? (
-            <div style={{ padding: "12px 0" }}>
-              {[0, 1, 2, 3, 4, 5].map(i => <RowSkeleton key={i} />)}
+            <div style={{ padding: "56px 0", display: "flex", justifyContent: "center" }}>
+              <BouncingBall size="md" label="Loading…" />
             </div>
           ) : (
             <>
               {dayAllEntries.length === 0 ? (
-                <div className="empty">
-                  {statusFilter === "all" ? "No entries for this date" : "No " + STATUS_LABELS[statusFilter].toLowerCase() + " bookings"}
+                <div style={{ padding: "56px 0", display: "flex", justifyContent: "center" }}>
+                  <BouncingBall size="md" label={statusFilter === "all" ? "No bookings for this date" : "No " + STATUS_LABELS[statusFilter].toLowerCase() + " bookings"} />
                 </div>
               ) : (
                 <div className="booking-list">
