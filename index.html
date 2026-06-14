@@ -401,14 +401,13 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
     "c1 c2 c3 c4 c5 c6"
     ".  .  .  .  .  c7";
   gap:7px;
-  align-items:stretch;
 }
 .court-cell{
   position:relative;
   aspect-ratio:3 / 4;
   border:1.5px solid var(--ink);
   border-radius:7px;
-  background:rgba(61,122,79,0.13);     /* COURT sage */
+  background:#B7CE9B;                 /* matcha court surface */
   display:flex; align-items:flex-end; justify-content:flex-start;
   padding:5px 6px;
   cursor:pointer; overflow:hidden;
@@ -418,38 +417,36 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
 }
 .court-cell.land{ aspect-ratio:5 / 3; }   /* 08 sits landscape in the real plan */
 .court-cell:active{ transform:translateY(1px); }
+/* court boundary line — "outline the shape of the court" (inset like real markings) */
+.court-lines{ position:absolute; inset:11%; border:1.5px solid var(--ink); z-index:1; }
+/* clay non-volley zone (kitchen) straddling the net */
+.court-kitchen{ position:absolute; left:0; right:0; top:34%; height:32%; background:var(--clay); }
+.court-cell.land .court-kitchen{ left:34%; right:34%; top:0; bottom:0; height:auto; }
+/* net across the middle */
+.court-net{ position:absolute; left:0; right:0; top:50%; height:0; border-top:2.5px solid var(--ink); transform:translateY(-1.25px); }
+.court-cell.land .court-net{ left:50%; top:0; bottom:0; right:auto; width:0; height:auto; border-top:none; border-left:2.5px solid var(--ink); transform:translateX(-1.25px); }
+/* centerline (service division) perpendicular to the net */
+.court-center{ position:absolute; top:0; bottom:0; left:50%; width:0; border-left:1.5px solid var(--ink); transform:translateX(-0.75px); }
+.court-cell.land .court-center{ left:0; right:0; top:50%; bottom:auto; height:0; width:auto; border-left:none; border-top:1.5px solid var(--ink); transform:translateY(-0.75px); }
 .court-cell .cn{
   position:relative; z-index:2;
   font-family:var(--serif); font-style:italic; font-size:clamp(13px,3.5vw,17px);
   line-height:1; color:var(--ink);
 }
-.court-cell .court-kitchen{   /* tan kitchen band straddling the net */
-  position:absolute; left:0; right:0; top:38%; height:24%;
-  background:rgba(168,116,74,0.20); z-index:1;
-}
-.court-cell.land .court-kitchen{ left:40%; right:40%; top:0; bottom:0; height:auto; }
-.court-cell .court-net{       /* net line */
-  position:absolute; left:0; right:0; top:50%; height:0;
-  border-top:2px solid var(--ink); z-index:1;
-}
-.court-cell.land .court-net{
-  left:50%; top:0; bottom:0; right:auto; width:0; height:auto;
-  border-top:none; border-left:2px solid var(--ink);
-}
+/* selected → brand-green court, cream markings (kitchen stays clay) */
 .court-cell.sel{ background:var(--green); border-color:var(--green); }
+.court-cell.sel .court-lines{ border-color:var(--cream); }
+.court-cell.sel .court-net,
+.court-cell.sel .court-center{ border-color:var(--cream); }
 .court-cell.sel .cn{ color:var(--cream); }
-.court-cell.sel .court-kitchen{ background:rgba(241,234,214,0.20); }
-.court-cell.sel .court-net{ border-top-color:var(--cream); }
-.court-cell.sel.land .court-net{ border-left-color:var(--cream); }
-.court-cell.unavail{
-  background:rgba(26,26,26,0.06); border-color:rgba(26,26,26,0.22);
-  cursor:not-allowed; box-shadow:none; opacity:0.7;
-}
+/* unavailable → muted */
+.court-cell.unavail{ background:rgba(26,26,26,0.06); border-color:rgba(26,26,26,0.22); cursor:not-allowed; box-shadow:none; opacity:0.75; }
+.court-cell.unavail .court-lines{ border-color:rgba(26,26,26,0.25); }
+.court-cell.unavail .court-kitchen{ background:rgba(26,26,26,0.12); }
+.court-cell.unavail .court-net,
+.court-cell.unavail .court-center{ border-color:rgba(26,26,26,0.25); }
 .court-cell.unavail .cn{ color:rgba(26,26,26,0.42); text-decoration:line-through; }
-.court-cell.unavail .court-kitchen{ background:rgba(26,26,26,0.05); }
-.court-cell.unavail .court-net{ border-top-color:rgba(26,26,26,0.22); }
-.court-cell.unavail.land .court-net{ border-left-color:rgba(26,26,26,0.22); }
-.court-cell:hover:not(.sel):not(.unavail){ background:rgba(61,122,79,0.2); }
+.court-cell:hover:not(.sel):not(.unavail){ background:#A9C487; }
 .court-map-legend{
   display:flex; gap:16px; justify-content:center; flex-wrap:wrap; margin-top:12px;
   font-family:var(--mono); font-size:10px; letter-spacing:0.1em; text-transform:uppercase;
@@ -457,7 +454,7 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
 }
 .court-map-legend span{ display:inline-flex; align-items:center; gap:6px; }
 .court-map-legend .dot{ width:11px; height:11px; border-radius:3px; border:1.5px solid var(--ink); }
-.court-map-legend .dot.open{ background:rgba(61,122,79,0.13); }
+.court-map-legend .dot.open{ background:#B7CE9B; }
 .court-map-legend .dot.sel{ background:var(--green); border-color:var(--green); }
 .court-map-legend .dot.taken{ background:rgba(26,26,26,0.12); border-color:rgba(26,26,26,0.3); }
 
@@ -4117,8 +4114,11 @@ function CourtRail({ value, onChange, count = 8, unavailable = [], lang }) {
         title={"Court " + pad2(num) + " · " + stateLbl}
         onClick={() => toggle(num)}
       >
-        <span className="court-kitchen" aria-hidden="true" />
-        <span className="court-net" aria-hidden="true" />
+        <span className="court-lines" aria-hidden="true">
+          <span className="court-kitchen" />
+          <span className="court-net" />
+          <span className="court-center" />
+        </span>
         <span className="cn">{pad2(num)}</span>
       </button>
     );
@@ -5825,14 +5825,16 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
   return (
     <>
       <div className="op-screen">
-        <div className="op-hero">
-          <div className="op-kicker">DROP-IN · SHOW UP & PLAY</div>
-          <h1 className="op-title">Open Play</h1>
-          <p className="op-lede">
-            No team? No problem. Sign up for a scheduled session,
-            walk in, get matched with players at your level.
-          </p>
+        <div className="row-between" style={{ marginBottom: 12 }}>
+          <Lockup size={0.92} onClick={() => go(state.token ? "booking" : "phone")} />
+          <span className="pill">{lang === "km" ? "ល្បែង" : "Drop-in"}</span>
         </div>
+        <h1 className="h-display" style={{ fontSize: 48, margin: "10px 0 8px" }}>Open Play</h1>
+        <p className="op-lede" style={{ textAlign: "left", margin: "0 0 24px", maxWidth: "34ch" }}>
+          {lang === "km"
+            ? "គ្មានក្រុម? គ្មានបញ្ហា។ ចុះឈ្មោះវគ្គដែលបានកំណត់ ដើរចូល ហើយត្រូវបានផ្គូផ្គងនឹងអ្នកលេងកម្រិតរបស់អ្នក។"
+            : "No team? No problem. Sign up for a scheduled session, walk in, get matched with players at your level."}
+        </p>
 
         {/* User's existing registrations (upcoming) */}
         {activeRegs.length > 0 && (
