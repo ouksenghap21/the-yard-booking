@@ -705,6 +705,74 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
 }
 .empty .icon{ font-size:36px; margin-bottom:8px; opacity:0.5; }
 
+/* ========== Coming-soon landing ========== */
+.landing{
+  position:fixed; inset:0; z-index:50;
+  background:
+    radial-gradient(1100px 560px at 50% -12%, var(--paper-2), transparent 62%),
+    var(--paper);
+  display:flex; align-items:center; justify-content:center;
+  padding:40px 20px; overflow-y:auto;
+}
+.landing-lang{ position:fixed; top:18px; right:18px; display:flex; gap:4px; z-index:2; }
+.landing-lang button{
+  font-family:var(--mono); font-size:11px; letter-spacing:0.12em;
+  padding:6px 11px; border:1.5px solid var(--rule-strong);
+  background:transparent; color:var(--ink); border-radius:999px; cursor:pointer; opacity:0.55;
+}
+.landing-lang button.on{ opacity:1; background:var(--ink); color:var(--cream); border-color:var(--ink); }
+.landing-inner{
+  width:100%; max-width:540px; text-align:center;
+  display:flex; flex-direction:column; align-items:center;
+}
+.landing-kicker{
+  font-family:var(--mono); font-size:11px; letter-spacing:0.22em; text-transform:uppercase;
+  color:var(--clay); margin-bottom:10px;
+}
+.landing-h1{
+  font-family:var(--serif); font-weight:600;
+  font-size:clamp(40px, 9vw, 66px); line-height:1.02; letter-spacing:-0.01em;
+  color:var(--ink); margin:0 0 28px;
+}
+.countdown-grid{
+  display:grid; grid-template-columns:repeat(4, 1fr); gap:10px;
+  width:100%; max-width:440px; margin:0 auto 20px;
+}
+.cd-unit{
+  background:var(--cream); border:1.5px solid var(--ink); border-radius:14px;
+  padding:18px 6px 12px; box-shadow:var(--lift-1);
+}
+.cd-num{
+  font-family:var(--serif); font-weight:600; font-variant-numeric:tabular-nums;
+  font-size:clamp(30px, 8vw, 46px); line-height:1; color:var(--ink);
+}
+.cd-lab{
+  font-family:var(--mono); font-size:10px; letter-spacing:0.18em; text-transform:uppercase;
+  color:var(--ink); opacity:0.5; margin-top:8px;
+}
+.landing-date{
+  font-family:var(--mono); font-size:12px; letter-spacing:0.1em; text-transform:uppercase;
+  color:var(--ink); opacity:0.7; margin-top:6px;
+}
+.landing-sub{
+  font-family:var(--sans); font-size:15px; line-height:1.55;
+  color:var(--ink); opacity:0.78; max-width:380px; margin:16px auto 0;
+}
+.landing-tagline{ font-family:var(--serif); font-style:italic; font-size:22px; color:var(--clay); margin-top:30px; }
+.landing-meta{ font-family:var(--mono); font-size:10px; letter-spacing:0.18em; color:var(--ink); opacity:0.45; margin-top:14px; }
+.landing-open{ margin:4px 0 14px; }
+.landing-open-msg{ font-family:var(--serif); font-size:30px; color:var(--green); margin-bottom:14px; }
+.landing-enter{
+  font-family:var(--mono); font-size:13px; letter-spacing:0.14em; text-transform:uppercase;
+  background:var(--green); color:var(--cream); border:none; border-radius:999px;
+  padding:14px 28px; cursor:pointer; box-shadow:var(--lift-2);
+}
+.landing-enter:hover{ background:var(--green-2); }
+@media (max-width:380px){
+  .countdown-grid{ gap:6px; }
+  .cd-unit{ padding:14px 4px 10px; border-radius:11px; }
+}
+
 /* ========== Loading: bouncing pickleball ========== */
 /* A pickleball trajectory motif — bounces left-to-right with diminishing
    arcs, ending in a small roll. Built from two independent animations:
@@ -4055,6 +4123,15 @@ function ScreenPhone({ state, setState, go, lang }) {
       showToast(r.error || t("error", null, lang), "error");
       return;
     }
+    // The backend returns ok:true even when the SMS itself failed to send
+    // (the delivery result is in r.sent). Don't advance to the code screen if
+    // no text actually went out — there'd be no code to enter. Surface the
+    // real reason so the failure isn't silent. (r.sent===false is explicit so
+    // older backends that omit the field stay backward-compatible.)
+    if (r.sent === false) {
+      showToast(r.error || "We couldn't send your code. Please try again in a moment.", "error");
+      return;
+    }
     setState(s => ({ ...s, phone: norm }));
     go("otp");
   }
@@ -6549,6 +6626,99 @@ function SponsorStrip() {
    8. APP SHELL — top bar, language toggle, screen routing, foot nav
    ==================================================================== */
 
+/* ===================== COMING-SOON LANDING ===================== */
+/* Interprets a TZ-less "YYYY-MM-DDTHH:mm" admin value as Phnom Penh time
+   (UTC+7, no DST), so the countdown is correct regardless of viewer locale. */
+function parseOpening(s) {
+  if (!s) return null;
+  let iso = String(s).trim();
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(iso)) iso += ":00+07:00";
+  else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(iso)) iso += "+07:00";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function LandingPage({ config, lang, setLang }) {
+  const opening = parseOpening(config.landing.openingDate);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const km = lang === "km";
+  const diff = opening ? (opening.getTime() - now) : null;
+  const done = diff !== null && diff <= 0;
+  const D = (diff && diff > 0) ? diff : 0;
+  const days = Math.floor(D / 86400000);
+  const hrs  = Math.floor((D % 86400000) / 3600000);
+  const mins = Math.floor((D % 3600000) / 60000);
+  const secs = Math.floor((D % 60000) / 1000);
+  const pad = (n) => String(n).padStart(2, "0");
+
+  const headline = config.landing.headline || (km ? "ឆាប់ៗនេះ" : "Opening Soon");
+  const subtext  = config.landing.subtext || "";
+  const units = [
+    { n: days, label: km ? "ថ្ងៃ"   : "Days" },
+    { n: hrs,  label: km ? "ម៉ោង"  : "Hrs"  },
+    { n: mins, label: km ? "នាទី"   : "Min"  },
+    { n: secs, label: km ? "វិនាទី" : "Sec"  }
+  ];
+  let openingDisplay = "";
+  if (opening) {
+    try {
+      openingDisplay = opening.toLocaleDateString(km ? "km-KH" : "en-GB",
+        { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Phnom_Penh" });
+    } catch (e) { openingDisplay = config.landing.openingDate; }
+  }
+
+  function enter() {
+    try { const u = new URL(location.href); u.searchParams.set("_r", Date.now()); location.href = u.toString(); }
+    catch (e) { location.reload(); }
+  }
+
+  return (
+    <div className="landing">
+      <div className="landing-lang">
+        <button className={lang === "en" ? "on" : ""} onClick={() => setLang("en")}>EN</button>
+        <button className={lang === "km" ? "on" : ""} onClick={() => setLang("km")}>ខ្មែរ</button>
+      </div>
+
+      <div className="landing-inner">
+        <Lockup size={1.15} />
+        <div style={{ width: "100%", maxWidth: 360, margin: "24px auto 28px" }}><CourtLine /></div>
+
+        <div className="landing-kicker">{km ? "កំពុងរៀបចំទីលាន" : "We're getting the courts ready"}</div>
+        <h1 className="landing-h1">{headline}</h1>
+
+        {!done ? (
+          <div className="countdown-grid">
+            {units.map((u, i) => (
+              <div className="cd-unit" key={i}>
+                <div className="cd-num">{pad(u.n)}</div>
+                <div className="cd-lab">{u.label}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="landing-open">
+            <div className="landing-open-msg">{km ? "យើងបើកហើយ!" : "We're open!"}</div>
+            <button className="landing-enter" onClick={enter}>{km ? "ចូល និងកក់" : "Enter & book"}</button>
+          </div>
+        )}
+
+        {opening && !done ? (
+          <div className="landing-date">{km ? "បើក" : "Opening"} · {openingDisplay}</div>
+        ) : null}
+        {subtext ? <p className="landing-sub">{subtext}</p> : null}
+
+        <div className="landing-tagline">Drop in. Dink on.</div>
+        <div className="landing-meta">THE YARD · PICKLEBALL · TOUL KORK, PHNOM PENH</div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [lang, setLangState] = useState(getLang());
   const [state, setState] = useState({
@@ -6563,6 +6733,7 @@ function App() {
 
   const [screen, setScreen] = useState("phone");
   const [bootLoading, setBootLoading] = useState(true);
+  const [configLoaded, setConfigLoaded] = useState(false);
 
   // On first load: validate existing token if any, and fetch config in parallel
   useEffect(() => {
@@ -6572,6 +6743,7 @@ function App() {
     // Always fetch config — needed for client-side pricing
     api("getConfig").then(r => {
       if (r.ok) setConfig(r);
+      setConfigLoaded(true);
     });
 
     if (!token) { setBootLoading(false); return; }
@@ -6672,8 +6844,18 @@ function App() {
 
   const isSignedIn = !!state.token;
 
-  if (bootLoading) {
+  if (bootLoading || !configLoaded) {
     return <Loading message={t("loading", null, lang)} />;
+  }
+
+  // ── Coming-soon landing takeover (customers only; staff use admin.html).
+  //    Bypass with ?preview so staff can preview the live site pre-launch.
+  const previewBypass = /(?:^|[?&#])preview(?:[=&]|$)/.test(location.search + location.hash);
+  if (config && config.landing && config.landing.enabled && !previewBypass) {
+    const opening = parseOpening(config.landing.openingDate);
+    if (!opening || Date.now() < opening.getTime()) {
+      return <LandingPage config={config} lang={lang} setLang={switchLang} />;
+    }
   }
 
   let body = null;
