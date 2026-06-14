@@ -4476,6 +4476,7 @@ const API_CACHE_TTL = {
   adminOperationalKpi: 60000,
   adminListSponsorships: 30000,
   adminGetSponsorshipSettings: 120000,
+  adminGetLandingConfig: 120000,
   adminFinancesMonth: 30000,
   adminFinancesRange: 30000,
   adminGetGoals: 120000,
@@ -4522,6 +4523,7 @@ const _PERSIST_ENDPOINTS = new Set([
   "adminGetPosSettings",
   "adminGetGoals",
   "adminGetSponsorshipSettings",
+  "adminGetLandingConfig",
   "adminGetPricingRules",
   "adminListTournaments",
   "adminListOpenPlaySessions",
@@ -4731,6 +4733,7 @@ function _invalidateForMutation(action) {
   if (action === "adminSetPromo") invalidateApiCache("adminGetPromo");
   if (action === "adminSetPosSettings") invalidateApiCache("adminGetPosSettings");
   if (action === "adminSetSponsorshipSettings") invalidateApiCache("adminGetSponsorshipSettings");
+  if (action === "adminSetLandingConfig") invalidateApiCache("adminGetLandingConfig");
   if (action === "adminSetPricingRules") invalidateApiCache("adminGetPricingRules");
 
   // Categorize the mutation. Multiple categories can fire — e.g., creating a
@@ -20100,6 +20103,8 @@ function ScreenSettings() {
   const [savingGoals, setSavingGoals] = useState(false);
   const [sponsorSettings, setSponsorSettings] = useState({ totalSlots: 12, totalSlotsDefault: 12 });
   const [savingSponsor, setSavingSponsor] = useState(false);
+  const [landingCfg, setLandingCfg] = useState({ enabled: false, openingDate: "", headline: "", subtext: "" });
+  const [savingLanding, setSavingLanding] = useState(false);
 
   // Pricing & Hours — array of rules. Each rule:
   // { name, days: [...], hourStart, hourEnd, rate, notes }
@@ -20116,11 +20121,13 @@ function ScreenSettings() {
     const cGoals = getCachedApi("adminGetGoals");
     const cSp    = getCachedApi("adminGetSponsorshipSettings");
     const cPr    = getCachedApi("adminGetPricingRules");
+    const cLand  = getCachedApi("adminGetLandingConfig");
     if (cPromo && cPromo.ok) setPromo({ active: !!cPromo.active, pct: cPromo.pct || 50, label: cPromo.label || "Soft launch −50%" });
     if (cPos && cPos.ok) setPosSettings({ memberDiscountPct: cPos.memberDiscountPct, memberDiscountDefault: cPos.memberDiscountDefault });
     if (cGoals && cGoals.ok) setGoals(cGoals.goals);
     if (cSp && cSp.ok) setSponsorSettings({ totalSlots: cSp.totalSlots, totalSlotsDefault: cSp.totalSlotsDefault });
     if (cPr && cPr.ok) { setPricingRules(cPr.rules || []); setPricingDirty(false); setPricingWarnings([]); }
+    if (cLand && cLand.ok && cLand.landing) setLandingCfg({ enabled: !!cLand.landing.enabled, openingDate: cLand.landing.openingDate || "", headline: cLand.landing.headline || "", subtext: cLand.landing.subtext || "" });
     // If we hydrated everything from cache, drop the loading state immediately.
     // The parallel fetches below will silently refresh the data in background.
     const anyHydrated = (cPromo && cPromo.ok) && (cPos && cPos.ok) && (cGoals && cGoals.ok) && (cSp && cSp.ok) && (cPr && cPr.ok);
@@ -20128,13 +20135,22 @@ function ScreenSettings() {
 
     // STEP 2 — fire all five fetches in PARALLEL, not sequentially.
     // Was ~5 × round-trip; now bounded by the slowest single request.
-    const [r, ps, g, sp, pr] = await Promise.all([
+    const [r, ps, g, sp, pr, ld] = await Promise.all([
       api("adminGetPromo"),
       api("adminGetPosSettings"),
       api("adminGetGoals"),
       api("adminGetSponsorshipSettings"),
-      api("adminGetPricingRules")
+      api("adminGetPricingRules"),
+      api("adminGetLandingConfig")
     ]);
+    if (ld && ld.ok && ld.landing) {
+      setLandingCfg({
+        enabled: !!ld.landing.enabled,
+        openingDate: ld.landing.openingDate || "",
+        headline: ld.landing.headline || "",
+        subtext: ld.landing.subtext || ""
+      });
+    }
     if (r.ok) {
       setPromo({
         active: !!r.active,
@@ -20319,6 +20335,32 @@ function ScreenSettings() {
     if (r.ok) {
       showToast("Sponsorship settings saved", "success");
       setSponsorSettings({ totalSlots: r.totalSlots, totalSlotsDefault: r.totalSlotsDefault });
+    } else {
+      showToast(r.error || "Save failed", "error");
+    }
+  }
+
+  async function saveLandingConfig() {
+    if (landingCfg.enabled && !landingCfg.openingDate) {
+      showToast("Set an opening date before enabling the landing page", "error");
+      return;
+    }
+    setSavingLanding(true);
+    const r = await api("adminSetLandingConfig", {
+      enabled: landingCfg.enabled ? "true" : "false",
+      openingDate: landingCfg.openingDate || "",
+      headline: landingCfg.headline || "",
+      subtext: landingCfg.subtext || ""
+    });
+    setSavingLanding(false);
+    if (r.ok && r.landing) {
+      showToast("Landing page saved", "success");
+      setLandingCfg({
+        enabled: !!r.landing.enabled,
+        openingDate: r.landing.openingDate || "",
+        headline: r.landing.headline || "",
+        subtext: r.landing.subtext || ""
+      });
     } else {
       showToast(r.error || "Save failed", "error");
     }
@@ -20630,6 +20672,69 @@ function ScreenSettings() {
           <div className="actions">
             <button className="btn primary" onClick={saveGoals} disabled={savingGoals}>
               {savingGoals ? "Saving…" : "Save goals"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-card">
+        <h3>Coming-Soon Landing Page</h3>
+        <div className="desc">
+          When enabled, visitors to the booking site see a branded countdown to your opening date
+          instead of the booking flow. Toggle it off the moment you're ready to take bookings.
+          Staff can preview the live booking site anytime by adding ?preview to the URL.
+        </div>
+
+        <div className="settings-row">
+          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={landingCfg.enabled}
+              onChange={(e) => setLandingCfg({ ...landingCfg, enabled: e.target.checked })}
+            />
+            <span className="field-label" style={{ margin: 0 }}>Show coming-soon landing page</span>
+          </label>
+        </div>
+
+        <div className="settings-row">
+          <div className="field-label">Opening date &amp; time</div>
+          <input
+            type="datetime-local"
+            value={landingCfg.openingDate}
+            onChange={(e) => setLandingCfg({ ...landingCfg, openingDate: e.target.value })}
+          />
+          <span style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.12em", opacity: 0.55, marginLeft: 8 }}>
+            PHNOM PENH TIME
+          </span>
+        </div>
+
+        <div className="settings-row">
+          <div className="field-label">Headline</div>
+          <input
+            type="text"
+            maxLength={80}
+            placeholder="Opening Soon"
+            value={landingCfg.headline}
+            onChange={(e) => setLandingCfg({ ...landingCfg, headline: e.target.value })}
+          />
+        </div>
+
+        <div className="settings-row">
+          <div className="field-label">Subtext</div>
+          <input
+            type="text"
+            maxLength={200}
+            placeholder="Optional line under the countdown"
+            value={landingCfg.subtext}
+            onChange={(e) => setLandingCfg({ ...landingCfg, subtext: e.target.value })}
+            style={{ minWidth: 280 }}
+          />
+        </div>
+
+        <div className="settings-row">
+          <div className="actions">
+            <button className="btn primary" onClick={saveLandingConfig} disabled={savingLanding}>
+              {savingLanding ? "Saving…" : "Save"}
             </button>
           </div>
         </div>
