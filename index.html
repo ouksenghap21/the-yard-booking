@@ -391,6 +391,76 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
 }
 .court-pill:hover:not(.sel):not(.unavail){ background:var(--cream-2); }
 
+/* ========== Floor-plan court selector (Sheet A-101 footprint) ========== */
+.court-map{ margin-top:4px; }
+.court-map-grid{
+  display:grid;
+  grid-template-columns:repeat(6, 1fr);
+  grid-template-areas:
+    ".  .  .  .  c8 c8"
+    "c1 c2 c3 c4 c5 c6"
+    ".  .  .  .  .  c7";
+  gap:7px;
+  align-items:stretch;
+}
+.court-cell{
+  position:relative;
+  aspect-ratio:3 / 4;
+  border:1.5px solid var(--ink);
+  border-radius:7px;
+  background:rgba(61,122,79,0.13);     /* COURT sage */
+  display:flex; align-items:flex-end; justify-content:flex-start;
+  padding:5px 6px;
+  cursor:pointer; overflow:hidden;
+  box-shadow:var(--lift-1);
+  transition:background 0.12s ease, transform 0.06s ease;
+  -webkit-tap-highlight-color:transparent;
+}
+.court-cell.land{ aspect-ratio:5 / 3; }   /* 08 sits landscape in the real plan */
+.court-cell:active{ transform:translateY(1px); }
+.court-cell .cn{
+  position:relative; z-index:2;
+  font-family:var(--serif); font-style:italic; font-size:clamp(13px,3.5vw,17px);
+  line-height:1; color:var(--ink);
+}
+.court-cell .court-kitchen{   /* tan kitchen band straddling the net */
+  position:absolute; left:0; right:0; top:38%; height:24%;
+  background:rgba(168,116,74,0.20); z-index:1;
+}
+.court-cell.land .court-kitchen{ left:40%; right:40%; top:0; bottom:0; height:auto; }
+.court-cell .court-net{       /* net line */
+  position:absolute; left:0; right:0; top:50%; height:0;
+  border-top:2px solid var(--ink); z-index:1;
+}
+.court-cell.land .court-net{
+  left:50%; top:0; bottom:0; right:auto; width:0; height:auto;
+  border-top:none; border-left:2px solid var(--ink);
+}
+.court-cell.sel{ background:var(--green); border-color:var(--green); }
+.court-cell.sel .cn{ color:var(--cream); }
+.court-cell.sel .court-kitchen{ background:rgba(241,234,214,0.20); }
+.court-cell.sel .court-net{ border-top-color:var(--cream); }
+.court-cell.sel.land .court-net{ border-left-color:var(--cream); }
+.court-cell.unavail{
+  background:rgba(26,26,26,0.06); border-color:rgba(26,26,26,0.22);
+  cursor:not-allowed; box-shadow:none; opacity:0.7;
+}
+.court-cell.unavail .cn{ color:rgba(26,26,26,0.42); text-decoration:line-through; }
+.court-cell.unavail .court-kitchen{ background:rgba(26,26,26,0.05); }
+.court-cell.unavail .court-net{ border-top-color:rgba(26,26,26,0.22); }
+.court-cell.unavail.land .court-net{ border-left-color:rgba(26,26,26,0.22); }
+.court-cell:hover:not(.sel):not(.unavail){ background:rgba(61,122,79,0.2); }
+.court-map-legend{
+  display:flex; gap:16px; justify-content:center; flex-wrap:wrap; margin-top:12px;
+  font-family:var(--mono); font-size:10px; letter-spacing:0.1em; text-transform:uppercase;
+  color:var(--ink); opacity:0.72;
+}
+.court-map-legend span{ display:inline-flex; align-items:center; gap:6px; }
+.court-map-legend .dot{ width:11px; height:11px; border-radius:3px; border:1.5px solid var(--ink); }
+.court-map-legend .dot.open{ background:rgba(61,122,79,0.13); }
+.court-map-legend .dot.sel{ background:var(--green); border-color:var(--green); }
+.court-map-legend .dot.taken{ background:rgba(26,26,26,0.12); border-color:rgba(26,26,26,0.3); }
+
 /* ========== Member strip ========== */
 .member-strip{
   position:relative;
@@ -4014,39 +4084,62 @@ function Stepper({ value, onChange, min, max, unitLabel }) {
   );
 }
 
-/* ============== CourtRail — horizontal court selector ============== */
+/* ============== CourtRail — floor-plan court selector ==============
+   Courts laid out to match the real facility footprint (Sheet A-101):
+   01–06 in a row, 08 as a landscape bay above the right end, 07 below it.
+   Picking by spatial position beats a left→right scroll. Same props and
+   toggle behaviour as before, so the caller is unchanged. The 8-court
+   footprint is fixed, so the layout is intentionally hard-coded. */
 function CourtRail({ value, onChange, count = 8, unavailable = [], lang }) {
+  function toggle(num) {
+    if (unavailable.includes(num)) return;
+    if (value.includes(num)) {
+      const next = value.filter(v => v !== num);
+      onChange(next.length === 0 ? [num] : next);
+    } else {
+      onChange([...value, num].sort((a, b) => a - b));
+    }
+  }
+  function Court({ num, landscape }) {
+    const isUnavail = unavailable.includes(num);
+    const isSel = value.includes(num);
+    const stateLbl = isUnavail ? t("b_court_taken", null, lang)
+      : isSel ? t("b_court_yours", null, lang)
+      : t("b_court_open", null, lang);
+    return (
+      <button
+        type="button"
+        style={{ gridArea: "c" + num }}
+        className={"court-cell" + (landscape ? " land" : "") + (isSel ? " sel" : "") + (isUnavail ? " unavail" : "")}
+        disabled={isUnavail}
+        aria-pressed={isSel}
+        aria-label={"Court " + num + " — " + stateLbl}
+        title={"Court " + pad2(num) + " · " + stateLbl}
+        onClick={() => toggle(num)}
+      >
+        <span className="court-kitchen" aria-hidden="true" />
+        <span className="court-net" aria-hidden="true" />
+        <span className="cn">{pad2(num)}</span>
+      </button>
+    );
+  }
   return (
-    <div className="court-rail">
-      {Array.from({ length: count }).map((_, i) => {
-        const num = i + 1;
-        const isUnavail = unavailable.includes(num);
-        const isSel = value.includes(num);
-        return (
-          <button
-            key={num}
-            type="button"
-            className={"court-pill" + (isSel ? " sel" : "") + (isUnavail ? " unavail" : "")}
-            disabled={isUnavail}
-            onClick={() => {
-              if (isUnavail) return;
-              if (isSel) {
-                const next = value.filter(v => v !== num);
-                onChange(next.length === 0 ? [num] : next);
-              } else {
-                onChange([...value, num].sort((a, b) => a - b));
-              }
-            }}
-          >
-            <span className="id">C{pad2(num)}</span>
-            <span className="lbl">
-              {isUnavail ? t("b_court_taken", null, lang)
-                : isSel ? t("b_court_yours", null, lang)
-                  : t("b_court_open", null, lang)}
-            </span>
-          </button>
-        );
-      })}
+    <div className="court-map" role="group" aria-label="Select courts by facility layout">
+      <div className="court-map-grid">
+        <Court num={8} landscape />
+        <Court num={1} />
+        <Court num={2} />
+        <Court num={3} />
+        <Court num={4} />
+        <Court num={5} />
+        <Court num={6} />
+        <Court num={7} />
+      </div>
+      <div className="court-map-legend">
+        <span><i className="dot open" />{t("b_court_open", null, lang)}</span>
+        <span><i className="dot sel" />{t("b_court_yours", null, lang)}</span>
+        <span><i className="dot taken" />{t("b_court_taken", null, lang)}</span>
+      </div>
     </div>
   );
 }
