@@ -855,6 +855,24 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
   font-family:var(--mono); font-size:11px; letter-spacing:0.04em; line-height:1.6;
   color:var(--ink); opacity:0.6; text-align:center; margin-top:30px;
 }
+.contact-bar{
+  display:flex; flex-wrap:wrap; justify-content:center; gap:16px 20px;
+  margin:20px auto 4px; max-width:340px;
+}
+.contact-chip{ display:flex; flex-direction:column; align-items:center; gap:7px; text-decoration:none; width:52px; }
+.contact-ic{
+  width:44px; height:44px; border-radius:999px;
+  border:1.5px solid var(--rule-strong); background:transparent;
+  display:flex; align-items:center; justify-content:center;
+  color:var(--ink); transition:background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.contact-ic svg{ width:19px; height:19px; }
+.contact-chip:hover .contact-ic,
+.contact-chip:active .contact-ic{ background:var(--green); border-color:var(--green); color:var(--cream); }
+.contact-lbl{
+  font-family:var(--mono); font-size:10px; letter-spacing:0.06em; text-transform:uppercase;
+  color:var(--ink); opacity:0.68; text-align:center; line-height:1.15;
+}
 @media (max-width:380px){
   .countdown-grid{ gap:6px; }
   .cd-unit{ padding:14px 4px 10px; border-radius:11px; }
@@ -3190,7 +3208,7 @@ const STRINGS = {
     p_faq_3_q: "Is there parking?",
     p_faq_3_a: "Yes — secure on-site parking for cars and motorbikes. See below for directions.",
     p_faq_4_q: "How do bookings work?",
-    p_faq_4_a: "Pick a date, time, and number of courts. Pay at the counter when you arrive. Cancel up to 2 hours before for a full refund. Late by more than 30 minutes? Your court may be released to another player.",
+    p_faq_4_a: "Pick a date, time, and number of courts. Pay at the counter when you arrive. Late by more than 30 minutes? Your court may be released to another player.",
 
     // ─── Confirmation actions ───
     c_action_calendar: "Add to Calendar",
@@ -3319,7 +3337,7 @@ const STRINGS = {
     // Membership
     m_title: "Membership",
     m_kicker: "TWO TIERS · ANNUAL",
-    m_lede: "We don't sell memberships online. Visit the counter to sign up. Once you're in, your phone number unlocks the discount automatically.",
+    m_lede: "Contact us on Telegram or visit us at the counter to sign up. Once you're in, your phone number unlocks the discount automatically.",
     m_standard_h: "Standard",
     m_standard_price: "$150 / year",
     m_founding_h: "Founding",
@@ -3393,7 +3411,7 @@ const STRINGS = {
     p_faq_3_q: "តើមានកន្លែងចតយានយន្តដែរឬទេ?",
     p_faq_3_a: "បាទមាន — ទីលានយើងមានកន្លែងចតរថយន្ត និងម៉ូតូប្រកបដោយសុវត្ថិភាព។ សូមមើលផែនទីខាងក្រោមសម្រាប់ទិសដៅ។",
     p_faq_4_q: "តើការកក់ដំណើរការដូចម្តេច?",
-    p_faq_4_a: "គ្រាន់តែជ្រើសរើសថ្ងៃ ម៉ោង និងចំនួនតារាង។ លោកអ្នកអាចទូទាត់ប្រាក់នៅទីលានផ្ទាល់។ ការលុបចោលការកក់អាចធ្វើទៅបានមុនពេលលេង ២ ម៉ោង ដើម្បីទទួលបានការប្រគល់ប្រាក់ជូនវិញពេញលេញ។ ករណីមកយឺតលើសពី ៣០ នាទី តារាងរបស់អ្នកអាចនឹងត្រូវផ្ទេរជូនទៅអ្នកលេងផ្សេងទៀត។",
+    p_faq_4_a: "គ្រាន់តែជ្រើសរើសថ្ងៃ ម៉ោង និងចំនួនតារាង។ លោកអ្នកអាចទូទាត់ប្រាក់នៅទីលានផ្ទាល់។ ករណីមកយឺតលើសពី ៣០ នាទី តារាងរបស់អ្នកអាចនឹងត្រូវផ្ទេរជូនទៅអ្នកលេងផ្សេងទៀត។",
     // ─── Confirmation actions (KM) ───
     c_action_calendar: "ដាក់ចូលក្នុងប្រតិទិន",
     c_action_directions: "មើលក្នុងផែនទី",
@@ -3506,7 +3524,7 @@ const STRINGS = {
     mb_confirm_cancel_yes: "បាទ/ចាស លុបចោល",
     m_title: "សមាជិកភាព",
     m_kicker: "ជម្រើស ២ កញ្ចប់ · គិតថ្លៃប្រចាំឆ្នាំ",
-    m_lede: "សមាជិកភាពមិនមានលក់តាមអនឡាញទេ។ សូមអញ្ជើញមកកាន់បញ្ជរផ្ទាល់ដើម្បីចុះឈ្មោះ។ នៅពេលចុះឈ្មោះរួចរាល់ ប្រព័ន្ធនឹងភ្ជាប់លេខទូរស័ព្ទរបស់អ្នកដើម្បីទទួលបានការបញ្ចុះតម្លៃដោយស្វ័យប្រវត្តិ។",
+    m_lede: "សូមទាក់ទងមកយើងតាម Telegram ឬអញ្ជើញមកកាន់បញ្ជរផ្ទាល់ដើម្បីចុះឈ្មោះ។ នៅពេលចុះឈ្មោះរួចរាល់ ប្រព័ន្ធនឹងភ្ជាប់លេខទូរស័ព្ទរបស់អ្នកដើម្បីទទួលបានការបញ្ចុះតម្លៃដោយស្វ័យប្រវត្តិ។",
     m_standard_h: "ស្តង់ដារ",
     m_standard_price: "$150 / ឆ្នាំ",
     m_founding_h: "ស្ថាបនិក",
@@ -4457,6 +4475,7 @@ function ScreenPhone({ state, setState, go, lang }) {
         <div className="footer-note" style={{ marginTop: 14 }}>
           {t("p_footer", null, lang)}
         </div>
+        <ContactBar lang={lang} />
       </div>
     </>
   );
@@ -6754,6 +6773,46 @@ function parseOpening(s) {
   return isNaN(d.getTime()) ? null : d;
 }
 
+/* ContactBar — social + contact icon row. Inline monochrome SVG glyphs
+   (transparent, no hosted files), used on the landing page and the booking
+   home. The two Telegram entries are distinguished by label: "Telegram" is
+   the @thepickleballyard chat; "Channel" is @thebackyardkh ("The Backyard")
+   the broadcast channel. */
+function ContactBar({ lang }) {
+  const km = lang === "km";
+  const S = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" };
+  const Ico = {
+    web:  <svg {...S}><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>,
+    call: <svg {...S}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>,
+    tg:   <svg {...S}><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>,
+    fb:   <svg {...S}><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>,
+    ig:   <svg {...S}><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+  };
+  const items = [
+    { k: "web",  href: "https://www.thepickleballyard.club",              lbl: km ? "គេហទំព័រ" : "Website", ic: Ico.web },
+    { k: "call", href: "tel:016226868",                                   lbl: km ? "ទូរស័ព្ទ" : "Call",   ic: Ico.call },
+    { k: "tg",   href: "https://t.me/thepickleballyard",                  lbl: "Telegram",                  ic: Ico.tg },
+    { k: "chan", href: "https://t.me/thebackyardkh",                      lbl: km ? "ឆានែល" : "Channel",    ic: Ico.tg },
+    { k: "fb",   href: "https://www.facebook.com/thepickleballyard",      lbl: "Facebook",                  ic: Ico.fb },
+    { k: "ig",   href: "https://www.instagram.com/thepickleballyard.kh/", lbl: "Instagram",                 ic: Ico.ig }
+  ];
+  return (
+    <div className="contact-bar">
+      {items.map(it => {
+        const ext = it.href.indexOf("http") === 0;
+        return (
+          <a key={it.k} className="contact-chip" href={it.href}
+             {...(ext ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+             aria-label={it.lbl}>
+            <span className="contact-ic">{it.ic}</span>
+            <span className="contact-lbl">{it.lbl}</span>
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
 /* MembershipInfo — the two membership tiers, reused on the coming-soon
    landing page so pre-launch visitors can see pricing + benefits and the
    live Founding scarcity count. Mirrors the cards on ScreenMembership. */
@@ -6891,10 +6950,9 @@ function LandingPage({ config, lang, setLang }) {
         <FAQList lang={lang} />
         <LocationCard lang={lang} />
         <div className="landing-extras-foot">
-          {km
-            ? "ការកក់នឹងបើកនៅពេលយើងបើកដំណើរការ។ មានសំណួរ? Telegram @thepickleballyard · 016 22 68 68"
-            : "Booking opens when we do. Questions? Telegram @thepickleballyard · 016 22 68 68"}
+          {km ? "ការកក់នឹងបើកនៅពេលយើងបើកដំណើរការ។" : "Booking opens when we do."}
         </div>
+        <ContactBar lang={lang} />
       </div>
     </div>
   );
