@@ -778,7 +778,7 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
   background:
     radial-gradient(1100px 560px at 50% -12%, var(--paper-2), transparent 62%),
     var(--paper);
-  display:flex; align-items:center; justify-content:center;
+  display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
   padding:40px 20px; overflow-y:auto;
 }
 .landing-lang{ position:fixed; top:18px; right:18px; display:flex; gap:4px; z-index:2; }
@@ -791,6 +791,9 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
 .landing-inner{
   width:100%; max-width:540px; text-align:center;
   display:flex; flex-direction:column; align-items:center;
+  justify-content:center;
+  min-height:calc(100vh - 80px);
+  min-height:calc(100dvh - 80px);
 }
 .landing-kicker{
   font-family:var(--mono); font-size:11px; letter-spacing:0.22em; text-transform:uppercase;
@@ -835,6 +838,23 @@ body[lang="km"] h1,body[lang="km"] h2,body[lang="km"] h3{
   padding:14px 28px; cursor:pointer; box-shadow:var(--lift-2);
 }
 .landing-enter:hover{ background:var(--green-2); }
+.landing-extras{
+  width:100%; max-width:480px; margin:0 auto; text-align:left;
+  padding:40px 0 52px; border-top:1px solid rgba(26,26,26,0.12);
+}
+.landing-extras-h{
+  font-family:var(--serif); font-style:italic; font-weight:400;
+  font-size:clamp(28px,7vw,36px); line-height:1.05; letter-spacing:-0.01em;
+  color:var(--ink); margin:0 0 8px; text-align:center;
+}
+.landing-extras-sub{
+  font-size:14px; line-height:1.55; color:var(--ink); opacity:0.82;
+  text-align:center; margin:0 auto 24px; max-width:36ch;
+}
+.landing-extras-foot{
+  font-family:var(--mono); font-size:11px; letter-spacing:0.04em; line-height:1.6;
+  color:var(--ink); opacity:0.6; text-align:center; margin-top:30px;
+}
 @media (max-width:380px){
   .countdown-grid{ gap:6px; }
   .cd-unit{ padding:14px 4px 10px; border-radius:11px; }
@@ -6733,12 +6753,63 @@ function parseOpening(s) {
   return isNaN(d.getTime()) ? null : d;
 }
 
+/* MembershipInfo — the two membership tiers, reused on the coming-soon
+   landing page so pre-launch visitors can see pricing + benefits and the
+   live Founding scarcity count. Mirrors the cards on ScreenMembership. */
+function MembershipInfo({ lang, foundingStatus }) {
+  return (
+    <>
+      <div className="tier-block founding">
+        <div className="label-row">
+          <span>{t("p_founding_year", null, lang)}</span>
+          <span>${200}</span>
+        </div>
+        <h3>{t("m_founding_h", null, lang)}</h3>
+        <div className="price">{t("m_founding_price", null, lang)}</div>
+        <ul>
+          <li>50% off court rental, every day</li>
+          <li>10% off pro shop</li>
+          <li>Free 2hr birthday-week session</li>
+          <li>Free paddle rental every visit</li>
+          <li>Free entry to member tournaments</li>
+          <li>Name on Founding Wall</li>
+          <li>$200/year renewal locked for life</li>
+        </ul>
+        {foundingStatus && (
+          <div className="seats">{t("m_seats_left", { n: foundingStatus.foundingRemaining, cap: FOUNDING_CAP }, lang)}</div>
+        )}
+      </div>
+
+      <div className="tier-block standard">
+        <div className="label-row">
+          <span>{t("p_standard", null, lang)}</span>
+          <span>${150}</span>
+        </div>
+        <h3>{t("m_standard_h", null, lang)}</h3>
+        <div className="price">{t("m_standard_price", null, lang)}</div>
+        <ul>
+          <li>30% off court rental, every day</li>
+          <li>10% off pro shop</li>
+          <li>50% off one 2hr birthday-week session</li>
+          <li>Free paddle rental every visit</li>
+          <li>Free entry to member tournaments</li>
+        </ul>
+      </div>
+    </>
+  );
+}
+
 function LandingPage({ config, lang, setLang }) {
   const opening = parseOpening(config.landing.openingDate);
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
+  }, []);
+
+  const [foundingStatus, setFoundingStatus] = useState(null);
+  useEffect(() => {
+    api("getFoundingStatus").then(r => { if (r && r.ok) setFoundingStatus(r); }).catch(() => {});
   }, []);
 
   const km = lang === "km";
@@ -6781,7 +6852,7 @@ function LandingPage({ config, lang, setLang }) {
 
       <div className="landing-inner">
         <Lockup size={1.15} />
-        <div style={{ width: "100%", maxWidth: 360, margin: "24px auto 28px" }}><CourtLine /></div>
+        <div style={{ margin: "18px auto 26px" }}><BouncingBall size="md" /></div>
 
         <div className="landing-kicker">{km ? "កំពុងរៀបចំទីលាន" : "We're getting the courts ready"}</div>
         <h1 className="landing-h1">{headline}</h1>
@@ -6809,6 +6880,19 @@ function LandingPage({ config, lang, setLang }) {
 
         <div className="landing-tagline">Drop in. Dink on.</div>
         <div className="landing-meta">THE YARD · PICKLEBALL · TOUL KORK, PHNOM PENH</div>
+      </div>
+
+      <div className="landing-extras">
+        <h2 className="landing-extras-h">{t("m_title", null, lang)}</h2>
+        <p className="landing-extras-sub">{t("m_lede", null, lang)}</p>
+        <MembershipInfo lang={lang} foundingStatus={foundingStatus} />
+        <div style={{ height: 34 }} />
+        <FAQList lang={lang} />
+        <div className="landing-extras-foot">
+          {km
+            ? "ការកក់នឹងបើកនៅពេលយើងបើកដំណើរការ។ មានសំណួរ? Telegram @thepickleballyard · 016 22 68 68"
+            : "Booking opens when we do. Questions? Telegram @thepickleballyard · 016 22 68 68"}
+        </div>
       </div>
     </div>
   );
