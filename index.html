@@ -3188,7 +3188,7 @@ const STRINGS = {
     p_faq_2_q: "Do I need to bring my own paddle?",
     p_faq_2_a: "Optional. Loaner paddles and balls are available at the counter for $1 per session. If you want your own, we sell tournament-grade gear at the pro shop on-site.",
     p_faq_3_q: "Is there parking?",
-    p_faq_3_a: "Yes — secure on-site parking for cars and motorbikes. Tap 'Find us' above for directions.",
+    p_faq_3_a: "Yes — secure on-site parking for cars and motorbikes. See below for directions.",
     p_faq_4_q: "How do bookings work?",
     p_faq_4_a: "Pick a date, time, and number of courts. Pay at the counter when you arrive. Cancel up to 2 hours before for a full refund. Late by more than 30 minutes? Your court may be released to another player.",
 
@@ -3391,7 +3391,7 @@ const STRINGS = {
     p_faq_2_q: "តើខ្ញុំត្រូវយក Paddle ផ្ទាល់ខ្លួនមកដែរឬទេ?",
     p_faq_2_a: "មិនបាច់ក៏បាន! យើងមាន Paddle និងបាល់សម្រាប់ជួលនៅបញ្ជរក្នុងតម្លៃត្រឹមតែ $1 ក្នុងមួយវគ្គលេង។ ប្រសិនបើអ្នកចង់បានជារបស់ផ្ទាល់ខ្លួន យើងក៏មានលក់ឧបករណ៍ស្តង់ដារប្រកួតនៅហាង (Pro Shop) នៅក្នុងទីលានផ្ទាល់ផងដែរ។",
     p_faq_3_q: "តើមានកន្លែងចតយានយន្តដែរឬទេ?",
-    p_faq_3_a: "បាទមាន — ទីលានយើងមានកន្លែងចតរថយន្ត និងម៉ូតូប្រកបដោយសុវត្ថិភាព។ ចុចលើពាក្យ 'ទីតាំងរបស់យើង' ខាងលើដើម្បីមើលផ្លូវ។",
+    p_faq_3_a: "បាទមាន — ទីលានយើងមានកន្លែងចតរថយន្ត និងម៉ូតូប្រកបដោយសុវត្ថិភាព។ សូមមើលផែនទីខាងក្រោមសម្រាប់ទិសដៅ។",
     p_faq_4_q: "តើការកក់ដំណើរការដូចម្តេច?",
     p_faq_4_a: "គ្រាន់តែជ្រើសរើសថ្ងៃ ម៉ោង និងចំនួនតារាង។ លោកអ្នកអាចទូទាត់ប្រាក់នៅទីលានផ្ទាល់។ ការលុបចោលការកក់អាចធ្វើទៅបានមុនពេលលេង ២ ម៉ោង ដើម្បីទទួលបានការប្រគល់ប្រាក់ជូនវិញពេញលេញ។ ករណីមកយឺតលើសពី ៣០ នាទី តារាងរបស់អ្នកអាចនឹងត្រូវផ្ទេរជូនទៅអ្នកលេងផ្សេងទៀត។",
     // ─── Confirmation actions (KM) ───
@@ -6615,6 +6615,7 @@ function ScreenAbout({ state, setState, go, lang }) {
 
       <FounderNote lang={lang} />
       <FAQList lang={lang} />
+      <LocationCard lang={lang} />
 
       <div style={{ marginTop: 32 }}>
         <CTA tone="green" onClick={() => go(state.token ? "booking" : "phone")}>
@@ -6888,6 +6889,7 @@ function LandingPage({ config, lang, setLang }) {
         <MembershipInfo lang={lang} foundingStatus={foundingStatus} />
         <div style={{ height: 34 }} />
         <FAQList lang={lang} />
+        <LocationCard lang={lang} />
         <div className="landing-extras-foot">
           {km
             ? "ការកក់នឹងបើកនៅពេលយើងបើកដំណើរការ។ មានសំណួរ? Telegram @thepickleballyard · 016 22 68 68"
