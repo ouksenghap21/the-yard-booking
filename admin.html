@@ -8837,7 +8837,7 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
 
   // Load availability for selected date
   useEffect(() => {
-    api("getAvailability", { date: form.date }).then(r => {
+    api("getAvailability", { date: form.date, graceMin: 15 }).then(r => {
       if (r.ok) setAvailSlots(r.slots || []);
     });
   }, [form.date]);
@@ -9222,7 +9222,7 @@ function NewWalkInBlockModal({ dateDefault, onClose, onCreated }) {
 
   // Load availability for chosen date
   useEffect(() => {
-    api("getAvailability", { date: form.date }).then(r => {
+    api("getAvailability", { date: form.date, graceMin: 15 }).then(r => {
       if (r.ok) setAvailSlots(r.slots || []);
     });
   }, [form.date]);
