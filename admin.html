@@ -4637,6 +4637,20 @@ function cacheApi(action, params, data) {
   }
 }
 
+/* Actions that create/modify records get an idempotency key so a transport
+   retry can't create a duplicate (server dedupes on clientRequestId). */
+var MUTATING_ACTIONS = new Set([
+  "adminCreateBooking","adminCancelBooking","adminUncancelBooking","adminMarkPaid",
+  "adminMarkRefunded","adminFlagNoShow","adminNoShowAndRelease","adminConfirmArrival",
+  "adminCreateMember","adminUpdateMember","adminSetPricingRules","adminSetPromo",
+  "adminSetPosSettings","adminSetGoals","adminSetLandingConfig",
+  "posCreateSale","adminSettleCombined","tabOpen","tabClose","tabAddItem","tabRemoveItem"
+]);
+function genRequestId(){
+  try { if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID(); } catch(e){}
+  return "rid-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2,10);
+}
+
 async function _doFetchRaw(action, params) {
   const pin = getStoredPin();
   const url = new URL(API_URL);
@@ -4646,6 +4660,9 @@ async function _doFetchRaw(action, params) {
     if (params[k] !== undefined && params[k] !== null) {
       url.searchParams.set(k, String(params[k]));
     }
+  }
+  if (MUTATING_ACTIONS.has(action) && !url.searchParams.has("clientRequestId")) {
+    url.searchParams.set("clientRequestId", genRequestId());
   }
   try {
     // Abort if the request takes longer than 25s — Apps Script cold starts can
@@ -5340,7 +5357,7 @@ function ConfirmHost() {
 
   return (
     <div className="modal-overlay" onClick={() => close(false)} style={{ zIndex: 9999 }}>
-      <div className="modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal" style={{ maxWidth: 460 }} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <div style={{ padding: 24 }}>
           <div style={{
             fontFamily: "var(--serif)", fontStyle: "italic",
@@ -5812,7 +5829,7 @@ function ScreenLogin({ onAuth }) {
         <div className="pin-prompt">
           {checking ? "Verifying…" : "Enter staff PIN"}
         </div>
-        <div className="pin-row" onClick={clickPinBox}>
+        <div className="pin-row" onClick={clickPinBox} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); clickPinBox(); } }}>
           {[0, 1, 2, 3, 4, 5].map(i => (
             <div key={i} className={"pin-box" + (code[i] ? " filled" : "")}>
               {code[i] ? "•" : ""}
@@ -11561,7 +11578,14 @@ function ScreenPOS() {
     api("adminGetPosSettings").then(r => {
       if (r.ok && typeof r.memberDiscountPct === "number") {
         setMemberDiscountPct(r.memberDiscountPct);
+      } else {
+        // Don't silently mis-price the sale on a settings load failure — make it visible.
+        console.error("[POS] adminGetPosSettings failed; falling back to default member discount.", r);
+        showToast("Couldn't load POS settings — using default discount. Verify pricing before completing the sale.", "error");
       }
+    }).catch(err => {
+      console.error("[POS] adminGetPosSettings threw; falling back to default member discount.", err);
+      showToast("Couldn't load POS settings — using default discount. Verify pricing before completing the sale.", "error");
     });
   }, []);
 
@@ -12851,7 +12875,13 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
     api("adminGetPosSettings").then(r => {
       if (r.ok && typeof r.memberDiscountPct === "number") {
         setMemberDiscountPct(r.memberDiscountPct);
+      } else {
+        console.error("adminGetPosSettings failed; using default member discount", r && r.error);
+        try { showToast("Couldn't load POS settings — using default discount. Verify pricing before completing the sale.", "error"); } catch (e) {}
       }
+    }).catch(err => {
+      console.error("adminGetPosSettings error; using default member discount", err);
+      try { showToast("Couldn't load POS settings — using default discount. Verify pricing before completing the sale.", "error"); } catch (e) {}
     });
   }, []);
 
