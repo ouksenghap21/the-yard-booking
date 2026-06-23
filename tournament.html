@@ -786,6 +786,12 @@ h1.tournament-name{
   // Replace with your deployed Apps Script Web App URL (same as admin.html)
   var API_URL = "https://script.google.com/macros/s/AKfycbxyZmK0KfQd72-AarUNfTl25tJo-D5pD2Phurbk8XbzkC4Ih3opY2NCKT9ROx1FB1iP/exec";
 
+  var MUTATING_ACTIONS = ["registerForTournament","cancelTournamentRegistration","withdrawFromTournament","cancelMyTournamentRegistration"];
+  function genRequestId(){
+    try { if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID(); } catch(e){}
+    return "rid-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2,10);
+  }
+
   function getQueryParam(name) {
     var match = window.location.search.match(new RegExp("[?&]" + name + "=([^&]*)"));
     return match ? decodeURIComponent(match[1]) : "";
@@ -813,23 +819,44 @@ h1.tournament-name{
     } catch (e) { return s; }
   }
 
+  // Only allow building an anchor for hrefs whose scheme is tel:, mailto:, or https:.
+  // Anything else (javascript:, data:, http:, unvalidated input) renders as escaped text.
+  function isSafeContactHref(href) {
+    return /^(tel:[+\d][\d]{6,}|mailto:[^\s@]+@[^\s@]+\.\w+|https:\/\/[^\s"'<>]+)$/i.test(href);
+  }
+
   function buildContactLink(contact) {
     if (!contact) return "";
     var c = contact.trim();
     var tgMatch = c.match(/^@(\w+)/);
     if (tgMatch) {
-      return '<a href="https://t.me/' + tgMatch[1] + '" target="_blank" rel="noopener">' + escapeHtml(c) + '</a>';
+      var tgHref = 'https://t.me/' + tgMatch[1];
+      if (isSafeContactHref(tgHref)) {
+        return '<a href="' + escapeHtml(tgHref) + '" target="_blank" rel="noopener">' + escapeHtml(c) + '</a>';
+      }
+      return escapeHtml(c);
     }
     if (/t\.me\//i.test(c)) {
-      return '<a href="' + escapeHtml(c) + '" target="_blank" rel="noopener">' + escapeHtml(c) + '</a>';
+      if (isSafeContactHref(c)) {
+        return '<a href="' + escapeHtml(c) + '" target="_blank" rel="noopener">' + escapeHtml(c) + '</a>';
+      }
+      return escapeHtml(c);
     }
     var phoneMatch = c.match(/(\+?\d[\d\s()-]{6,})/);
     if (phoneMatch) {
       var cleaned = phoneMatch[1].replace(/[^\d+]/g, "");
-      return '<a href="tel:' + cleaned + '">' + escapeHtml(c) + '</a>';
+      var telHref = 'tel:' + cleaned;
+      if (isSafeContactHref(telHref)) {
+        return '<a href="' + escapeHtml(telHref) + '">' + escapeHtml(c) + '</a>';
+      }
+      return escapeHtml(c);
     }
     if (/^[^\s@]+@[^\s@]+\.\w+$/.test(c)) {
-      return '<a href="mailto:' + escapeHtml(c) + '">' + escapeHtml(c) + '</a>';
+      var mailHref = 'mailto:' + c;
+      if (isSafeContactHref(mailHref)) {
+        return '<a href="' + escapeHtml(mailHref) + '">' + escapeHtml(c) + '</a>';
+      }
+      return escapeHtml(c);
     }
     return escapeHtml(c);
   }
@@ -1005,7 +1032,7 @@ h1.tournament-name{
       area.innerHTML =
         '<div class="signup-card">' +
           '<div class="label" style="color:var(--clay)">TOURNAMENT IS FULL</div>' +
-          '<div class="note">All ' + t.playerCap + ' spots are taken. You can still sign up below — we\'ll add you to the waitlist and contact you if a spot opens.</div>' +
+          '<div class="note">All ' + escapeHtml(String(t.playerCap)) + ' spots are taken. You can still sign up below — we\'ll add you to the waitlist and contact you if a spot opens.</div>' +
         '</div>';
     }
 
@@ -1121,6 +1148,13 @@ h1.tournament-name{
     if (!name) { errEl.textContent = "Please enter your name"; return; }
     var digits = phone.replace(/\D/g, "");
     if (digits.length < 8) { errEl.textContent = "Please enter a valid phone number"; return; }
+    if (dupr) {
+      var duprNum = parseFloat(dupr);
+      if (isNaN(duprNum) || duprNum < 2.0 || duprNum > 8.0) {
+        errEl.textContent = "DUPR must be a number between 2.0 and 8.0";
+        return;
+      }
+    }
 
     _signupInFlight = true;
     btn.disabled = true;
@@ -1136,6 +1170,7 @@ h1.tournament-name{
       dupr: dupr,
       email: email
     });
+    if (MUTATING_ACTIONS.indexOf(params.get("action")) !== -1 && !params.has("clientRequestId")) params.set("clientRequestId", genRequestId());
 
     fetch(API_URL + "?" + params.toString(), { method: "GET" })
       .then(function(r) { return r.json(); })
@@ -1206,7 +1241,13 @@ h1.tournament-name{
         }
         if (existing) renderManageView(existing);
       })
-      .catch(function() { /* silent */ });
+      .catch(function(e) {
+        console.error("checkExistingRegistration failed", e);
+        var errEl = document.getElementById("signup-err");
+        if (errEl) {
+          errEl.textContent = "Couldn't verify your registration status — please refresh before signing up.";
+        }
+      });
   }
 
   function renderManageView(reg) {
@@ -1242,6 +1283,7 @@ h1.tournament-name{
         registrationId: reg.registrationId,
         phone: readProfile().phone || ""
       });
+      if (MUTATING_ACTIONS.indexOf(params.get("action")) !== -1 && !params.has("clientRequestId")) params.set("clientRequestId", genRequestId());
       fetch(API_URL + "?" + params.toString(), { method: "GET" })
         .then(function(r) { return r.json(); })
         .then(function(r) {
