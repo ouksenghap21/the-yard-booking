@@ -3561,9 +3561,28 @@ function t(key, vars, lang) {
    3. API CLIENT
    ==================================================================== */
 
+/* Actions that create/modify records. These get an idempotency key so a
+   transport-level retry of the same request can't create a duplicate
+   (the server dedupes on clientRequestId within a short window). */
+var MUTATING_ACTIONS = new Set([
+  "createBooking", "cancelBooking", "cancelMyOpenPlayRegistration",
+  "registerForOpenPlay", "registerForTournament",
+  "tabOpen", "tabClose", "tabAddItem", "tabRemoveItem"
+]);
+
+function genRequestId() {
+  try {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return window.crypto.randomUUID();
+    }
+  } catch (e) {}
+  return "rid-" + Date.now().toString(36) + "-" +
+    Math.random().toString(36).slice(2, 10);
+}
+
 async function api(action, params) {
   if (!API_URL || API_URL.includes("PASTE_YOUR")) {
-    return { ok: false, error: "API_URL not configured. Edit index.html line 17." };
+    return { ok: false, error: "API_URL not configured. Paste your deployed Apps Script /exec URL into the API_URL constant." };
   }
 
   const url = new URL(API_URL);
@@ -3572,6 +3591,11 @@ async function api(action, params) {
     if (params[k] !== undefined && params[k] !== null) {
       url.searchParams.set(k, params[k]);
     }
+  }
+
+  // Idempotency key for mutating actions (unless the caller supplied one).
+  if (MUTATING_ACTIONS.has(action) && !url.searchParams.has("clientRequestId")) {
+    url.searchParams.set("clientRequestId", genRequestId());
   }
 
   try {
@@ -4655,6 +4679,10 @@ function ScreenBooking({ state, setState, go, lang, config }) {
 
   // Submit state
   const [submitting, setSubmitting] = useState(false);
+  // Synchronous in-flight guard. React batches state updates, so on a fast
+  // double-tap both click handlers can fire before `submitting` hits the DOM.
+  // A ref flips immediately and reliably blocks the second call.
+  const submittingRef = useRef(false);
 
   /* Load availability whenever date changes */
   useEffect(() => {
@@ -4780,7 +4808,8 @@ function ScreenBooking({ state, setState, go, lang, config }) {
 
   const guestSavings = useMemo(() => {
     if (!isGuest || !pricing) return 0;
-    return Math.round(pricing.subtotal * 0.5);
+    // Keep cents precision, consistent with all other money math.
+    return Math.round(pricing.subtotal * 0.5 * 100) / 100;
   }, [pricing, isGuest]);
 
   function ctaLabel() {
@@ -4800,24 +4829,30 @@ function ScreenBooking({ state, setState, go, lang, config }) {
 
   async function submit() {
     if (ctaDisabled()) return;
+    if (submittingRef.current) return;   // synchronous double-tap guard
+    submittingRef.current = true;
     setSubmitting(true);
-    const r = await api("createBooking", {
-      token: state.token || "",
-      phone: state.phone,
-      name: guestName || (member ? member.name : ""),
-      email: (member && member.email) || "",
-      date, time, slots,
-      courts: pickedCourts.length,
-      useBirthday: bdayClaimed ? 1 : 0,
-      source: "Web"
-    });
-    setSubmitting(false);
-    if (!r.ok) {
-      showToast(r.error || t("error", null, lang), "error");
-      return;
+    try {
+      const r = await api("createBooking", {
+        token: state.token || "",
+        phone: state.phone,
+        name: guestName || (member ? member.name : ""),
+        email: (member && member.email) || "",
+        date, time, slots,
+        courts: pickedCourts.length,
+        useBirthday: bdayClaimed ? 1 : 0,
+        source: "Web"
+      });
+      if (!r.ok) {
+        showToast(r.error || t("error", null, lang), "error");
+        return;
+      }
+      setState(s => ({ ...s, confirmation: r.confirmation }));
+      go("confirm");
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
     }
-    setState(s => ({ ...s, confirmation: r.confirmation }));
-    go("confirm");
   }
 
   const lockedDuration = bdayClaimed && isMember;
@@ -6136,6 +6171,7 @@ function OpenPlaySessionModal({ session, myReg, profile, state, onClose, onChang
   const [skillSelf, setSkillSelf] = useState(profile.skillSelf || "");
   const [duprSelf, setDuprSelf] = useState(profile.duprSelf || "");
   const [submitting, setSubmitting] = useState(false);
+  const inFlightRef = useRef(false);   // synchronous double-tap guard
   const [error, setError] = useState("");
   const [successResp, setSuccessResp] = useState(null);
 
@@ -6143,7 +6179,7 @@ function OpenPlaySessionModal({ session, myReg, profile, state, onClose, onChang
     || session.maxDupr !== null && session.maxDupr !== undefined;
 
   async function submitSignup() {
-    if (submitting) return;  // double-tap guard — same rationale as admin paths
+    if (inFlightRef.current) return;  // synchronous double-tap guard
     setError("");
     if (!name.trim()) { setError("Please enter your name"); return; }
     if (!phone.trim() || phone.replace(/\D/g, "").length < 8) {
@@ -6154,43 +6190,61 @@ function OpenPlaySessionModal({ session, myReg, profile, state, onClose, onChang
       setError("This session requires a DUPR rating");
       return;
     }
+    // Validate DUPR format/range when supplied (standardized 2.0–8.0 scale).
+    if (duprSelf && String(duprSelf).trim()) {
+      const d = Number(String(duprSelf).trim());
+      if (!isFinite(d) || d < 2.0 || d > 8.0) {
+        setError("Enter a valid DUPR rating between 2.0 and 8.0, or leave it blank");
+        return;
+      }
+    }
+    inFlightRef.current = true;
     setSubmitting(true);
-    const r = await api("registerForOpenPlay", {
-      sessionId: session.id,
-      name: name.trim(),
-      phone: phone.trim(),
-      skillSelf: skillSelf || "",
-      duprSelf: duprSelf || ""
-    });
-    setSubmitting(false);
-    if (r.ok) {
-      // Persist profile for next time
-      saveOpProfile({
+    try {
+      const r = await api("registerForOpenPlay", {
+        sessionId: session.id,
         name: name.trim(),
         phone: phone.trim(),
         skillSelf: skillSelf || "",
         duprSelf: duprSelf || ""
       });
-      setSuccessResp(r);
-      setMode("success");
-    } else {
-      setError(r.error || "Failed to register");
+      if (r.ok) {
+        // Persist profile for next time
+        saveOpProfile({
+          name: name.trim(),
+          phone: phone.trim(),
+          skillSelf: skillSelf || "",
+          duprSelf: duprSelf || ""
+        });
+        setSuccessResp(r);
+        setMode("success");
+      } else {
+        setError(r.error || "Failed to register");
+      }
+    } finally {
+      inFlightRef.current = false;
+      setSubmitting(false);
     }
   }
 
   async function submitCancel() {
-    if (submitting) return;  // double-tap guard
+    if (inFlightRef.current) return;  // synchronous double-tap guard
     if (!confirm("Cancel your spot in '" + (myReg.title || session.title) + "'? This frees up the spot for someone else.")) return;
+    inFlightRef.current = true;
     setSubmitting(true);
-    const r = await api("cancelMyOpenPlayRegistration", {
-      registrationId: myReg.registrationId,
-      phone: myReg.phone || phone
-    });
-    setSubmitting(false);
-    if (r.ok) {
-      setMode("cancelled");
-    } else {
-      setError(r.error || "Failed to cancel");
+    try {
+      const r = await api("cancelMyOpenPlayRegistration", {
+        registrationId: myReg.registrationId,
+        phone: myReg.phone || phone
+      });
+      if (r.ok) {
+        setMode("cancelled");
+      } else {
+        setError(r.error || "Failed to cancel");
+      }
+    } finally {
+      inFlightRef.current = false;
+      setSubmitting(false);
     }
   }
 
@@ -6745,7 +6799,13 @@ function SponsorStrip() {
                 const parent = e.target.parentNode;
                 if (parent && !parent.dataset.fallback) {
                   parent.dataset.fallback = "1";
-                  parent.innerHTML = '<span style="font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.7; text-align: center;">' + s.name + '</span>';
+                  // Build via DOM + textContent so a sponsor name can never
+                  // inject markup/script (no raw innerHTML concatenation).
+                  const span = document.createElement("span");
+                  span.style.cssText = "font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.7; text-align: center;";
+                  span.textContent = s.name || "";
+                  parent.innerHTML = "";
+                  parent.appendChild(span);
                 }
               }}
             />
