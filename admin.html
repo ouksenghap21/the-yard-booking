@@ -4644,7 +4644,8 @@ var MUTATING_ACTIONS = new Set([
   "adminMarkRefunded","adminFlagNoShow","adminNoShowAndRelease","adminConfirmArrival",
   "adminCreateMember","adminUpdateMember","adminSetPricingRules","adminSetPromo",
   "adminSetPosSettings","adminSetGoals","adminSetLandingConfig",
-  "posCreateSale","adminSettleCombined","tabOpen","tabClose","tabAddItem","tabRemoveItem"
+  "posCreateSale","adminSettleCombined","tabOpen","tabClose","tabAddItem","tabRemoveItem",
+  "adminRenewMember"
 ]);
 function genRequestId(){
   try { if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID(); } catch(e){}
@@ -10111,13 +10112,21 @@ function EditMemberModal({ member, onClose, onSaved }) {
   }
 
   async function renew() {
-    if (!confirm("Renew this membership for another year?")) return;
-    const exp = member.expiryDate ? new Date(member.expiryDate + "T12:00:00") : new Date();
-    if (exp < new Date()) exp.setTime(Date.now());  // start from today if expired
-    exp.setFullYear(exp.getFullYear() + 1);
-    const newExp = exp.getFullYear() + "-" + String(exp.getMonth() + 1).padStart(2, "0") + "-" + String(exp.getDate()).padStart(2, "0");
-    setForm(f => ({ ...f, expiryDate: newExp, status: "Active" }));
-    showToast("Renewal date set — press Save to confirm", "success");
+    if (saving) return;  // double-tap guard (backend also dedupes via clientRequestId)
+    const tier = String(member.tier || "").toLowerCase();
+    const fee = tier === "founding" ? 200 : (tier === "standard" ? 150 : 0);
+    if (!confirm("Renew " + (member.name || "this member") + " for another year and record a $" + fee + " " + (member.tier || "") + " payment?")) return;
+    setSaving(true);
+    // Extends expiry +1yr AND records the renewal payment server-side, so the
+    // revenue is counted on this click — no separate Save, no POS step needed.
+    const r = await api("adminRenewMember", { phone: member.phone });
+    setSaving(false);
+    if (r.ok) {
+      showToast("Renewed to " + r.expiryDate + " \u00b7 $" + r.amount + " recorded", "success");
+      onSaved && onSaved();
+    } else {
+      showToast(r.error || "Failed to renew", "error");
+    }
   }
 
   return (
