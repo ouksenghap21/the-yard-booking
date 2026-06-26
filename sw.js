@@ -19,7 +19,7 @@
  */
 "use strict";
 
-const CACHE_VERSION = "yard-v15-receipt-print";
+const CACHE_VERSION = "yard-v16-receipt-print-sms";
 const VENDOR_CACHE = "yard-vendor-v1";
 
 // Vendor URLs we know are immutable (include a version in the path)
