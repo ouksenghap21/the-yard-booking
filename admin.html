@@ -6177,6 +6177,8 @@ function ScreenDashboard() {
   const [opKpiData, setOpKpiData] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [clock, setClock] = useState(fmtClock());
+  // Today's takings split by tender (Cash vs ABA). Fetched once on load.
+  const [payBreakdown, setPayBreakdown] = useState(null);
 
   // Click-to-detail modals — same pattern as ScreenBookings
   const [detailBooking, setDetailBooking] = useState(null);
@@ -6340,6 +6342,21 @@ function ScreenDashboard() {
     if (ok && ok.ok) setOpKpiData(ok);
     setLastUpdated(new Date());
   }
+
+  // Today's Cash-vs-ABA reconciliation. Fetch on mount and whenever a
+  // mutation fires (so it tracks new payments without waiting for a refresh).
+  useEffect(() => {
+    let alive = true;
+    async function loadBreakdown() {
+      try {
+        const r = await api("adminPaymentBreakdown", {}, { bypassCache: true });
+        if (alive && r && r.ok) setPayBreakdown(r);
+      } catch (e) { /* non-fatal */ }
+    }
+    loadBreakdown();
+    window.addEventListener("yard:data-changed", loadBreakdown);
+    return () => { alive = false; window.removeEventListener("yard:data-changed", loadBreakdown); };
+  }, []);
 
   useEffect(() => {
     refresh();  // initial — uses cache if fresh
@@ -6595,6 +6612,25 @@ function ScreenDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Today's takings by method — Cash vs ABA reconciliation. */}
+      {payBreakdown && payBreakdown.byMethod && (
+        <div className="stat-card" style={{ marginBottom: 18, padding: "16px 20px" }}>
+          <div className="label">Today's takings by method</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 18, alignItems: "baseline", marginTop: 8 }}>
+            {Object.entries(payBreakdown.byMethod).map(([method, amt]) => (
+              <div key={method} style={{ fontFamily: "var(--mono)", fontSize: 14 }}>
+                <span style={{ opacity: 0.6 }}>{method}</span>{" "}
+                <span style={{ fontWeight: 700 }}>{fmtMoney(amt)}</span>
+              </div>
+            ))}
+            <div style={{ marginLeft: "auto", fontFamily: "var(--mono)", fontSize: 14 }}>
+              <span style={{ opacity: 0.6 }}>Total</span>{" "}
+              <span style={{ fontWeight: 700 }}>{fmtMoney(payBreakdown.total || 0)}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Timeline */}
       <div className="section-label">
@@ -6991,6 +7027,10 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
   const [optimisticArrived, setOptimisticArrived] = useState(new Set());
   // How many overdue items to show by default (rest collapsed)
   const [showAllOverdue, setShowAllOverdue] = useState(false);
+  // Standalone receipt modal (reprint/text) — null when closed
+  const [receiptItem, setReceiptItem] = useState(null);
+  // Holds a fn(method)=>void while we ask the staff for the payment method.
+  const [payAsk, setPayAsk] = useState(null);
 
   // Synchronous in-flight guard. The optimistic Sets above hide rows via async
   // state, but React batches the update so a fast double-tap can fire the same
@@ -7013,10 +7053,10 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
     birthdayWeek.filter(m => !m.alreadyUsed).length +
     visibleRefunds.length;
 
-  async function markPaid(bookingId) {
+  async function markPaid(bookingId, mth) {
     // Instantly hide the row
     setOptimisticPaid(prev => new Set([...prev, bookingId]));
-    const r = await api("adminMarkPaid", { bookingId: bookingId });
+    const r = await api("adminMarkPaid", { bookingId: bookingId, paymentMethod: mth });
     if (r.ok) {
       showToast("Marked paid · " + (r.amount ? "$" + (+r.amount).toFixed(2) : "") + " collected", "success");
       onMarkPaid && onMarkPaid();
@@ -7061,7 +7101,7 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
   }
 
   // Mark an overdue item paid — dispatches by entryType to the right endpoint.
-  async function markOverduePaid(o) {
+  async function markOverduePaid(o, mth) {
     const key = overdueKey(o);
     if (actingRef.current.has(key)) return;
     actingRef.current.add(key);
@@ -7069,9 +7109,9 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
       setOptimisticPaid(prev => new Set([...prev, key]));
       let r;
       if (o.entryType === "booking") {
-        r = await api("adminMarkPaid", { bookingId: o.id });
+        r = await api("adminMarkPaid", { bookingId: o.id, paymentMethod: mth });
       } else if (o.entryType === "walkin") {
-        r = await api("adminMarkWalkInPlayerPaid", { playerId: o.id });
+        r = await api("adminMarkWalkInPlayerPaid", { playerId: o.id, paymentMethod: mth });
       } else if (o.entryType === "coaching") {
         r = await api("adminMarkCoachingSessionsPaid", { sessionIds: [o.id] });
       } else {
@@ -7189,7 +7229,8 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
                       {" · "}{fmtMoney(o.amount)}
                     </div>
                   </div>
-                  <button className="btn-sm primary" onClick={() => markOverduePaid(o)}>Mark paid</button>
+                  <button className="btn-sm" onClick={() => setReceiptItem(bookingReceipt({ bookingId: o.bookingId, id: overdueKey(o), name: o.name, phone: o.phone, courts: o.courts, total: o.amount }))}>Receipt</button>
+                  <button className="btn-sm primary" onClick={() => setPayAsk(() => (mth) => markOverduePaid(o, mth))}>Mark paid</button>
                 </div>
               );
             })}
@@ -7231,7 +7272,8 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
                 </div>
                 <div className="meta">C·{p.courts} · {fmtMoney(p.total)} · {p.phone}</div>
               </div>
-              <button className="btn-sm primary" onClick={() => markPaid(p.bookingId)}>Mark paid</button>
+              <button className="btn-sm" onClick={() => setReceiptItem(bookingReceipt(p))}>Receipt</button>
+              <button className="btn-sm primary" onClick={() => setPayAsk(() => (mth) => markPaid(p.bookingId, mth))}>Mark paid</button>
             </div>
           ))
         )}
@@ -7398,6 +7440,8 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
           </>
         )}
       </div>
+      {receiptItem && <ReceiptModal r={receiptItem} onClose={() => setReceiptItem(null)} />}
+      {payAsk && <PayMethodModal onPick={(mth) => { const fn = payAsk; setPayAsk(null); fn(mth); }} onClose={() => setPayAsk(null)} />}
     </div>
   );
 }
@@ -8553,16 +8597,16 @@ function BookingRow({ booking, onAction, onOpen }) {
   // after BOTH the mark-paid write AND the follow-up refetch return — two
   // sequential Cambodia->US round-trips (~4-5s) of staring at the old status.
   const [optimisticPaid, setOptimisticPaid] = useState(false);
+  const [payAsk, setPayAsk] = useState(null);
   // Synchronous double-tap guard — setOptimisticPaid is async, so a fast
   // double-tap can fire the write twice before the disabled state lands.
   const actingRef = useRef(false);
-  async function quickMarkPaid(e) {
-    e.stopPropagation();
+  async function quickMarkPaid(mth) {
     if (actingRef.current) return;
     actingRef.current = true;
     try {
       setOptimisticPaid(true);
-      const r = await api("adminMarkPaid", { bookingId: booking.bookingId });
+      const r = await api("adminMarkPaid", { bookingId: booking.bookingId, paymentMethod: mth });
       if (r.ok) { showToast("Marked paid", "success"); onAction && onAction(); }
       else { setOptimisticPaid(false); showToast(r.error || "Failed", "error"); }
     } finally {
@@ -8624,17 +8668,19 @@ function BookingRow({ booking, onAction, onOpen }) {
       <div className="actions">
         <div className="total">${(booking.total || 0).toFixed(2)}</div>
         {canQuickPay && (
-          <button className="btn-sm primary" onClick={quickMarkPaid}>Mark paid</button>
+          <button className="btn-sm primary" onClick={(e) => { e.stopPropagation(); setPayAsk(() => (mth) => quickMarkPaid(mth)); }}>Mark paid</button>
         )}
       </div>
+      {payAsk && <PayMethodModal onPick={(mth) => { const fn = payAsk; setPayAsk(null); fn(mth); }} onClose={() => setPayAsk(null)} />}
     </div>
   );
 }
 
 function BookingDetailModal({ booking, onClose, onAction }) {
   const [acting, setActing] = useState(false);
+  const [payAsk, setPayAsk] = useState(null);
 
-  async function doAction(action, confirmMsg) {
+  async function doAction(action, confirmMsg, payMethod) {
     // Cancel-booking uses UNDO pattern: act first, show undo toast.
     // Other destructive actions (release/no-show which send SMS to customer)
     // still need explicit confirmation since SMS can't be unsent.
@@ -8684,7 +8730,9 @@ function BookingDetailModal({ booking, onClose, onAction }) {
     // failure we surface an error and refresh again to restore the real state.
     onClose && onClose();
     onAction && onAction();
-    const r = await api(action, { bookingId: booking.bookingId });
+    const params = { bookingId: booking.bookingId };
+    if (action === "adminMarkPaid") params.paymentMethod = payMethod;
+    const r = await api(action, params);
     if (r.ok) {
       showToast(
         action === "adminMarkPaid" ? "Marked paid"
@@ -8839,7 +8887,7 @@ function BookingDetailModal({ booking, onClose, onAction }) {
           {(d === "awaiting" || d === "at_risk" || d === "checked_in" || d === "completed") && (
             <button
               className="btn primary"
-              onClick={() => doAction("adminMarkPaid")}
+              onClick={() => setPayAsk(() => (mth) => doAction("adminMarkPaid", undefined, mth))}
               disabled={acting}
             >Mark paid</button>
           )}
@@ -8874,6 +8922,7 @@ function BookingDetailModal({ booking, onClose, onAction }) {
           )}
           <button className="btn ghost" onClick={onClose} disabled={acting}>Close</button>
         </div>
+        {payAsk && <PayMethodModal onPick={(mth) => { const fn = payAsk; setPayAsk(null); fn(mth); }} onClose={() => setPayAsk(null)} />}
       </div>
     </div>
   );
@@ -9237,6 +9286,35 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
    ADD BOOKING CHOOSER + WALK-IN MODALS
    ==================================================================== */
 
+/* PayMethodModal — tiny picker asking how a counter payment was tendered.
+   Staff tap Cash or ABA; the chosen string is passed to onPick and forwarded
+   to the backend as paymentMethod. Used by every "mark paid" spot that didn't
+   already collect a method. */
+function PayMethodModal({ onPick, onClose }) {
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 450 }}>
+      <div className="modal" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">How was it paid?</div>
+            <h2>Payment method?</h2>
+          </div>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, padding: "10px 0 8px" }}>
+          <button className="btn primary" style={{ padding: "22px 0", fontSize: 18 }} onClick={() => onPick("Cash")}>Cash</button>
+          <button className="btn primary" style={{ padding: "22px 0", fontSize: 18 }} onClick={() => onPick("ABA")}>ABA</button>
+        </div>
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AddBookingChooserModal({ onClose, onPick }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -9432,6 +9510,9 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
   const [players, setPlayers] = useState(block.players || []);
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [working, setWorking] = useState(false);
+  const [receiptItem, setReceiptItem] = useState(null);
+  // Holds a fn(method)=>void while we ask the staff for the payment method.
+  const [payAsk, setPayAsk] = useState(null);
 
   // If the parent passed a stub (instant-open pattern), sync players when real data arrives
   useEffect(() => {
@@ -9443,13 +9524,13 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
     if (r.ok && r.block) setPlayers(r.block.players || []);
   }
 
-  async function markPaid(playerId) {
+  async function markPaid(playerId, mth) {
     // Optimistic: flip the local row to paid immediately
     const before = players;
     setPlayers(prev => prev.map(p =>
-      p.playerId === playerId ? { ...p, paymentStatus: "Paid", paymentMethod: "Cash" } : p
+      p.playerId === playerId ? { ...p, paymentStatus: "Paid", paymentMethod: mth } : p
     ));
-    const r = await api("adminMarkWalkInPlayerPaid", { playerId: playerId, paymentMethod: "Cash" });
+    const r = await api("adminMarkWalkInPlayerPaid", { playerId: playerId, paymentMethod: mth });
     if (r.ok) {
       showToast("Marked paid", "success");
       refresh();
@@ -9595,12 +9676,13 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
                       {p.phone || "no phone"} · {p.checkedInAt}
                     </div>
                   </div>
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700 }}>
-                    ${p.amountPaid.toFixed(2)}
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700, textAlign: "right" }}>
+                    <div>${p.amountPaid.toFixed(2)}</div>
+                    <button className="btn-sm" style={{ marginTop: 4, padding: "2px 6px", fontSize: 10, fontWeight: 400 }} onClick={() => setReceiptItem(walkInReceipt({ court: block.courtNumber, date: block.date }, { playerId: p.playerId, name: p.name, phone: p.phone, amount: p.amountPaid, paymentMethod: p.paymentMethod }))}>Receipt</button>
                   </div>
                   <span className={"status-pill " + (isPaid ? "paid" : "at_risk")}>{p.paymentStatus}</span>
                   {!isPaid && (
-                    <button className="btn-sm primary" onClick={() => markPaid(p.playerId)} disabled={working}>Mark paid</button>
+                    <button className="btn-sm primary" onClick={() => setPayAsk(() => (mth) => markPaid(p.playerId, mth))} disabled={working}>Mark paid</button>
                   )}
                   {isPaid && (
                     <button className="btn-sm ghost" onClick={() => removePlayer(p.playerId)} disabled={working} title="Remove">×</button>
@@ -9634,6 +9716,8 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
           />
         )}
       </div>
+      {receiptItem && <ReceiptModal r={receiptItem} onClose={() => setReceiptItem(null)} />}
+      {payAsk && <PayMethodModal onPick={(mth) => { const fn = payAsk; setPayAsk(null); fn(mth); }} onClose={() => setPayAsk(null)} />}
     </div>
   );
 }
@@ -9990,7 +10074,8 @@ function AddMemberModal({ foundingFull, onClose, onCreated }) {
     email: "",
     tier: foundingFull ? "Standard" : "Founding",
     birthday: "",
-    notes: ""
+    notes: "",
+    paymentMethod: "Cash"
   });
   const [bMonth, setBMonth] = useState("");
   const [bDay, setBDay] = useState("");
@@ -10013,7 +10098,8 @@ function AddMemberModal({ foundingFull, onClose, onCreated }) {
       email: form.email,
       tier: form.tier,
       birthday: birthday,
-      notes: form.notes
+      notes: form.notes,
+      paymentMethod: form.paymentMethod
     });
     setSubmitting(false);
     if (r.ok) {
@@ -10047,6 +10133,14 @@ function AddMemberModal({ foundingFull, onClose, onCreated }) {
               Founding {foundingFull ? "(capped at 20)" : "· $200/yr · 50% off"}
             </option>
             <option value="Standard">Standard · $150/yr · 30% off</option>
+          </select>
+        </div>
+
+        <div className="field">
+          <div className="field-label">Payment method</div>
+          <select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
+            <option value="Cash">Cash</option>
+            <option value="ABA">ABA</option>
           </select>
         </div>
 
@@ -10136,6 +10230,8 @@ function EditMemberModal({ member, onClose, onSaved }) {
     notes: member.notes || ""
   });
   const [saving, setSaving] = useState(false);
+  // Holds a fn(method)=>void while we ask the staff for the payment method.
+  const [payAsk, setPayAsk] = useState(null);
 
   async function save() {
     if (saving) return;  // double-tap guard
@@ -10171,7 +10267,7 @@ function EditMemberModal({ member, onClose, onSaved }) {
     }
   }
 
-  async function renew() {
+  async function renew(mth) {
     if (saving) return;  // double-tap guard (backend also dedupes via clientRequestId)
     const tier = String(member.tier || "").toLowerCase();
     const fee = tier === "founding" ? 200 : (tier === "standard" ? 150 : 0);
@@ -10179,7 +10275,7 @@ function EditMemberModal({ member, onClose, onSaved }) {
     setSaving(true);
     // Extends expiry +1yr AND records the renewal payment server-side, so the
     // revenue is counted on this click — no separate Save, no POS step needed.
-    const r = await api("adminRenewMember", { phone: member.phone });
+    const r = await api("adminRenewMember", { phone: member.phone, paymentMethod: mth });
     setSaving(false);
     if (r.ok) {
       showToast("Renewed to " + r.expiryDate + " \u00b7 $" + r.amount + " recorded", "success");
@@ -10256,12 +10352,13 @@ function EditMemberModal({ member, onClose, onSaved }) {
 
         <div className="actions">
           <button className="btn ghost" onClick={onClose} disabled={saving}>Close</button>
-          <button className="btn" onClick={renew} disabled={saving}>Renew +1yr</button>
+          <button className="btn" onClick={() => setPayAsk(() => (mth) => renew(mth))} disabled={saving}>Renew +1yr</button>
           <button className="btn primary" onClick={save} disabled={saving}>
             {saving ? "Saving…" : "Save changes"}
           </button>
         </div>
       </div>
+      {payAsk && <PayMethodModal onPick={(mth) => { const fn = payAsk; setPayAsk(null); fn(mth); }} onClose={() => setPayAsk(null)} />}
     </div>
   );
 }
@@ -14047,6 +14144,27 @@ function StockManagementModal({ products, onClose, onChanged }) {
 
 // Print a receipt through an isolated iframe so ONLY the receipt prints —
 // one continuous 80mm slip, never the whole admin app or a blank 2nd page.
+function bookingReceipt(b) {
+  var amt = Number(b.total) || 0;
+  return { saleId: b.bookingId || b.id || "", date: new Date(), customerName: b.name || "", customerPhone: b.phone || "", memberTier: b.memberTier || "",
+    items: [], attached: [{ name: "Court rental" + (b.courts ? " · C·" + b.courts : ""), price: amt }],
+    subtotal: amt, memberDiscountAmount: 0, discountAmount: 0, total: amt, paymentMethod: "Cash", cashReceived: amt, changeGiven: 0 };
+}
+
+function openPlayReceipt(s, p) {
+  var amt = Number(p.amountPaid != null ? p.amountPaid : (s.price || 0)) || 0;
+  return { saleId: p.id || p.registrationId || "", date: new Date(), customerName: p.name || "", customerPhone: p.phone || "", memberTier: "",
+    items: [], attached: [{ name: "Open Play · " + (s.title || "session") + (s.date ? " · " + s.date : ""), price: amt }],
+    subtotal: amt, memberDiscountAmount: 0, discountAmount: 0, total: amt, paymentMethod: p.paymentMethod || "Cash", cashReceived: amt, changeGiven: 0 };
+}
+
+function walkInReceipt(block, p) {
+  var amt = Number(p.amount) || 0;
+  return { saleId: p.playerId || "", date: new Date(), customerName: p.name || p.playerName || "", customerPhone: p.phone || p.playerPhone || "", memberTier: "",
+    items: [], attached: [{ name: "Walk-in" + (block && block.court ? " · C·" + block.court : "") + (block && block.date ? " · " + block.date : ""), price: amt }],
+    subtotal: amt, memberDiscountAmount: 0, discountAmount: 0, total: amt, paymentMethod: p.paymentMethod || "Cash", cashReceived: amt, changeGiven: 0 };
+}
+
 function printYardReceipt() {
   var el = document.querySelector(".yard-receipt");
   if (!el) { try { window.print(); } catch (e) {} return; }
@@ -14091,6 +14209,47 @@ async function sendReceiptSms(r) {
     if (res.ok) showToast("Receipt texted to " + r.customerPhone, "success");
     else showToast(res.error || "Couldn't send the SMS receipt", "error");
   } finally { _smsSending = false; }
+}
+
+function ReceiptModal({ r, onClose }) {
+  // Hook must run before any early return (React rules of hooks).
+  const [method, setMethod] = useState((r && r.paymentMethod) || "Cash");
+  if (!r) return null;
+  function m(n) { return "$" + (Math.round((n || 0) * 100) / 100).toFixed(2); }
+  // Receipt reflects the method the staff picks (Cash / ABA / Wing / Card).
+  const rr = Object.assign({}, r, { paymentMethod: method, cashReceived: r.total, changeGiven: 0 });
+  return (
+    <div className="modal-overlay" style={{ zIndex: 400 }} onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 360 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">{r.saleId}</div>
+            <h2>Receipt</h2>
+          </div>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div style={{ textAlign: "center", padding: "12px 0" }}>
+          {r.customerName ? <div style={{ fontSize: 14, fontWeight: 600 }}>{r.customerName}</div> : null}
+          <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 36, color: "var(--green)", marginTop: 4 }}>{m(r.total)}</div>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label className="field-label">Payment method</label>
+          <select className="field-input" value={method} onChange={(e) => setMethod(e.target.value)}>
+            <option value="Cash">Cash</option>
+            <option value="ABA">ABA</option>
+            <option value="Wing">Wing</option>
+            <option value="Card">Card</option>
+          </select>
+        </div>
+        <div className="actions">
+          <button className="btn" onClick={printYardReceipt}>Print receipt</button>
+          <button className="btn" onClick={() => sendReceiptSms(rr)}>Text receipt</button>
+          <button className="btn primary" onClick={onClose}>Close</button>
+        </div>
+      </div>
+      <YardReceipt r={rr} />
+    </div>
+  );
 }
 
 function YardReceipt({ r }) {
@@ -16574,6 +16733,7 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
   // disappear from the list instantly. The API runs in the background. On
   // failure, the item reappears with an error toast.
   const [optimisticPaid, setOptimisticPaid] = useState(new Set());
+  const [payAsk, setPayAsk] = useState(null);
   const optKey = (item) => item.entryType + ":" + item.id;
 
   // Bulk select state — Set of optKeys
@@ -16604,7 +16764,7 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
     setSelected(new Set());
   }
 
-  async function markPaid(item) {
+  async function markPaid(item, mth) {
     const key = optKey(item);
     // Hide instantly
     setOptimisticPaid(prev => new Set([...prev, key]));
@@ -16616,13 +16776,13 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
 
     let r;
     if (item.entryType === "booking") {
-      r = await api("adminMarkPaid", { bookingId: item.id });
+      r = await api("adminMarkPaid", { bookingId: item.id, paymentMethod: mth });
     } else if (item.entryType === "walkin") {
-      r = await api("adminMarkWalkInPlayerPaid", { playerId: item.id, paymentMethod: "Cash" });
+      r = await api("adminMarkWalkInPlayerPaid", { playerId: item.id, paymentMethod: mth });
     } else if (item.entryType === "coaching") {
       r = await api("adminMarkCoachingSessionsPaid", {
         sessionIds: JSON.stringify([item.id]),
-        paymentMethod: "Cash"
+        paymentMethod: mth
       });
     } else {
       r = { ok: false, error: "Unknown type" };
@@ -16643,7 +16803,7 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
 
   /* Bulk mark-paid: hide everything optimistically, run all API calls in
    * parallel, then surface any failures. */
-  async function bulkMarkPaid() {
+  async function bulkMarkPaid(mth) {
     const items = selectedItems;
     if (items.length === 0) return;
     const totalAmount = selectedTotal;
@@ -16663,14 +16823,14 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
       promises.push(
         api("adminMarkCoachingSessionsPaid", {
           sessionIds: JSON.stringify(coachingIds),
-          paymentMethod: "Cash"
+          paymentMethod: mth
         }).then(r => ({ r, ids: coachingIds, kind: "coaching" }))
       );
     }
     for (const it of otherItems) {
       const apiCall = it.entryType === "booking"
-        ? api("adminMarkPaid", { bookingId: it.id })
-        : api("adminMarkWalkInPlayerPaid", { playerId: it.id, paymentMethod: "Cash" });
+        ? api("adminMarkPaid", { bookingId: it.id, paymentMethod: mth })
+        : api("adminMarkWalkInPlayerPaid", { playerId: it.id, paymentMethod: mth });
       promises.push(apiCall.then(r => ({ r, ids: [it.id], kind: it.entryType, item: it })));
     }
 
@@ -16733,7 +16893,7 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
         </span>
         <span className="v" style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <span style={{ color: isOverdue ? "var(--clay)" : "var(--ink)" }}>{fmtMoney(item.amount)}</span>
-          <button className="btn-sm primary" onClick={() => markPaid(item)}>Mark paid</button>
+          <button className="btn-sm primary" onClick={() => setPayAsk(() => (mth) => markPaid(item, mth))}>Mark paid</button>
         </span>
       </div>
     );
@@ -16799,7 +16959,7 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
           </button>
           <button
             className="btn-sm primary"
-            onClick={bulkMarkPaid}
+            onClick={() => setPayAsk(() => (mth) => bulkMarkPaid(mth))}
           >
             ✓ Mark {selected.size} paid
           </button>
@@ -16872,6 +17032,7 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
           ✓ Everything is settled · no outstanding receivables
         </div>
       )}
+      {payAsk && <PayMethodModal onPick={(mth) => { const fn = payAsk; setPayAsk(null); fn(mth); }} onClose={() => setPayAsk(null)} />}
     </>
   );
 }
@@ -17899,6 +18060,9 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
+  const [receiptItem, setReceiptItem] = useState(null);
+  // Holds a fn(method)=>void while we ask the staff for the payment method.
+  const [payAsk, setPayAsk] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -17920,16 +18084,16 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
     }
   }
 
-  async function togglePaid(p) {
+  async function togglePaid(p, mth) {
     const next = !p.paid;
     const price = data && data.session.price;
     // Optimistic: flip paid state now; write in the background, revert on failure.
-    setData(prev => prev && ({ ...prev, players: prev.players.map(x => x.id === p.id ? { ...x, paid: next, amountPaid: next ? price : 0, paymentMethod: next ? "Cash" : "" } : x) }));
+    setData(prev => prev && ({ ...prev, players: prev.players.map(x => x.id === p.id ? { ...x, paid: next, amountPaid: next ? price : 0, paymentMethod: next ? mth : "" } : x) }));
     const r = await api("adminUpdateOpenPlayPlayer", {
       registrationId: p.id,
       paid: next,
       amountPaid: next ? price : 0,
-      paymentMethod: next ? "Cash" : ""
+      paymentMethod: next ? mth : ""
     });
     if (r.ok) { onChanged(); }
     else {
@@ -18139,7 +18303,7 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
                 </button>
                 <button
                   className="btn-sm"
-                  onClick={() => togglePaid(p)}
+                  onClick={() => { if (p.paid) { togglePaid(p, ""); } else { setPayAsk(() => (mth) => togglePaid(p, mth)); } }}
                   disabled={acting || isCancelled || s.price <= 0}
                   style={{
                     background: p.paid ? "var(--ink)" : "transparent",
@@ -18151,7 +18315,8 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
                   {s.price <= 0 ? "Free" : p.paid ? "✓ Paid" : "Mark paid"}
                 </button>
                 <div style={{ fontSize: 11, opacity: 0.6, fontFamily: "var(--mono)", textAlign: "right" }}>
-                  {p.amountPaid > 0 ? fmtMoney(p.amountPaid) : "—"}
+                  <div>{p.amountPaid > 0 ? fmtMoney(p.amountPaid) : "—"}</div>
+                  <button className="btn-sm" style={{ marginTop: 4, padding: "2px 6px", fontSize: 10 }} onClick={() => setReceiptItem(openPlayReceipt(s, p))}>Receipt</button>
                 </div>
                 <button
                   onClick={() => removePlayer(p)}
@@ -18202,6 +18367,8 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
       </div>
         </div>
       </div>
+      {receiptItem && <ReceiptModal r={receiptItem} onClose={() => setReceiptItem(null)} />}
+      {payAsk && <PayMethodModal onPick={(mth) => { const fn = payAsk; setPayAsk(null); fn(mth); }} onClose={() => setPayAsk(null)} />}
     </div>
   );
 }
