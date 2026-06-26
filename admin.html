@@ -4645,6 +4645,7 @@ var MUTATING_ACTIONS = new Set([
   "adminCreateMember","adminUpdateMember","adminSetPricingRules","adminSetPromo",
   "adminSetPosSettings","adminSetGoals","adminSetLandingConfig",
   "posCreateSale","adminSettleCombined","tabOpen","tabClose","tabAddItem","tabRemoveItem",
+  "tabCancel","tabAttachBooking","tabAttachWalkInPlayer","tabDetachBooking","tabDetachWalkInPlayer",
   "adminRenewMember"
 ]);
 function genRequestId(){
@@ -4727,6 +4728,7 @@ function _isMutation(action) {
   if (action.indexOf("Remove") >= 0) return true;
   if (action.indexOf("Set") === 0 || action.indexOf("adminSet") === 0) return true;
   if (action.indexOf("MarkPaid") >= 0 || action.indexOf("markPaid") >= 0) return true;
+  if (action.indexOf("Refund") >= 0) return true;
   if (action.indexOf("Settle") >= 0) return true;
   if (action.indexOf("Void") >= 0) return true;
   if (action.indexOf("posCreate") === 0 || action.indexOf("posAdjust") === 0) return true;
@@ -4757,7 +4759,7 @@ function _invalidateForMutation(action) {
   // Categorize the mutation. Multiple categories can fire — e.g., creating a
   // booking affects dashboard + timeline + bookings list + availability.
   const isBookingMutation = (
-    /^(adminCreateBooking|createBooking|adminCancelBooking|cancelBooking|adminMarkPaid|adminMarkNoShow|adminConfirmArrival|adminFlagNoShow|adminNoShowAndRelease|adminUndoCancellation|adminUpdateBooking|adminUpdateNotes)/.test(action)
+    /^(adminCreateBooking|createBooking|adminCancelBooking|cancelBooking|adminMarkPaid|adminMarkRefunded|adminMarkNoShow|adminConfirmArrival|adminFlagNoShow|adminNoShowAndRelease|adminUndoCancellation|adminUpdateBooking|adminUpdateNotes)/.test(action)
   );
   const isWalkInMutation = (
     /^(adminCreateWalkInBlock|adminCloseWalkInBlock|adminAddWalkInPlayer|adminRemoveWalkInPlayer|adminMarkWalkInPlayerPaid|adminUpdateWalkInBlock)/.test(action)
@@ -4775,7 +4777,7 @@ function _invalidateForMutation(action) {
     /^(posCreate|posVoid|posAdjust|posUpdate|posDelete)/.test(action)
   );
   const isTabMutation = (
-    /^tab(Open|Close|AddItem|RemoveItem|Attach|Detach|Update)/.test(action)
+    /^tab(Open|Close|Cancel|AddItem|RemoveItem|Attach|Detach|Update)/.test(action)
   );
   const isMemberMutation = (
     /^(adminCreateMember|adminUpdateMember|adminDeleteMember|adminCancelMember)/.test(action)
@@ -6989,6 +6991,13 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
   // How many overdue items to show by default (rest collapsed)
   const [showAllOverdue, setShowAllOverdue] = useState(false);
 
+  // Synchronous in-flight guard. The optimistic Sets above hide rows via async
+  // state, but React batches the update so a fast double-tap can fire the same
+  // action twice (no-show/arrival also send SMS). This ref flips synchronously
+  // on the very first tap. Keyed by row so different rows can still act in
+  // parallel; the key is removed when the request settles.
+  const actingRef = useRef(new Set());
+
   // Compose a unique id for overdue items (id alone collides across types)
   const overdueKey = (o) => o.entryType + ":" + o.id;
   const visibleOverdue = overdue.filter(o => !optimisticPaid.has(overdueKey(o)));
@@ -6998,7 +7007,7 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
   const total =
     payments.filter(p => !optimisticPaid.has(p.bookingId)).length +
     visibleOverdue.length +
-    atRisk.length +
+    visibleAtRisk.length +
     lowStock.length +
     birthdayWeek.filter(m => !m.alreadyUsed).length +
     visibleRefunds.length;
@@ -7028,52 +7037,72 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
   // happens out-of-band (till, ABA, bank). We stamp [REFUNDED date] into
   // the booking's Notes so it stops showing up in this queue.
   async function markRefunded(bookingId) {
-    setOptimisticRefunded(prev => new Set([...prev, bookingId]));
-    const r = await api("adminMarkRefunded", { bookingId: bookingId });
-    if (r.ok) {
-      showToast("Marked refunded — out of the queue", "success");
-      onMarkPaid && onMarkPaid();
-    } else {
-      setOptimisticRefunded(prev => {
-        const next = new Set(prev);
-        next.delete(bookingId);
-        return next;
-      });
-      showToast(r.error || "Failed — try again", "error");
+    const _k = "refund:" + bookingId;
+    if (actingRef.current.has(_k)) return;
+    actingRef.current.add(_k);
+    try {
+      setOptimisticRefunded(prev => new Set([...prev, bookingId]));
+      const r = await api("adminMarkRefunded", { bookingId: bookingId });
+      if (r.ok) {
+        showToast("Marked refunded — out of the queue", "success");
+        onMarkPaid && onMarkPaid();
+      } else {
+        setOptimisticRefunded(prev => {
+          const next = new Set(prev);
+          next.delete(bookingId);
+          return next;
+        });
+        showToast(r.error || "Failed — try again", "error");
+      }
+    } finally {
+      actingRef.current.delete(_k);
     }
   }
 
   // Mark an overdue item paid — dispatches by entryType to the right endpoint.
   async function markOverduePaid(o) {
     const key = overdueKey(o);
-    setOptimisticPaid(prev => new Set([...prev, key]));
-    let r;
-    if (o.entryType === "booking") {
-      r = await api("adminMarkPaid", { bookingId: o.id });
-    } else if (o.entryType === "walkin") {
-      r = await api("adminMarkWalkInPlayerPaid", { playerId: o.id });
-    } else if (o.entryType === "coaching") {
-      r = await api("adminMarkCoachingSessionsPaid", { sessionIds: [o.id] });
-    } else {
-      r = { ok: false, error: "Unknown entry type: " + o.entryType };
-    }
-    if (r && r.ok) {
-      showToast("Marked paid · " + fmtMoney(o.amount) + " collected", "success");
-      onMarkPaid && onMarkPaid();
-    } else {
-      setOptimisticPaid(prev => { const n = new Set(prev); n.delete(key); return n; });
-      showToast((r && r.error) || "Failed — try again", "error");
+    if (actingRef.current.has(key)) return;
+    actingRef.current.add(key);
+    try {
+      setOptimisticPaid(prev => new Set([...prev, key]));
+      let r;
+      if (o.entryType === "booking") {
+        r = await api("adminMarkPaid", { bookingId: o.id });
+      } else if (o.entryType === "walkin") {
+        r = await api("adminMarkWalkInPlayerPaid", { playerId: o.id });
+      } else if (o.entryType === "coaching") {
+        r = await api("adminMarkCoachingSessionsPaid", { sessionIds: [o.id] });
+      } else {
+        r = { ok: false, error: "Unknown entry type: " + o.entryType };
+      }
+      if (r && r.ok) {
+        showToast("Marked paid · " + fmtMoney(o.amount) + " collected", "success");
+        onMarkPaid && onMarkPaid();
+      } else {
+        setOptimisticPaid(prev => { const n = new Set(prev); n.delete(key); return n; });
+        showToast((r && r.error) || "Failed — try again", "error");
+      }
+    } finally {
+      actingRef.current.delete(key);
     }
   }
 
   async function noShowRelease(bookingId) {
+    const _k = "release:" + bookingId;
+    if (actingRef.current.has(_k)) return;
     if (!confirm("Release the court and notify the customer? This sends an SMS.")) return;
-    const r = await api("adminNoShowAndRelease", { bookingId: bookingId });
-    if (r.ok) {
-      showToast("Court released", "success");
-      onMarkPaid && onMarkPaid();
-    } else {
-      showToast(r.error || "Failed", "error");
+    actingRef.current.add(_k);
+    try {
+      const r = await api("adminNoShowAndRelease", { bookingId: bookingId });
+      if (r.ok) {
+        showToast("Court released", "success");
+        onMarkPaid && onMarkPaid();
+      } else {
+        showToast(r.error || "Failed", "error");
+      }
+    } finally {
+      actingRef.current.delete(_k);
     }
   }
 
@@ -7083,19 +7112,26 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
     // hides the row right away; the next dashboard refresh reconciles by
     // re-fetching, which won't include this booking in atRisk anymore (its
     // derivedStatus is now "checked_in").
-    setOptimisticArrived(prev => new Set([...prev, bookingId]));
-    const r = await api("adminConfirmArrival", { bookingId: bookingId });
-    if (r.ok) {
-      showToast(r.message || "Arrival confirmed", "success");
-      onMarkPaid && onMarkPaid();  // triggers data reload — same callback name
-    } else {
-      // Roll back optimistic update on failure
-      setOptimisticArrived(prev => {
-        const next = new Set(prev);
-        next.delete(bookingId);
-        return next;
-      });
-      showToast(r.error || "Failed", "error");
+    const _k = "arrival:" + bookingId;
+    if (actingRef.current.has(_k)) return;
+    actingRef.current.add(_k);
+    try {
+      setOptimisticArrived(prev => new Set([...prev, bookingId]));
+      const r = await api("adminConfirmArrival", { bookingId: bookingId });
+      if (r.ok) {
+        showToast(r.message || "Arrival confirmed", "success");
+        onMarkPaid && onMarkPaid();  // triggers data reload — same callback name
+      } else {
+        // Roll back optimistic update on failure
+        setOptimisticArrived(prev => {
+          const next = new Set(prev);
+          next.delete(bookingId);
+          return next;
+        });
+        showToast(r.error || "Failed", "error");
+      }
+    } finally {
+      actingRef.current.delete(_k);
     }
   }
 
@@ -8516,12 +8552,21 @@ function BookingRow({ booking, onAction, onOpen }) {
   // after BOTH the mark-paid write AND the follow-up refetch return — two
   // sequential Cambodia->US round-trips (~4-5s) of staring at the old status.
   const [optimisticPaid, setOptimisticPaid] = useState(false);
+  // Synchronous double-tap guard — setOptimisticPaid is async, so a fast
+  // double-tap can fire the write twice before the disabled state lands.
+  const actingRef = useRef(false);
   async function quickMarkPaid(e) {
     e.stopPropagation();
-    setOptimisticPaid(true);
-    const r = await api("adminMarkPaid", { bookingId: booking.bookingId });
-    if (r.ok) { showToast("Marked paid", "success"); onAction && onAction(); }
-    else { setOptimisticPaid(false); showToast(r.error || "Failed", "error"); }
+    if (actingRef.current) return;
+    actingRef.current = true;
+    try {
+      setOptimisticPaid(true);
+      const r = await api("adminMarkPaid", { bookingId: booking.bookingId });
+      if (r.ok) { showToast("Marked paid", "success"); onAction && onAction(); }
+      else { setOptimisticPaid(false); showToast(r.error || "Failed", "error"); }
+    } finally {
+      actingRef.current = false;
+    }
   }
 
   const isMember = !!(booking.memberTier && booking.memberTier.length > 0);
@@ -8637,19 +8682,20 @@ function BookingDetailModal({ booking, onClose, onAction }) {
     // the list (stale-while-revalidate keeps it visible, no spinner); on
     // failure we surface an error and refresh again to restore the real state.
     onClose && onClose();
-    showToast(
-      action === "adminMarkPaid" ? "Marked paid"
-      : action === "adminConfirmArrival" ? "Arrival confirmed"
-      : action === "adminMarkRefunded" ? "Marked refunded"
-      : "Done",
-      "success"
-    );
     onAction && onAction();
     const r = await api(action, { bookingId: booking.bookingId });
-    if (!r.ok) {
-      showToast(r.error || "Action failed — refreshing", "error");
-      onAction && onAction();
+    if (r.ok) {
+      showToast(
+        action === "adminMarkPaid" ? "Marked paid"
+        : action === "adminConfirmArrival" ? "Arrival confirmed"
+        : action === "adminMarkRefunded" ? "Marked refunded"
+        : "Done",
+        "success"
+      );
+    } else {
+      showToast(r.error || "Didn't save — please retry", "error");
     }
+    onAction && onAction();
   }
 
   const d = booking.derivedStatus;
@@ -10092,6 +10138,19 @@ function EditMemberModal({ member, onClose, onSaved }) {
 
   async function save() {
     if (saving) return;  // double-tap guard
+    if (form.birthday) {
+      const m = /^(\d{2})-(\d{2})$/.exec(form.birthday);
+      if (!m || +m[1] < 1 || +m[1] > 12 || +m[2] < 1 || +m[2] > 31) {
+        return showToast("Birthday must be MM-DD (month 01-12, day 01-31)", "error");
+      }
+    }
+    if (form.expiryDate) {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const exp = new Date(form.expiryDate + "T00:00:00");
+      if (!isNaN(exp.getTime()) && exp < today) {
+        showToast("Heads up: expiry is in the past — this member will show as expired.", "warning");
+      }
+    }
     setSaving(true);
     const r = await api("adminUpdateMember", {
       phone: member.phone,
@@ -11580,6 +11639,7 @@ function ScreenPOS() {
 
   // Member discount: looked up from customer phone, only on ELIGIBLE products
   const [memberTier, setMemberTier] = useState("");
+  const [lookingUpTier, setLookingUpTier] = useState(false);  // true while member-tier lookup is in flight
   const [memberDiscountPct, setMemberDiscountPct] = useState(10);  // fetched from POS settings
 
   // Fetch the current member discount % once on mount
@@ -11599,8 +11659,9 @@ function ScreenPOS() {
   }, []);
 
   useEffect(() => {
-    if (!customerPhone || customerPhone.length < 6) { setMemberTier(""); return; }
+    if (!customerPhone || customerPhone.length < 6) { setMemberTier(""); setLookingUpTier(false); return; }
     let cancelled = false;
+    setLookingUpTier(true);
     api("adminGetMemberByPhone", { phone: customerPhone }).then(r => {
       if (cancelled) return;
       if (r.ok && r.member && r.member.status === "active" && !r.member.isExpired) {
@@ -11608,7 +11669,8 @@ function ScreenPOS() {
       } else {
         setMemberTier("");
       }
-    });
+      setLookingUpTier(false);
+    }).catch(() => { if (!cancelled) setLookingUpTier(false); });
     return () => { cancelled = true; };
   }, [customerPhone]);
   const memberDiscountAmount = useMemo(() => {
@@ -11652,9 +11714,10 @@ function ScreenPOS() {
     // events fire before the disabled state hits the DOM. Without this
     // guard, the second tap creates a duplicate sale.
     if (submitting) return;
+    if (lookingUpTier) return showToast("Pricing updating — try again in a moment", "error");
     if (cart.length === 0 && attached.length === 0) return showToast("Cart is empty", "error");
-    if (paymentMethod === "Cash" && parseFloat(cashReceived) < total) {
-      return showToast("Cash received less than total", "error");
+    if (paymentMethod === "Cash" && total > 0 && !(parseFloat(cashReceived) >= total)) {
+      return showToast("Enter the cash amount received (≥ total)", "error");
     }
     setSubmitting(true);
 
@@ -11707,6 +11770,12 @@ function ScreenPOS() {
         items: cart.length + attached.length,
         attachedCount: r.attachedCount || 0
       });
+      // M7: the server recomputes attached lines from current state, so the
+      // charged total can differ from the snapshot shown (e.g. a booking was
+      // edited/settled on another device). Surface it so cash is reconciled.
+      if (attached.length > 0 && typeof r.total === "number" && Math.abs(r.total - total) > 0.01) {
+        showToast("Charged $" + r.total.toFixed(2) + " (updated from $" + total.toFixed(2) + " shown — an attached line changed). Verify cash collected.", "error");
+      }
       setCart([]);
       setAttached([]);
       setDiscountPct(0);
@@ -12015,9 +12084,9 @@ function ScreenPOS() {
               <button
                 className="charge-btn"
                 onClick={processCharge}
-                disabled={submitting || (cart.length === 0 && attached.length === 0) || (paymentMethod === "Cash" && parseFloat(cashReceived) < total)}
+                disabled={submitting || lookingUpTier || (cart.length === 0 && attached.length === 0) || (paymentMethod === "Cash" && total > 0 && !(parseFloat(cashReceived) >= total))}
               >
-                {submitting ? "Charging…" : `Charge $${total.toFixed(2)}`}
+                {submitting ? "Charging…" : lookingUpTier ? "pricing updating…" : `Charge $${total.toFixed(2)}`}
               </button>
             </>
           )}
@@ -12577,13 +12646,17 @@ function AddItemToTabModal({ tabId, products, onClose, onAdded }) {
     );
   }, [products, search]);
 
+  const selectedProduct = useMemo(() => (products || []).find(p => p.sku === sku) || null, [products, sku]);
+  const maxQty = selectedProduct ? selectedProduct.stock : Infinity;
+
   async function submit() {
     if (!sku) { showToast("Pick a product", "error"); return; }
+    const cappedQty = Math.min(quantity, maxQty);
     setWorking(true);
     const r = await api("tabAddItem", {
       tabId: tabId,
       sku: sku,
-      quantity: quantity
+      quantity: cappedQty
     });
     setWorking(false);
     if (r.ok) onAdded();
@@ -12642,7 +12715,10 @@ function AddItemToTabModal({ tabId, products, onClose, onAdded }) {
             <label style={{ fontFamily: "var(--mono)", fontSize: 11 }}>Quantity:</label>
             <button className="btn-sm" onClick={() => setQuantity(Math.max(1, quantity - 1))}>−</button>
             <span style={{ fontFamily: "var(--mono)", fontSize: 16, fontWeight: 700, minWidth: 30, textAlign: "center" }}>{quantity}</span>
-            <button className="btn-sm" onClick={() => setQuantity(quantity + 1)}>+</button>
+            <button className="btn-sm" onClick={() => { if (quantity >= maxQty) { showToast("Not enough stock", "error"); return; } setQuantity(quantity + 1); }} disabled={quantity >= maxQty}>+</button>
+            {selectedProduct && quantity >= maxQty && (
+              <span style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>Only {maxQty} in stock</span>
+            )}
           </div>
         )}
 
@@ -12908,8 +12984,8 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
   const change = Math.max(0, cashGiven - finalTotal);
 
   async function submit() {
-    if (paymentMethod === "Cash" && cashGiven < finalTotal) {
-      showToast("Cash received less than total", "error");
+    if (paymentMethod === "Cash" && finalTotal > 0 && !(parseFloat(cashReceived) >= finalTotal)) {
+      showToast("Enter the cash amount received (≥ total)", "error");
       return;
     }
     setWorking(true);
@@ -12923,6 +12999,11 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
     setWorking(false);
     if (r.ok) {
       showToast("Tab settled · $" + r.total.toFixed(2) + (r.changeGiven > 0 ? " · Change: $" + r.changeGiven.toFixed(2) : ""), "success");
+      // M4: a tab can always be settled now; flag any item that was short on
+      // stock so the operator can reconcile inventory.
+      if (r.stockWarnings && r.stockWarnings.length) {
+        showToast("Inventory note: " + r.stockWarnings.map(function (w) { return w.name + " (had " + w.available + ", sold " + w.requested + ")"; }).join(", ") + " — please reconcile stock.", "error");
+      }
       onClosed();
     } else {
       showToast(r.error || "Failed to settle", "error");
@@ -13029,7 +13110,7 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
 
         <div className="actions">
           <button className="btn ghost" onClick={onClose}>Cancel</button>
-          <button className="btn primary" onClick={submit} disabled={working || finalTotal <= 0}>
+          <button className="btn primary" onClick={submit} disabled={working || finalTotal <= 0 || (paymentMethod === "Cash" && finalTotal > 0 && !(parseFloat(cashReceived) >= finalTotal))}>
             {working ? "Settling…" : "Confirm Payment"}
           </button>
         </div>
@@ -13700,8 +13781,12 @@ function ProductModal({ product, onClose, onSaved }) {
   }
 
   async function save() {
+    if (saving) return;
     if (!form.sku) return showToast("SKU required", "error");
     if (!form.name) return showToast("Name required", "error");
+    if ((parseFloat(form.price) || 0) === 0 && String(form.category).toLowerCase() !== "drinks") {
+      if (!confirm("Save this product with a $0 price?")) return;
+    }
     setSaving(true);
     const action = isNew ? "posCreateProduct" : "posUpdateProduct";
     const params = { ...form };
@@ -13821,21 +13906,28 @@ function ProductModal({ product, onClose, onSaved }) {
 
 function StockManagementModal({ products, onClose, onChanged }) {
   const [adjustments, setAdjustments] = useState({});  // sku -> delta string
+  const [working, setWorking] = useState(false);
 
   async function applyAll() {
+    if (working) return;
     const deltas = Object.entries(adjustments).filter(([sku, d]) => parseInt(d) !== 0 && d !== "");
     if (deltas.length === 0) {
       showToast("No changes", "error");
       return;
     }
-    let success = 0;
-    for (const [sku, delta] of deltas) {
-      const r = await api("posAdjustStock", { sku: sku, delta: parseInt(delta) });
-      if (r.ok) success++;
+    setWorking(true);
+    try {
+      let success = 0;
+      for (const [sku, delta] of deltas) {
+        const r = await api("posAdjustStock", { sku: sku, delta: parseInt(delta) });
+        if (r.ok) success++;
+      }
+      showToast(`Adjusted ${success} product${success === 1 ? "" : "s"}`, "success");
+      setAdjustments({});
+      onChanged && onChanged();
+    } finally {
+      setWorking(false);
     }
-    showToast(`Adjusted ${success} product${success === 1 ? "" : "s"}`, "success");
-    setAdjustments({});
-    onChanged && onChanged();
   }
 
   return (
@@ -13882,7 +13974,7 @@ function StockManagementModal({ products, onClose, onChanged }) {
 
         <div className="actions">
           <button className="btn ghost" onClick={onClose}>Close</button>
-          <button className="btn primary" onClick={applyAll}>Apply all</button>
+          <button className="btn primary" onClick={applyAll} disabled={working}>{working ? "Applying…" : "Apply all"}</button>
         </div>
       </div>
     </div>
