@@ -11768,7 +11768,25 @@ function ScreenPOS() {
         total: r.total,
         changeGiven: r.changeGiven,
         items: cart.length + attached.length,
-        attachedCount: r.attachedCount || 0
+        attachedCount: r.attachedCount || 0,
+        // Full itemized data for the printed receipt (thermal / black & white).
+        receipt: {
+          saleId: r.saleId,
+          date: new Date(),
+          cashier: "Staff",
+          customerName: customerName || "",
+          memberTier: memberTier || "",
+          items: cart.map(function (x) { return { name: x.name, qty: x.quantity, price: x.price, lineTotal: Math.round(x.price * x.quantity * 100) / 100 }; }),
+          // Prefer the server's authoritative attached-line amounts (M7) when present.
+          attached: (r.lines && r.lines.length) ? r.lines.map(function (l) { return { name: l.name, price: l.amount }; }) : attached.map(function (a) { return { name: a.name, price: a.price || 0 }; }),
+          subtotal: subtotal,
+          memberDiscountAmount: memberDiscountAmount,
+          discountAmount: computedDiscountAmount,
+          total: (typeof r.total === "number" ? r.total : total),
+          paymentMethod: paymentMethod,
+          cashReceived: parseFloat(cashReceived) || 0,
+          changeGiven: (typeof r.changeGiven === "number" ? r.changeGiven : change)
+        }
       });
       // M7: the server recomputes attached lines from current state, so the
       // charged total can differ from the snapshot shown (e.g. a booking was
@@ -13982,6 +14000,11 @@ function StockManagementModal({ products, onClose, onChanged }) {
 }
 
 function SaleConfirmModal({ sale, onClose }) {
+  const rc = sale.receipt || null;
+  function printReceipt() { try { window.print(); } catch (e) {} }
+  function rMoney(n) { return "$" + (Math.round((n || 0) * 100) / 100).toFixed(2); }
+  function rDate(d) { try { return new Date(d).toLocaleString(); } catch (e) { return ""; } }
+  const staffDisc = rc ? Math.round((rc.discountAmount - rc.memberDiscountAmount) * 100) / 100 : 0;
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
@@ -14028,9 +14051,67 @@ function SaleConfirmModal({ sale, onClose }) {
         )}
 
         <div className="actions">
+          {rc && <button className="btn" onClick={printReceipt}>Print receipt</button>}
           <button className="btn primary" onClick={onClose}>Next sale</button>
         </div>
       </div>
+
+      {/* Hidden print-only receipt — 80mm thermal, black & white only */}
+      {rc && (
+        <div className="yard-receipt" aria-hidden="true">
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontWeight: 700, fontSize: 17, letterSpacing: "2px" }}>THE YARD</div>
+            <div style={{ fontSize: 11 }}>Pickleball · Toul Kork, Phnom Penh</div>
+          </div>
+          <div className="yr-div" />
+          <div className="yr-row"><span>{rDate(rc.date)}</span></div>
+          <div className="yr-row"><span>Sale</span><span>{rc.saleId}</span></div>
+          {rc.customerName ? <div className="yr-row"><span>Customer</span><span>{rc.customerName}</span></div> : null}
+          {rc.memberTier ? <div className="yr-row"><span>Member</span><span>{String(rc.memberTier).toUpperCase()}</span></div> : null}
+          <div className="yr-div" />
+          {rc.items.map(function (it, i) {
+            return (
+              <div key={"i" + i} className="yr-row">
+                <span>{it.qty} x {it.name}</span><span>{rMoney(it.lineTotal)}</span>
+              </div>
+            );
+          })}
+          {rc.attached.map(function (a, i) {
+            return (
+              <div key={"a" + i} className="yr-row"><span>{a.name}</span><span>{rMoney(a.price)}</span></div>
+            );
+          })}
+          <div className="yr-div" />
+          <div className="yr-row"><span>Subtotal</span><span>{rMoney(rc.subtotal)}</span></div>
+          {rc.memberDiscountAmount > 0 ? <div className="yr-row"><span>Member discount</span><span>-{rMoney(rc.memberDiscountAmount)}</span></div> : null}
+          {staffDisc > 0.001 ? <div className="yr-row"><span>Discount</span><span>-{rMoney(staffDisc)}</span></div> : null}
+          <div className="yr-row yr-total"><span>TOTAL</span><span>{rMoney(rc.total)}</span></div>
+          <div className="yr-div" />
+          <div className="yr-row"><span>Paid · {rc.paymentMethod}</span><span>{rMoney(rc.paymentMethod === "Cash" ? rc.cashReceived : rc.total)}</span></div>
+          {rc.paymentMethod === "Cash" && rc.changeGiven > 0 ? <div className="yr-row"><span>Change</span><span>{rMoney(rc.changeGiven)}</span></div> : null}
+          <div className="yr-div" />
+          <div style={{ textAlign: "center", marginTop: 6 }}>Thank you! See you on court.</div>
+          <div style={{ textAlign: "center", fontSize: 10, marginTop: 3 }}>thepickleballyard.club</div>
+        </div>
+      )}
+
+      <style>{`
+        .yard-receipt { display:none; }
+        .yr-row { display:flex; justify-content:space-between; gap:10px; font-size:12px; line-height:1.5; }
+        .yr-row span:last-child { white-space:nowrap; }
+        .yr-total { font-weight:700; font-size:15px; margin-top:2px; }
+        .yr-div { border-top:1px dashed #000; margin:6px 0; }
+        @media print {
+          body * { visibility:hidden !important; }
+          .yard-receipt, .yard-receipt * { visibility:visible !important; color:#000 !important; }
+          .yard-receipt {
+            display:block !important; position:absolute; left:0; top:0;
+            width:76mm; padding:4mm 2mm; background:#fff;
+            font-family:'Courier New', monospace;
+          }
+          @page { size:80mm auto; margin:0; }
+        }
+      `}</style>
     </div>
   );
 }
