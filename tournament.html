@@ -937,7 +937,7 @@ h1.tournament-name{
     if (t.format) {
       html += '<div class="detail-card span2"><div class="label">Format</div><div class="value">' + escapeHtml(t.format) + '</div></div>';
     }
-    html += '<div class="detail-card"><div class="label">Entry fee</div><div class="value mono">' + (t.entryFee > 0 ? '$' + t.entryFee.toFixed(2) : 'Free') + '</div></div>';
+    html += '<div class="detail-card"><div class="label">Entry fee</div><div class="value mono">' + (t.entryFee > 0 ? '$' + Number(t.entryFee).toFixed(2) : 'Free') + '</div></div>';
     if (t.playerCap > 0) {
       html += '<div class="detail-card"><div class="label">Field</div><div class="value mono">' + escapeHtml(String(t.registeredPlayers)) + ' <span style="opacity:0.45">/ ' + escapeHtml(String(t.playerCap)) + '</span></div></div>';
     } else {
@@ -1131,12 +1131,21 @@ h1.tournament-name{
   // duplicate registrations. The flag closes that gap.
   var _signupInFlight = false;
   var _cancelInFlight = false;
+  // M14: set when we couldn't verify existing registration status. Blocks
+  // submission so the user can't ignore the warning and double-register.
+  var _verifyFailed = false;
 
   function submitSignup(t) {
     if (_signupInFlight) return;
     var btn = document.getElementById("signup-submit");
     var errEl = document.getElementById("signup-err");
     errEl.textContent = "";
+    // M14: refuse to submit if we couldn't verify registration status.
+    if (_verifyFailed) {
+      errEl.textContent = "Couldn't verify your registration status — please refresh before signing up.";
+      if (btn) btn.disabled = true;
+      return;
+    }
 
     var name = (document.getElementById("f-name").value || "").trim();
     var phone = (document.getElementById("f-phone").value || "").trim();
@@ -1247,6 +1256,12 @@ h1.tournament-name{
         if (errEl) {
           errEl.textContent = "Couldn't verify your registration status — please refresh before signing up.";
         }
+        // M14: we can't confirm whether this phone is already registered, so
+        // block submission to prevent a blind double-registration. The flag is
+        // checked in submitSignup; the user must refresh/retry to re-enable.
+        _verifyFailed = true;
+        var sbtn = document.getElementById("signup-submit");
+        if (sbtn) { sbtn.disabled = true; }
       });
   }
 
@@ -1269,10 +1284,25 @@ h1.tournament-name{
         '<div class="fine">Need to change something? Cancel and re-register, or contact The Yard.</div>' +
       '</div>';
 
+    var _cancelArmed = false;
+    var _cancelArmTimer = null;
     document.getElementById("cancel-btn").addEventListener("click", function() {
       if (_cancelInFlight) return;
-      if (!confirm("Cancel your spot in '" + reg.tournamentName + "'? This frees the spot for someone else.")) return;
       var btn = document.getElementById("cancel-btn");
+      // M16: two-tap inline confirmation instead of window.confirm (suppressed
+      // in some in-app/social webviews). First tap arms; second tap commits.
+      if (!_cancelArmed) {
+        _cancelArmed = true;
+        btn.textContent = "Tap again to confirm";
+        if (_cancelArmTimer) clearTimeout(_cancelArmTimer);
+        _cancelArmTimer = setTimeout(function() {
+          _cancelArmed = false;
+          if (!_cancelInFlight) btn.textContent = "Cancel my spot";
+        }, 4000);
+        return;
+      }
+      if (_cancelArmTimer) { clearTimeout(_cancelArmTimer); _cancelArmTimer = null; }
+      _cancelArmed = false;
       _cancelInFlight = true;
       btn.disabled = true; btn.textContent = "Cancelling…";
       var errEl = document.getElementById("cancel-err");
