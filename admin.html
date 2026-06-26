@@ -12641,6 +12641,10 @@ function TabDetailModal({ tabId, products, onClose }) {
             bookingTotal={data.bookingTotal}
             playerTotal={data.playerTotal}
             customerPhone={tab.customerPhone}
+            customerName={tab.customerName}
+            items={data.items}
+            bookings={data.bookings}
+            walkInPlayers={data.walkInPlayers}
             onClose={() => setShowClose(false)}
             onClosed={() => { setShowClose(false); onClose(); }}
           />
@@ -12954,7 +12958,7 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
   );
 }
 
-function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTotal, playerTotal, customerPhone, onClose, onClosed }) {
+function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTotal, playerTotal, customerPhone, customerName, items, bookings, walkInPlayers, onClose, onClosed }) {
   const [paymentMethod, setPaymentMethod] = useState("Cash");
   const [cashReceived, setCashReceived] = useState("");
   const [discountPct, setDiscountPct] = useState(0);
@@ -12962,6 +12966,7 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
   const [working, setWorking] = useState(false);
   const [memberTier, setMemberTier] = useState("");
   const [memberDiscountPct, setMemberDiscountPct] = useState(10);
+  const [settled, setSettled] = useState(null);  // receipt data after a successful settle
 
   // Look up member tier when modal opens (for discount preview)
   useEffect(() => {
@@ -13022,10 +13027,47 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
       if (r.stockWarnings && r.stockWarnings.length) {
         showToast("Inventory note: " + r.stockWarnings.map(function (w) { return w.name + " (had " + w.available + ", sold " + w.requested + ")"; }).join(", ") + " — please reconcile stock.", "error");
       }
-      onClosed();
+      const subtotalAll = Math.round(((itemTotal || 0) + (bookingTotal || 0) + (playerTotal || 0)) * 100) / 100;
+      setSettled({
+        saleId: r.saleId,
+        date: new Date(),
+        customerName: customerName || "",
+        memberTier: memberTier || "",
+        items: (items || []).map(function (it) { return { name: it.name, qty: it.quantity, price: it.price, lineTotal: it.lineTotal }; }),
+        attached: [].concat(
+          (bookings || []).map(function (b) { return { name: "Court · " + b.name, price: b.total }; }),
+          (walkInPlayers || []).map(function (p) { return { name: "Walk-in · " + p.name, price: p.amount }; })
+        ),
+        subtotal: subtotalAll,
+        memberDiscountAmount: memberDiscountAmount,
+        discountAmount: Math.max(0, Math.round((subtotalAll - r.total) * 100) / 100),
+        total: r.total,
+        paymentMethod: paymentMethod,
+        cashReceived: cashGiven,
+        changeGiven: r.changeGiven
+      });
     } else {
       showToast(r.error || "Failed to settle", "error");
     }
+  }
+
+  if (settled) {
+    return (
+      <div className="modal-overlay" style={{ zIndex: 300 }}>
+        <div className="modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-head"><div><div className="kicker">{settled.saleId}</div><h2>Tab Settled</h2></div></div>
+          <div style={{ textAlign: "center", padding: "16px 0" }}>
+            <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 48, color: "var(--green)", lineHeight: 1 }}>${settled.total.toFixed(2)}</div>
+            {settled.changeGiven > 0 && <div style={{ fontFamily: "var(--mono)", fontSize: 12, marginTop: 8, color: "var(--clay)" }}>Change due: ${settled.changeGiven.toFixed(2)}</div>}
+          </div>
+          <div className="actions">
+            <button className="btn" onClick={function () { try { window.print(); } catch (e) {} }}>Print receipt</button>
+            <button className="btn primary" onClick={onClosed}>Done</button>
+          </div>
+        </div>
+        <YardReceipt r={settled} />
+      </div>
+    );
   }
 
   return (
@@ -13996,6 +14038,59 @@ function StockManagementModal({ products, onClose, onChanged }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function YardReceipt({ r }) {
+  if (!r) return null;
+  function m(n) { return "$" + (Math.round((n || 0) * 100) / 100).toFixed(2); }
+  function dt(x) { try { return new Date(x).toLocaleString(); } catch (e) { return ""; } }
+  const staffDisc = Math.round(((r.discountAmount || 0) - (r.memberDiscountAmount || 0)) * 100) / 100;
+  return (
+    <>
+      <div className="yard-receipt" aria-hidden="true">
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontWeight: 700, fontSize: 17, letterSpacing: "2px" }}>THE YARD</div>
+          <div style={{ fontSize: 11 }}>Pickleball · Toul Kork, Phnom Penh</div>
+        </div>
+        <div className="yr-div" />
+        <div className="yr-row"><span>{dt(r.date)}</span></div>
+        <div className="yr-row"><span>Sale</span><span>{r.saleId}</span></div>
+        {r.customerName ? <div className="yr-row"><span>Customer</span><span>{r.customerName}</span></div> : null}
+        {r.memberTier ? <div className="yr-row"><span>Member</span><span>{String(r.memberTier).toUpperCase()}</span></div> : null}
+        <div className="yr-div" />
+        {(r.items || []).map(function (it, i) {
+          return (<div key={"i" + i} className="yr-row"><span>{it.qty} x {it.name}</span><span>{m(it.lineTotal)}</span></div>);
+        })}
+        {(r.attached || []).map(function (a, i) {
+          return (<div key={"a" + i} className="yr-row"><span>{a.name}</span><span>{m(a.price)}</span></div>);
+        })}
+        <div className="yr-div" />
+        <div className="yr-row"><span>Subtotal</span><span>{m(r.subtotal)}</span></div>
+        {r.memberDiscountAmount > 0 ? <div className="yr-row"><span>Member discount</span><span>-{m(r.memberDiscountAmount)}</span></div> : null}
+        {staffDisc > 0.001 ? <div className="yr-row"><span>Discount</span><span>-{m(staffDisc)}</span></div> : null}
+        <div className="yr-row yr-total"><span>TOTAL</span><span>{m(r.total)}</span></div>
+        <div className="yr-div" />
+        <div className="yr-row"><span>Paid · {r.paymentMethod}</span><span>{m(r.paymentMethod === "Cash" ? r.cashReceived : r.total)}</span></div>
+        {r.paymentMethod === "Cash" && r.changeGiven > 0 ? <div className="yr-row"><span>Change</span><span>{m(r.changeGiven)}</span></div> : null}
+        <div className="yr-div" />
+        <div style={{ textAlign: "center", marginTop: 6 }}>Thank you! See you on court.</div>
+        <div style={{ textAlign: "center", fontSize: 10, marginTop: 3 }}>thepickleballyard.club</div>
+      </div>
+      <style>{`
+        .yard-receipt { display:none; }
+        .yr-row { display:flex; justify-content:space-between; gap:10px; font-size:12px; line-height:1.5; }
+        .yr-row span:last-child { white-space:nowrap; }
+        .yr-total { font-weight:700; font-size:15px; margin-top:2px; }
+        .yr-div { border-top:1px dashed #000; margin:6px 0; }
+        @media print {
+          body * { visibility:hidden !important; }
+          .yard-receipt, .yard-receipt * { visibility:visible !important; color:#000 !important; }
+          .yard-receipt { display:block !important; position:absolute; left:0; top:0; width:76mm; padding:4mm 2mm; background:#fff; font-family:'Courier New', monospace; }
+          @page { size:80mm auto; margin:0; }
+        }
+      `}</style>
+    </>
   );
 }
 
