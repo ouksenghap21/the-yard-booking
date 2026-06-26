@@ -4646,7 +4646,8 @@ var MUTATING_ACTIONS = new Set([
   "adminSetPosSettings","adminSetGoals","adminSetLandingConfig",
   "posCreateSale","adminSettleCombined","tabOpen","tabClose","tabAddItem","tabRemoveItem",
   "tabCancel","tabAttachBooking","tabAttachWalkInPlayer","tabDetachBooking","tabDetachWalkInPlayer",
-  "adminRenewMember"
+  "adminRenewMember",
+  "adminSendReceiptSms"
 ]);
 function genRequestId(){
   try { if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID(); } catch(e){}
@@ -11775,6 +11776,7 @@ function ScreenPOS() {
           date: new Date(),
           cashier: "Staff",
           customerName: customerName || "",
+          customerPhone: customerPhone || "",
           memberTier: memberTier || "",
           items: cart.map(function (x) { return { name: x.name, qty: x.quantity, price: x.price, lineTotal: Math.round(x.price * x.quantity * 100) / 100 }; }),
           // Prefer the server's authoritative attached-line amounts (M7) when present.
@@ -13032,6 +13034,7 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
         saleId: r.saleId,
         date: new Date(),
         customerName: customerName || "",
+        customerPhone: customerPhone || "",
         memberTier: memberTier || "",
         items: (items || []).map(function (it) { return { name: it.name, qty: it.quantity, price: it.price, lineTotal: it.lineTotal }; }),
         attached: [].concat(
@@ -13061,7 +13064,8 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
             {settled.changeGiven > 0 && <div style={{ fontFamily: "var(--mono)", fontSize: 12, marginTop: 8, color: "var(--clay)" }}>Change due: ${settled.changeGiven.toFixed(2)}</div>}
           </div>
           <div className="actions">
-            <button className="btn" onClick={function () { try { window.print(); } catch (e) {} }}>Print receipt</button>
+            <button className="btn" onClick={printYardReceipt}>Print receipt</button>
+            <button className="btn" onClick={function () { sendReceiptSms(settled); }}>Text receipt</button>
             <button className="btn primary" onClick={onClosed}>Done</button>
           </div>
         </div>
@@ -14041,6 +14045,54 @@ function StockManagementModal({ products, onClose, onChanged }) {
   );
 }
 
+// Print a receipt through an isolated iframe so ONLY the receipt prints —
+// one continuous 80mm slip, never the whole admin app or a blank 2nd page.
+function printYardReceipt() {
+  var el = document.querySelector(".yard-receipt");
+  if (!el) { try { window.print(); } catch (e) {} return; }
+  var css = "@page{size:80mm auto;margin:0} html,body{margin:0;padding:0} "
+    + ".yard-receipt{display:block;width:76mm;padding:4mm 3mm;color:#000;background:#fff;font-family:'Courier New',monospace} "
+    + ".yr-row{display:flex;justify-content:space-between;gap:10px;font-size:12px;line-height:1.5} "
+    + ".yr-row span:last-child{white-space:nowrap;text-align:right} "
+    + ".yr-total{font-weight:700;font-size:15px;margin-top:2px} "
+    + ".yr-div{border-top:1px dashed #000;margin:6px 0}";
+  var old = document.getElementById("yard-print-frame");
+  if (old) old.parentNode.removeChild(old);
+  var f = document.createElement("iframe");
+  f.id = "yard-print-frame";
+  f.setAttribute("style", "position:fixed;right:0;bottom:0;width:0;height:0;border:0;");
+  document.body.appendChild(f);
+  var d = f.contentWindow.document;
+  d.open();
+  d.write('<!doctype html><html><head><meta charset="utf-8"><style>' + css + '</style></head><body>' + el.outerHTML + '</body></html>');
+  d.close();
+  f.contentWindow.focus();
+  setTimeout(function () { try { f.contentWindow.print(); } catch (e) {} }, 150);
+}
+
+// Build a compact SMS receipt from the same data the printed receipt uses.
+function buildReceiptSms(r) {
+  var lines = [];
+  (r.items || []).forEach(function (it) { lines.push(it.qty + "x " + it.name + " $" + (Math.round((it.lineTotal || 0) * 100) / 100).toFixed(2)); });
+  (r.attached || []).forEach(function (a) { lines.push(a.name + " $" + (Math.round((a.price || 0) * 100) / 100).toFixed(2)); });
+  return "The Yard receipt " + r.saleId + "\n" + lines.join("\n")
+    + "\nTOTAL $" + (Math.round((r.total || 0) * 100) / 100).toFixed(2) + " (" + r.paymentMethod + ")"
+    + "\nThank you! thepickleballyard.club";
+}
+
+var _smsSending = false;
+async function sendReceiptSms(r) {
+  if (!r) return;
+  if (!r.customerPhone) { showToast("No phone number on file — can't text this receipt.", "error"); return; }
+  if (_smsSending) return;
+  _smsSending = true;
+  try {
+    var res = await api("adminSendReceiptSms", { phone: r.customerPhone, message: buildReceiptSms(r) });
+    if (res.ok) showToast("Receipt texted to " + r.customerPhone, "success");
+    else showToast(res.error || "Couldn't send the SMS receipt", "error");
+  } finally { _smsSending = false; }
+}
+
 function YardReceipt({ r }) {
   if (!r) return null;
   function m(n) { return "$" + (Math.round((n || 0) * 100) / 100).toFixed(2); }
@@ -14146,7 +14198,8 @@ function SaleConfirmModal({ sale, onClose }) {
         )}
 
         <div className="actions">
-          {rc && <button className="btn" onClick={printReceipt}>Print receipt</button>}
+          {rc && <button className="btn" onClick={printYardReceipt}>Print receipt</button>}
+          {rc && <button className="btn" onClick={() => sendReceiptSms(rc)}>Text receipt</button>}
           <button className="btn primary" onClick={onClose}>Next sale</button>
         </div>
       </div>
