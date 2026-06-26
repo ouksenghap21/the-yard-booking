@@ -3618,6 +3618,15 @@ const LANG_KEY = "yard.lang";
 
 function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } }
 function setToken(t) { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch (e) {} }
+// M13: detect an auth/session failure from a server error string.
+function isSessionError(err) { return /session|token|expired|verify your phone/i.test(String(err || "")); }
+// M13: clear the stale token, drop it from app state, toast, and route to login.
+function handleSessionExpiry(setState, go, lang) {
+  setToken("");
+  if (setState) setState(s => ({ ...s, token: "" }));
+  showToast(lang === "km" ? "សម័យ​បាន​ផុត​កំណត់ — សូម​ចូល​ម្ដង​ទៀត" : "Session expired — please sign in again.", "error");
+  if (go) go("phone");
+}
 function getStoredPhone() { try { return localStorage.getItem(PHONE_KEY) || ""; } catch (e) { return ""; } }
 function setStoredPhone(p) { try { p ? localStorage.setItem(PHONE_KEY, p) : localStorage.removeItem(PHONE_KEY); } catch (e) {} }
 function getLang() { try { return localStorage.getItem(LANG_KEY) || "en"; } catch (e) { return "en"; } }
@@ -3776,8 +3785,17 @@ function isBirthdayEligibleClient(member, dateStr, windowDays) {
 
   const checkDate = new Date(dateStr + "T12:00:00");
   const thisYear = checkDate.getFullYear();
-  const birthday = new Date(thisYear, bMonth - 1, bDay);
-  const diffDays = Math.abs((checkDate - birthday) / (1000 * 60 * 60 * 24));
+  // M12: a birthday on Jan-2 checked on Dec-31 is only ~2 days away, but
+  // measuring against this year alone reports ~363. Compare against the
+  // birthday in the previous, current, and next year and take the smallest
+  // absolute day-diff so the window wraps correctly across Jan 1 / Dec 31.
+  const MS_PER_DAY = 1000 * 60 * 60 * 24;
+  let diffDays = Infinity;
+  for (const yr of [thisYear - 1, thisYear, thisYear + 1]) {
+    const bday = new Date(yr, bMonth - 1, bDay);
+    const d = Math.abs((checkDate - bday) / MS_PER_DAY);
+    if (d < diffDays) diffDays = d;
+  }
 
   const win = windowDays != null ? windowDays : 3;
   if (diffDays > win) return false;
@@ -4508,7 +4526,7 @@ function ScreenPhone({ state, setState, go, lang }) {
 /* ===================== SCREEN 2: OTP ===================== */
 function ScreenOTP({ state, setState, go, lang }) {
   const [code, setCode] = useState("");
-  const [resendIn, setResendIn] = useState(28);
+  const [resendIn, setResendIn] = useState(30);
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState("");
 
@@ -4684,17 +4702,18 @@ function ScreenBooking({ state, setState, go, lang, config }) {
   // A ref flips immediately and reliably blocks the second call.
   const submittingRef = useRef(false);
 
-  /* Load availability whenever date changes */
-  useEffect(() => {
-    let cancelled = false;
+  /* Fetch availability for a given date and update the slots/time state.
+     Extracted so the booking-conflict path (H2) can re-run the same load. */
+  function loadAvailability(targetDate, opts) {
+    opts = opts || {};
     setAvailLoading(true);
-    api("getAvailability", { date }).then(r => {
-      if (cancelled) return;
+    return api("getAvailability", { date: targetDate }).then(r => {
+      if (opts.cancelled && opts.cancelled()) return r;
       setAvailLoading(false);
       if (!r.ok) {
         showToast(r.error || t("error", null, lang), "error");
         setAvailSlots([]);
-        return;
+        return r;
       }
       setAvailSlots(r.slots || []);
       // Pick first available time if current isn't available
@@ -4703,7 +4722,14 @@ function ScreenBooking({ state, setState, go, lang, config }) {
         const firstFree = (r.slots || []).find(s => s.availableCount > 0);
         if (firstFree) setTime(firstFree.time);
       }
+      return r;
     });
+  }
+
+  /* Load availability whenever date changes */
+  useEffect(() => {
+    let cancelled = false;
+    loadAvailability(date, { cancelled: () => cancelled });
     return () => { cancelled = true; };
   }, [date]);
 
@@ -4820,10 +4846,23 @@ function ScreenBooking({ state, setState, go, lang, config }) {
   function ctaTone() {
     return bdayClaimed ? "coral" : "ink";
   }
+  // M11: when the selected date is today, the chosen start time must not be
+  // in the past. Compare the selected start against "now" (both local; the
+  // facility runs on the device's local clock = Asia/Phnom_Penh).
+  const isPastStart = useMemo(() => {
+    if (date !== todayISO()) return false;
+    const [hh, mi] = (time || "00:00").split(":").map(Number);
+    const now = new Date();
+    const start = new Date();
+    start.setHours(hh || 0, mi || 0, 0, 0);
+    return start.getTime() < now.getTime();
+  }, [date, time]);
+
   function ctaDisabled() {
     if (isGuest && !guestName.trim()) return true;
     if (submitting) return true;
     if (courtAvailability.available.length === 0) return true;
+    if (isPastStart) return true;   // can't book a start time that already passed today
     return false;
   }
 
@@ -4840,14 +4879,33 @@ function ScreenBooking({ state, setState, go, lang, config }) {
         email: (member && member.email) || "",
         date, time, slots,
         courts: pickedCourts.length,
+        // H1: also send the actual chosen court numbers (e.g. "3,7"). Backend
+        // honors requestedCourts when free, else falls back. `courts` (count)
+        // kept for backward compatibility.
+        requestedCourts: pickedCourts.join(","),
         useBirthday: bdayClaimed ? 1 : 0,
         source: "Web"
       });
       if (!r.ok) {
-        showToast(r.error || t("error", null, lang), "error");
+        // M13: graceful session-expiry re-auth. If the backend rejected us on
+        // an auth/session problem, the token is stale — clear it and bounce to
+        // the phone screen rather than leaving the user stuck on an error.
+        if (isSessionError(r.error)) { handleSessionExpiry(setState, go, lang); return; }
+        // H2: a conflict (slot just taken) — re-fetch availability for the
+        // selected date so the wheel reflects reality, then ask them to retry.
+        showToast(
+          lang === "km"
+            ? "ពេល​នេះ​ត្រូវ​បាន​កក់​រួច — ភាព​ទំនេរ​ត្រូវ​បាន​ផ្ទុក​ឡើង​វិញ សូម​ជ្រើស​ម្ដង​ទៀត។"
+            : "That slot was just taken — availability refreshed, please pick again.",
+          "error"
+        );
+        loadAvailability(date);
         return;
       }
-      setState(s => ({ ...s, confirmation: r.confirmation }));
+      // H3: stash the client quote so the confirm screen can reconcile it
+      // against the server's settled total and flag any mismatch.
+      const quotedTotal = pricing ? pricing.total : null;
+      setState(s => ({ ...s, confirmation: r.confirmation, quotedTotal: quotedTotal }));
       go("confirm");
     } finally {
       submittingRef.current = false;
@@ -5129,6 +5187,17 @@ function ScreenConfirm({ state, setState, go, lang }) {
 
   const isFounding = c.memberTier && String(c.memberTier).toLowerCase() === "founding";
 
+  // Safe first-court for the diagram label. c.courtNumbers may be a number,
+  // a comma string ("3,7"), or missing — coerce defensively so .split never
+  // throws and blanks the just-paid success screen.
+  const firstCourt = String(c.courtNumbers || c.courts || "1").split(",")[0].trim() || "1";
+
+  // Reconcile client quote vs server charge. state.quotedTotal is the price
+  // the customer saw before paying; if the server settled on a meaningfully
+  // different number, surface a gentle informational notice (not an error).
+  const quoted = (state.quotedTotal != null) ? Number(state.quotedTotal) : null;
+  const priceMismatch = (quoted != null && c.total != null && Math.abs(quoted - c.total) > 0.01);
+
   return (
     <div className="screen scr-pad-top">
       <div className="row-between">
@@ -5175,7 +5244,7 @@ function ScreenConfirm({ state, setState, go, lang }) {
         <circle cx="180" cy="206" r="4" fill="#1A1A1A" />
         <g transform="translate(180,110)">
           <rect x="-30" y="-19" width="60" height="38" rx="6" fill="#F1EAD6" stroke="#1A1A1A" strokeWidth="1.5" />
-          <text x="0" y="6" textAnchor="middle" fontFamily="DM Mono, monospace" fontWeight="500" fontSize="13" fill="#1A1A1A">{"C" + String(c.courtNumbers).split(",")[0].trim().padStart(2, "0")}</text>
+          <text x="0" y="6" textAnchor="middle" fontFamily="DM Mono, monospace" fontWeight="500" fontSize="13" fill="#1A1A1A">{"C" + firstCourt.padStart(2, "0")}</text>
         </g>
         <path d="M 60 160 Q 180 60, 300 150"
               stroke="#F1EAD6" strokeWidth="1.5" fill="none" strokeLinecap="round"
@@ -5210,6 +5279,13 @@ function ScreenConfirm({ state, setState, go, lang }) {
             {c.total === 0 ? (lang === "km" ? "ឥត​គិត​ថ្លៃ" : "FREE") : "$" + c.total.toFixed(2)}
           </span>
         </div>
+        {priceMismatch && (
+          <div className="hint" style={{ marginTop: 6, color: "var(--ink)", opacity: 0.85 }}>
+            {lang === "km"
+              ? "តម្លៃ​ចុង​ក្រោយ​ត្រូវ​បាន​បញ្ជាក់​ត្រឹម $" + c.total.toFixed(2)
+              : "Final price confirmed at $" + c.total.toFixed(2)}
+          </div>
+        )}
       </div>
 
       <div className="hint" style={{ marginBottom: 16 }}>
@@ -5235,13 +5311,17 @@ function ScreenConfirm({ state, setState, go, lang }) {
             const [hh, mi] = c.time.split(":").map(Number);
             // Duration: c.slots is the number of 30-min slots
             const durMins = (c.slots || 2) * 30;
-            const start = new Date(yyyy, mm - 1, dd, hh, mi);
+            // Build the UTC instant for the booking's Phnom Penh local time.
+            // Phnom Penh is UTC+7 (no DST), so UTC = local − 7h. We construct
+            // the instant via Date.UTC(...) on the local wall-clock components
+            // and subtract 7h, making the result device-timezone-independent.
+            const start = new Date(Date.UTC(yyyy, mm - 1, dd, hh, mi) - 7 * 3600000);
             const end = new Date(start.getTime() + durMins * 60000);
-            // Format as YYYYMMDDTHHMMSS for .ics
+            // Format as YYYYMMDDTHHMMSSZ (UTC) for .ics
             const pad = (n) => String(n).padStart(2, "0");
             const fmtIcs = (d) =>
-              d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) +
-              "T" + pad(d.getHours()) + pad(d.getMinutes()) + "00";
+              d.getUTCFullYear() + pad(d.getUTCMonth() + 1) + pad(d.getUTCDate()) +
+              "T" + pad(d.getUTCHours()) + pad(d.getUTCMinutes()) + "00Z";
             const ics = [
               "BEGIN:VCALENDAR",
               "VERSION:2.0",
@@ -5412,7 +5492,10 @@ function ScreenMyBookings({ state, setState, go, lang }) {
     });
     setCancelling(false);
     setCancelTarget(null);
-    if (!r.ok) { showToast(r.error || t("error", null, lang), "error"); return; }
+    if (!r.ok) {
+      if (isSessionError(r.error)) { handleSessionExpiry(setState, go, lang); return; }
+      showToast(r.error || t("error", null, lang), "error"); return;
+    }
     showToast(lang === "km" ? "បាន​បោះបង់" : "Cancelled", "success");
     load();
   }
@@ -5438,7 +5521,10 @@ function ScreenMyBookings({ state, setState, go, lang }) {
     }
     setCancelling(false);
     setUniversalCancel(null);
-    if (!r.ok) { showToast(r.error || t("error", null, lang), "error"); return; }
+    if (!r.ok) {
+      if (isSessionError(r.error)) { handleSessionExpiry(setState, go, lang); return; }
+      showToast(r.error || t("error", null, lang), "error"); return;
+    }
     showToast(lang === "km" ? "បាន​បោះបង់" : "Cancelled", "success");
     load();
   }
@@ -6056,6 +6142,9 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
           myReg={activeSession._myReg || null}
           profile={profile}
           state={state}
+          setState={setState}
+          go={go}
+          lang={lang}
           onClose={() => setActiveSession(null)}
           onChanged={() => { setActiveSession(null); refresh(); }}
         />
@@ -6161,7 +6250,7 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
 /* OpenPlaySessionModal — unified modal for signup OR managing existing reg.
    If `myReg` is provided, shows the registration view with cancel option.
    Otherwise shows the signup form with name/phone/skill/DUPR. */
-function OpenPlaySessionModal({ session, myReg, profile, state, onClose, onChanged }) {
+function OpenPlaySessionModal({ session, myReg, profile, state, setState, go, lang, onClose, onChanged }) {
   // Mode: "signup" (no existing reg) | "view" (has reg) | "success" (just signed up) | "cancelled"
   const [mode, setMode] = useState(myReg ? "view" : "signup");
 
@@ -6174,6 +6263,20 @@ function OpenPlaySessionModal({ session, myReg, profile, state, onClose, onChang
   const inFlightRef = useRef(false);   // synchronous double-tap guard
   const [error, setError] = useState("");
   const [successResp, setSuccessResp] = useState(null);
+  // M16: two-tap inline cancel confirmation (no window.confirm — some
+  // in-app/social webviews suppress it). First tap arms; second tap commits.
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const confirmTimerRef = useRef(null);
+
+  // Accessibility: close the modal on Escape. Minimal handler only — no
+  // focus-trap. Mirrors overlay-click / × button close behaviour.
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.key === "Escape") { onClose && onClose(); }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
 
   const hasDuprRestriction = session.minDupr !== null && session.minDupr !== undefined
     || session.maxDupr !== null && session.maxDupr !== undefined;
@@ -6219,7 +6322,13 @@ function OpenPlaySessionModal({ session, myReg, profile, state, onClose, onChang
         setSuccessResp(r);
         setMode("success");
       } else {
-        setError(r.error || "Failed to register");
+        if (isSessionError(r.error)) { onClose && onClose(); handleSessionExpiry(setState, go, lang); return; }
+        // M15: friendly message when the session just filled up at submit time.
+        if (r.error && /full|capacity|no spots|sold out/i.test(String(r.error))) {
+          setError("This session just filled up. Refresh to check for openings or pick another session.");
+        } else {
+          setError(r.error || "Failed to register");
+        }
       }
     } finally {
       inFlightRef.current = false;
@@ -6229,7 +6338,16 @@ function OpenPlaySessionModal({ session, myReg, profile, state, onClose, onChang
 
   async function submitCancel() {
     if (inFlightRef.current) return;  // synchronous double-tap guard
-    if (!confirm("Cancel your spot in '" + (myReg.title || session.title) + "'? This frees up the spot for someone else.")) return;
+    // M16: first tap arms the confirmation; the button label changes to
+    // "Tap again to confirm" for a few seconds. Second tap commits.
+    if (!confirmingCancel) {
+      setConfirmingCancel(true);
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = setTimeout(() => setConfirmingCancel(false), 4000);
+      return;
+    }
+    if (confirmTimerRef.current) { clearTimeout(confirmTimerRef.current); confirmTimerRef.current = null; }
+    setConfirmingCancel(false);
     inFlightRef.current = true;
     setSubmitting(true);
     try {
@@ -6240,6 +6358,7 @@ function OpenPlaySessionModal({ session, myReg, profile, state, onClose, onChang
       if (r.ok) {
         setMode("cancelled");
       } else {
+        if (isSessionError(r.error)) { onClose && onClose(); handleSessionExpiry(setState, go, lang); return; }
         setError(r.error || "Failed to cancel");
       }
     } finally {
@@ -6262,7 +6381,7 @@ function OpenPlaySessionModal({ session, myReg, profile, state, onClose, onChang
 
   return (
     <div className="op-modal-overlay" onClick={onClose}>
-      <div className="op-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="op-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <button className="op-modal-x" onClick={onClose} aria-label="Close">×</button>
 
         {mode === "view" && (
@@ -6297,7 +6416,7 @@ function OpenPlaySessionModal({ session, myReg, profile, state, onClose, onChang
             {error && <div className="op-error">{error}</div>}
 
             <button className="op-submit ghost" onClick={submitCancel} disabled={submitting}>
-              {submitting ? "Cancelling…" : "Cancel my spot"}
+              {submitting ? "Cancelling…" : (confirmingCancel ? "Tap again to confirm" : "Cancel my spot")}
             </button>
             <button className="op-submit" onClick={onClose} style={{ marginTop: 8 }}>
               Keep my spot · Close
