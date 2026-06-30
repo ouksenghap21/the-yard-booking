@@ -4649,7 +4649,7 @@ var MUTATING_ACTIONS = new Set([
   "adminRenewMember",
   "adminSendReceiptSms",
   "adminMarkWalkInPlayerPaid","adminMarkCoachingSessionsPaid","adminPayCoach","adminRefundCoachingSession",
-  "adminUpdateOpenPlayPlayer","adminRemoveOpenPlayPlayer",
+  "adminUpdateOpenPlayPlayer","adminRemoveOpenPlayPlayer","adminAddOpenPlayPlayer","adminUpdateOpenPlaySession",
   "adminCreateSponsorship","adminUpdateSponsorship","adminCancelSponsorship"
 ]);
 function genRequestId(){
@@ -4772,7 +4772,7 @@ function _invalidateForMutation(action) {
     /^(adminCreateCoachingSession|adminCancelCoachingSession|adminUpdateCoachingSession|adminMarkCoachingSessionsPaid|adminPayCoach|adminRefundCoachingSession|adminCreateCoach|adminUpdateCoach|adminDeleteCoach)/.test(action)
   );
   const isOpenPlayMutation = (
-    /^(adminCreateOpenPlaySession|adminCancelOpenPlaySession|adminUpdateOpenPlaySession|registerForOpenPlay|cancelMyOpenPlayRegistration|adminUpdateOpenPlayPlayer|adminRemoveOpenPlayPlayer)/.test(action)
+    /^(adminCreateOpenPlaySession|adminCancelOpenPlaySession|adminUpdateOpenPlaySession|adminAddOpenPlayPlayer|registerForOpenPlay|cancelMyOpenPlayRegistration|adminUpdateOpenPlayPlayer|adminRemoveOpenPlayPlayer)/.test(action)
   );
   const isTournamentMutation = (
     /^(adminCreateTournament|adminCancelTournament|adminUpdateTournament|adminAddTournamentPlayer|adminRemoveTournamentPlayer|adminAddTournamentRevenue|adminAddTournamentExpense|registerForTournament|adminMarkTournamentPlayerPaid)/.test(action)
@@ -18490,6 +18490,13 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
   const [receiptItem, setReceiptItem] = useState(null);
   // Holds a fn(method)=>void while we ask the staff for the payment method.
   const [payAsk, setPayAsk] = useState(null);
+  // Staff "add player" form (for call / text sign-ups).
+  const [addForm, setAddForm] = useState({ name: "", phone: "", skill: "" });
+  const [adding, setAdding] = useState(false);
+  // Edit session (price / title / capacity).
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({ price: 0, title: "", playerCap: 0 });
+  const [savingEdit, setSavingEdit] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -18498,6 +18505,50 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
     setLoading(false);
   }
   useEffect(() => { load(); }, [sessionId]);
+
+  async function addPlayer() {
+    if (adding) return;
+    const name = (addForm.name || "").trim();
+    const phone = (addForm.phone || "").replace(/[^0-9]/g, "");
+    if (!name) return showToast("Name is required", "error");
+    if (phone.length < 8) return showToast("A valid phone number is required", "error");
+    setAdding(true);
+    const r = await api("adminAddOpenPlayPlayer", { sessionId: sessionId, name: name, phone: phone, skillSelf: addForm.skill || "" });
+    setAdding(false);
+    if (r.ok) {
+      showToast(r.alreadyRegistered ? name + " is already on the roster" : "Added " + name, "success");
+      setAddForm({ name: "", phone: "", skill: "" });
+      load();
+      onChanged && onChanged();
+    } else {
+      showToast(r.error || "Couldn't add player", "error");
+    }
+  }
+
+  function startEdit() {
+    const ss = data.session;
+    setEditForm({ price: ss.price || 0, title: ss.title || "", playerCap: ss.playerCap || 0 });
+    setEditing(true);
+  }
+  async function saveEdit() {
+    if (savingEdit) return;
+    setSavingEdit(true);
+    const r = await api("adminUpdateOpenPlaySession", {
+      sessionId: sessionId,
+      price: editForm.price,
+      title: (editForm.title || "").trim(),
+      playerCap: editForm.playerCap
+    });
+    setSavingEdit(false);
+    if (r.ok) {
+      showToast("Session updated", "success");
+      setEditing(false);
+      load();
+      onChanged && onChanged();
+    } else {
+      showToast(r.error || "Couldn't update session", "error");
+    }
+  }
 
   async function toggleCheckedIn(p) {
     const next = !p.checkedIn;
@@ -18590,9 +18641,44 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
             <div className="kicker">{s.id} · Open Play</div>
             <h2>{s.title || "Open Play session"}</h2>
           </div>
-          <button className="x" onClick={onClose} aria-label="Close">×</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {!isCancelled && (
+              <button className="btn-sm" onClick={() => editing ? setEditing(false) : startEdit()}>
+                {editing ? "Close edit" : "✎ Edit"}
+              </button>
+            )}
+            <button className="x" onClick={onClose} aria-label="Close">×</button>
+          </div>
         </div>
         <div style={{ padding: 20 }}>
+      {editing && (
+        <div style={{ marginBottom: 18, padding: 14, border: "1px solid var(--clay)", borderRadius: 8, background: "rgba(198,79,58,0.04)" }}>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 700, marginBottom: 10 }}>Edit session</div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <div style={{ flex: "0 1 130px" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.6, marginBottom: 4 }}>Price / player</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <span style={{ opacity: 0.6 }}>$</span>
+                <input type="number" min="0" max="200" step="0.5" value={editForm.price} onChange={(e) => setEditForm({ ...editForm, price: parseFloat(e.target.value) || 0 })} style={{ width: "100%" }} />
+              </div>
+              <div style={{ fontSize: 9, opacity: 0.6, marginTop: 3 }}>0 = free</div>
+            </div>
+            <div style={{ flex: "1 1 180px" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.6, marginBottom: 4 }}>Title</div>
+              <input type="text" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} style={{ width: "100%" }} />
+            </div>
+            <div style={{ flex: "0 1 110px" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.6, marginBottom: 4 }}>Capacity</div>
+              <input type="number" min="0" max="64" value={editForm.playerCap} onChange={(e) => setEditForm({ ...editForm, playerCap: parseInt(e.target.value) || 0 })} style={{ width: "100%" }} />
+            </div>
+            <button className="btn-sm primary" onClick={saveEdit} disabled={savingEdit}>{savingEdit ? "Saving…" : "Save"}</button>
+            <button className="btn-sm" onClick={() => setEditing(false)} disabled={savingEdit}>Cancel</button>
+          </div>
+          <div style={{ fontSize: 10, opacity: 0.6, marginTop: 8, fontFamily: "var(--mono)" }}>
+            Date, time &amp; courts can't be changed here (they hold reserved slots) — cancel &amp; recreate to move those. A price change is blocked once players have paid.
+          </div>
+        </div>
+      )}
       {/* Session info card */}
       <div style={{
         padding: 14,
@@ -18668,6 +18754,34 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
             ✓ Check in when player arrives · Mark paid when $ collected at counter
           </div>
         </div>
+
+        {/* Staff add-player — for guests who call or text to join */}
+        {!isCancelled && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 12, padding: 12, border: "1px dashed var(--concrete)", borderRadius: 8 }}>
+            <div style={{ flex: "1 1 150px" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.6, marginBottom: 4 }}>Name *</div>
+              <input type="text" value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} placeholder="Player name" style={{ width: "100%" }}
+                onKeyDown={(e) => { if (e.key === "Enter") addPlayer(); }} />
+            </div>
+            <div style={{ flex: "1 1 120px" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.6, marginBottom: 4 }}>Phone *</div>
+              <input type="tel" inputMode="numeric" value={addForm.phone} onChange={(e) => setAddForm({ ...addForm, phone: e.target.value.replace(/[^0-9]/g, "") })} placeholder="Phone number" style={{ width: "100%" }}
+                onKeyDown={(e) => { if (e.key === "Enter") addPlayer(); }} />
+            </div>
+            <div style={{ flex: "0 1 130px" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.6, marginBottom: 4 }}>Skill (optional)</div>
+              <select value={addForm.skill} onChange={(e) => setAddForm({ ...addForm, skill: e.target.value })} style={{ width: "100%" }}>
+                <option value="">—</option>
+                <option value="Beginner">Beginner</option>
+                <option value="Intermediate">Intermediate</option>
+                <option value="Advanced">Advanced</option>
+                <option value="Pro">Pro</option>
+              </select>
+            </div>
+            <button className="btn-sm primary" onClick={addPlayer} disabled={adding}>{adding ? "Adding…" : "+ Add player"}</button>
+          </div>
+        )}
+
         {activePlayers.length === 0 ? (
           <div style={{ padding: 30, textAlign: "center", opacity: 0.5, fontStyle: "italic" }}>
             No players have signed up yet
@@ -18688,6 +18802,15 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
                   <div style={{ fontWeight: 600 }}>{p.name}</div>
                   <div style={{ fontSize: 11, opacity: 0.6, fontFamily: "var(--mono)", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                     <span>{p.phone}</span>
+                    {p.memberTier && (
+                      <span style={{
+                        background: String(p.memberTier).toLowerCase() === "founding" ? "rgba(198,79,58,0.14)" : "rgba(61,122,79,0.14)",
+                        color: String(p.memberTier).toLowerCase() === "founding" ? "var(--clay)" : "var(--green)",
+                        padding: "1px 6px", borderRadius: 3, fontSize: 9, letterSpacing: "0.06em", fontWeight: 700
+                      }}>
+                        ★ {String(p.memberTier).toUpperCase()} MEMBER
+                      </span>
+                    )}
                     {p.skillSelf && (
                       <span style={{
                         background: "rgba(91,107,168,0.12)",
