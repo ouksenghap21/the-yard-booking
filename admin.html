@@ -4647,7 +4647,10 @@ var MUTATING_ACTIONS = new Set([
   "posCreateSale","adminSettleCombined","tabOpen","tabClose","tabAddItem","tabRemoveItem",
   "tabCancel","tabAttachBooking","tabAttachWalkInPlayer","tabDetachBooking","tabDetachWalkInPlayer",
   "adminRenewMember",
-  "adminSendReceiptSms"
+  "adminSendReceiptSms",
+  "adminMarkWalkInPlayerPaid","adminMarkCoachingSessionsPaid","adminPayCoach","adminRefundCoachingSession",
+  "adminUpdateOpenPlayPlayer","adminRemoveOpenPlayPlayer",
+  "adminCreateSponsorship","adminUpdateSponsorship","adminCancelSponsorship"
 ]);
 function genRequestId(){
   try { if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID(); } catch(e){}
@@ -4811,6 +4814,13 @@ function _invalidateForMutation(action) {
     wipe("adminListTimelineEntries");
     wipe("adminFinancesMonth");
     wipe("adminFinancesRange");
+  }
+  // Changing a KPI goal changes the dashboard KPI card — wipe its cache so the
+  // new target shows immediately (the backend cache is also invalidated).
+  if (action === "adminSetGoals") {
+    wipe("adminDashboard");
+    wipe("adminDashboardKpi");
+    wipe("adminOperationalKpi");
   }
 
   // Per-category cache wipes
@@ -6617,7 +6627,7 @@ function ScreenDashboard() {
       {/* Today's takings by method — Cash vs ABA reconciliation. */}
       {payBreakdown && payBreakdown.byMethod && (
         <div className="stat-card" style={{ marginBottom: 18, padding: "16px 20px" }}>
-          <div className="label">Today's takings by method · net of refunds & coach payouts</div>
+          <div className="label">Today's takings by method · net of refunds & cash coach payouts</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 18, alignItems: "baseline", marginTop: 8 }}>
             {Object.entries(payBreakdown.byMethod).map(([method, amt]) => (
               <div key={method} style={{ fontFamily: "var(--mono)", fontSize: 14 }}>
@@ -11366,11 +11376,22 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
         <div className="field-row">
           <div className="field">
             <div className="field-label">Payment status</div>
-            <select value={form.paymentStatus} onChange={(e) => setForm({ ...form, paymentStatus: e.target.value })}>
-              <option value="Pending">Pending</option>
-              <option value="Paid">Paid</option>
-              <option value="Waived">Waived</option>
-            </select>
+            {!isNew && String(session.paymentStatus).toLowerCase() === "paid" ? (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 700, color: "var(--green)", padding: "8px 0" }}>
+                Paid · collected
+                <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.6, marginTop: 3 }}>To undo, cancel &amp; refund the session.</div>
+              </div>
+            ) : (
+              <>
+                <select value={form.paymentStatus === "Paid" ? "Pending" : form.paymentStatus} onChange={(e) => setForm({ ...form, paymentStatus: e.target.value })}>
+                  <option value="Pending">Pending</option>
+                  <option value="Waived">Waived (free)</option>
+                </select>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, marginTop: 4, lineHeight: 1.4 }}>
+                  To take payment, use the <strong>Collect</strong> tab — that records it to your Cash/ABA reconciliation.
+                </div>
+              </>
+            )}
           </div>
           <div className="field">
             <div className="field-label">Payment method</div>
@@ -11698,7 +11719,9 @@ function PayCoachesView({ data, coaches, loading, reload }) {
       const r = await api("adminListCoachingSessions", { coachId: coachId, paymentStatus: "paid" });
       setLoadingSessions(false);
       if (r.ok) {
-        const payable = (r.sessions || []).filter(s => !s.coachPaidOut);
+        // Exclude flat-rent (pure court rentals) — they never owe the coach a
+        // payout, so they must not appear in the payout list or the batch.
+        const payable = (r.sessions || []).filter(s => !s.coachPaidOut && s.dealTypeUsed !== "flat_rent");
         setCoachSessions(prev => ({ ...prev, [coachId]: payable }));
       }
     }
@@ -12154,7 +12177,7 @@ function ScreenPOS() {
     setLookingUpTier(true);
     api("adminGetMemberByPhone", { phone: customerPhone }).then(r => {
       if (cancelled) return;
-      if (r.ok && r.member && r.member.status === "active" && !r.member.isExpired) {
+      if (r.ok && r.member && String(r.member.status).toLowerCase() === "active" && !r.member.isExpired) {
         setMemberTier(r.member.tier || "");
       } else {
         setMemberTier("");
@@ -12222,7 +12245,7 @@ function ScreenPOS() {
         attachedBookings: JSON.stringify(attachedBookings),
         attachedWalkInPlayers: JSON.stringify(attachedPlayers),
         discountPct: discountPct > 0 ? discountPct : 0,
-        discountAmount: discountPct > 0 ? 0 : computedDiscountAmount,
+        discountAmount: discountPct > 0 ? 0 : (parseFloat(discountAmount) || 0),  // staff portion only — backend re-derives the member discount itself (don't double it)
         paymentMethod: paymentMethod,
         cashReceived: parseFloat(cashReceived) || 0,
         customerPhone: customerPhone,
@@ -12234,7 +12257,7 @@ function ScreenPOS() {
       r = await api("posCreateSale", {
         items: JSON.stringify(cart.map(x => ({ sku: x.sku, quantity: x.quantity }))),
         discountPct: discountPct > 0 ? discountPct : 0,
-        discountAmount: discountPct > 0 ? 0 : computedDiscountAmount,
+        discountAmount: discountPct > 0 ? 0 : (parseFloat(discountAmount) || 0),  // staff portion only — backend re-derives the member discount itself (don't double it)
         paymentMethod: paymentMethod,
         cashReceived: parseFloat(cashReceived) || 0,
         customerPhone: customerPhone,
@@ -13463,7 +13486,7 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
   useEffect(() => {
     if (!customerPhone) return;
     api("adminGetMemberByPhone", { phone: customerPhone }).then(r => {
-      if (r.ok && r.member && r.member.status === "active" && !r.member.isExpired) {
+      if (r.ok && r.member && String(r.member.status).toLowerCase() === "active" && !r.member.isExpired) {
         setMemberTier(r.member.tier || "");
       }
     });
@@ -14609,7 +14632,15 @@ function ReceiptModal({ r, onClose }) {
   if (!r) return null;
   function m(n) { return "$" + (Math.round((n || 0) * 100) / 100).toFixed(2); }
   // Receipt reflects the method the staff picks (Cash / ABA / Wing / Card).
-  const rr = Object.assign({}, r, { paymentMethod: method, cashReceived: r.total, changeGiven: 0 });
+  // Preserve the recorded tender + change when reprinting a past sale; only
+  // synthesize them when the sale row didn't capture them.
+  const _hasCash = r.cashReceived !== undefined && r.cashReceived !== null && r.cashReceived !== "";
+  const _hasChange = r.changeGiven !== undefined && r.changeGiven !== null && r.changeGiven !== "";
+  const rr = Object.assign({}, r, {
+    paymentMethod: method,
+    cashReceived: _hasCash ? r.cashReceived : r.total,
+    changeGiven: _hasChange ? r.changeGiven : 0
+  });
   return (
     <div className="modal-overlay" style={{ zIndex: 400 }} onClick={onClose}>
       <div className="modal" style={{ maxWidth: 360 }} onClick={(e) => e.stopPropagation()}>
@@ -15375,6 +15406,7 @@ function generateAccountingPdf(report) {
     ["Walk-in (open play)", fmtUsd(inc2.walkinRev)],
     ["Coaching (facility share)", fmtUsd(inc2.coachingRev)],
     ["POS sales", fmtUsd(inc2.posRev)],
+    ["Open play", fmtUsd(inc2.openPlayRev || 0)],
     ["Sponsorships", fmtUsd(inc2.sponsorshipRev)],
     ["Memberships sold", fmtUsd(inc2.membershipFeesThisMonth)]
   ];
@@ -15455,6 +15487,7 @@ function generateAccountingPdf(report) {
   _ilLine("Walk-in (open play)", fmtUsd(inc.walkinRev), { indent: 10 });
   _ilLine("Coaching (facility share only)", fmtUsd(inc.coachingRev), { indent: 10 });
   _ilLine("POS / Retail", fmtUsd(inc.posRev), { indent: 10 });
+  _ilLine("Open play", fmtUsd(inc.openPlayRev || 0), { indent: 10 });
   _ilDivider({ indent: 10 });
   _ilLine("Subtotal — operational", fmtUsd(inc.grossOperationalRevenue), { bold: true });
   _ilSpacer(8);
@@ -16604,7 +16637,7 @@ function FinancesRangeView({ data, granularity, opOnly }) {
   const hasTournament = ((h.tournamentRev || 0) > 0) || ((h.tournamentExp || 0) > 0);
   const operationalRev = h.operationalRev !== undefined
     ? h.operationalRev
-    : (h.courtRev + h.walkinRev + h.coachingRev + h.posRev);
+    : (h.courtRev + h.walkinRev + h.coachingRev + h.posRev + (h.openPlayRev || 0));
   const displayedTotal = opOnly ? operationalRev : (h.totalRevenue || 0);
   const pct = (n) => displayedTotal > 0 ? Math.round((n / displayedTotal) * 100) : 0;
   const series = data.series || [];
@@ -16735,6 +16768,7 @@ function FinancesRangeView({ data, granularity, opOnly }) {
         {" + "}{fmtMoney(h.walkinRev)} <span style={{ opacity: 0.5 }}>walk-in</span>
         {" + "}{fmtMoney(h.coachingRev)} <span style={{ opacity: 0.5 }}>coaching</span>
         {" + "}{fmtMoney(h.posRev)} <span style={{ opacity: 0.5 }}>POS</span>
+        {(h.openPlayRev || 0) > 0 && <>{" + "}{fmtMoney(h.openPlayRev)} <span style={{ opacity: 0.5 }}>open play</span></>}
         {!opOnly && (
           <>
             {" + "}{fmtMoney(h.sponsorshipRev || 0)} <span style={{ opacity: 0.5 }}>sponsorship</span>
@@ -16819,7 +16853,7 @@ function FinancesView({ data, onChanged, opOnly }) {
   // when backend hasn't been redeployed yet.
   const operationalRev = h.operationalRev !== undefined
     ? h.operationalRev
-    : (h.courtRev + h.walkinRev + h.coachingRev + h.posRev);
+    : (h.courtRev + h.walkinRev + h.coachingRev + h.posRev + (h.openPlayRev || 0));
   const displayedTotal = opOnly ? operationalRev : (h.totalRevenue || 0);
   const pct = (n) => displayedTotal > 0 ? Math.round((n / displayedTotal) * 100) : 0;
   // Choose grid columns dynamically (hero + 4 ops + optional sponsor/member/tournament)
@@ -16943,6 +16977,7 @@ function FinancesView({ data, onChanged, opOnly }) {
         {" + "}{fmtMoney(h.walkinRev)} <span style={{ opacity: 0.5 }}>walk-in</span>
         {" + "}{fmtMoney(h.coachingRev)} <span style={{ opacity: 0.5 }}>coaching</span>
         {" + "}{fmtMoney(h.posRev)} <span style={{ opacity: 0.5 }}>POS</span>
+        {(h.openPlayRev || 0) > 0 && <>{" + "}{fmtMoney(h.openPlayRev)} <span style={{ opacity: 0.5 }}>open play</span></>}
         {!opOnly && (
           <>
             {" + "}{fmtMoney(h.sponsorshipRev || 0)} <span style={{ opacity: 0.5 }}>sponsorship</span>
