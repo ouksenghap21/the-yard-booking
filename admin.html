@@ -21059,6 +21059,23 @@ function ScreenSettings() {
   const [savingSponsor, setSavingSponsor] = useState(false);
   const [landingCfg, setLandingCfg] = useState({ enabled: false, openingDate: "", headline: "", subtext: "" });
   const [savingLanding, setSavingLanding] = useState(false);
+  // System self-check (money reconciliation audit)
+  const [audit, setAudit] = useState(null);
+  const [auditing, setAuditing] = useState(false);
+  async function runSelfCheck() {
+    if (auditing) return;
+    setAuditing(true);
+    setAudit(null);
+    try {
+      const r = await api("adminFinancialAudit", {}, { bypassCache: true });
+      if (r && r.ok) setAudit(r);
+      else showToast((r && r.error) || "Self-check failed to run", "error");
+    } catch (e) {
+      showToast("Self-check error: " + e.message, "error");
+    } finally {
+      setAuditing(false);
+    }
+  }
 
   // Pricing & Hours — array of rules. Each rule:
   // { name, days: [...], hourStart, hourEnd, rate, notes }
@@ -21411,6 +21428,40 @@ function ScreenSettings() {
               The first matching rule (top of list) wins for overlapping times.
               Reorder rows with ▲/▼ if needed.
             </div>
+          </div>
+        )}
+      </div>
+
+      <div className="settings-card">
+        <h3>System Self-Check</h3>
+        <div className="desc">
+          Runs the built-in money audit: it recomputes revenue from the source sheets and
+          confirms the dashboard, finances, and cash/ABA reconciliation all agree. Use it any
+          time the numbers look off — if anything has drifted, it tells you exactly which line.
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <button className="btn primary" onClick={runSelfCheck} disabled={auditing}>
+            {auditing ? "Checking…" : "Run money self-check"}
+          </button>
+        </div>
+        {audit && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{
+              fontFamily: "var(--mono)", fontWeight: 700, fontSize: 13, padding: "8px 12px", borderRadius: 6,
+              background: audit.pass ? "rgba(61,122,79,0.12)" : "rgba(198,79,58,0.12)",
+              color: audit.pass ? "var(--green)" : "var(--clay)"
+            }}>
+              {audit.pass ? "✓ All checks passed — the books reconcile." : "✗ " + audit.failCount + " discrepancy(ies) found — see flagged lines below."}
+              {audit.warnCount > 0 ? "  ·  " + audit.warnCount + " warning(s)" : ""}
+            </div>
+            <pre style={{
+              marginTop: 10, maxHeight: 320, overflow: "auto", fontFamily: "var(--mono)", fontSize: 11,
+              lineHeight: 1.5, whiteSpace: "pre-wrap", background: "rgba(0,0,0,0.03)", padding: "10px 12px", borderRadius: 6
+            }}>
+              {audit.lines.map((ln, i) => (
+                <div key={i} style={{ color: ln.indexOf("✗") >= 0 ? "var(--clay)" : ln.indexOf("⚠") >= 0 ? "var(--wood)" : "inherit" }}>{ln || " "}</div>
+              ))}
+            </pre>
           </div>
         )}
       </div>
