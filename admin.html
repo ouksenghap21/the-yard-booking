@@ -4766,7 +4766,7 @@ function _invalidateForMutation(action) {
     /^(adminCreateWalkInBlock|adminCloseWalkInBlock|adminAddWalkInPlayer|adminRemoveWalkInPlayer|adminMarkWalkInPlayerPaid|adminUpdateWalkInBlock)/.test(action)
   );
   const isCoachingMutation = (
-    /^(adminCreateCoachingSession|adminCancelCoachingSession|adminUpdateCoachingSession|adminMarkCoachingSessionsPaid|adminCreateCoach|adminUpdateCoach|adminDeleteCoach)/.test(action)
+    /^(adminCreateCoachingSession|adminCancelCoachingSession|adminUpdateCoachingSession|adminMarkCoachingSessionsPaid|adminPayCoach|adminRefundCoachingSession|adminCreateCoach|adminUpdateCoach|adminDeleteCoach)/.test(action)
   );
   const isOpenPlayMutation = (
     /^(adminCreateOpenPlaySession|adminCancelOpenPlaySession|adminUpdateOpenPlaySession|registerForOpenPlay|cancelMyOpenPlayRegistration|adminUpdateOpenPlayPlayer|adminRemoveOpenPlayPlayer)/.test(action)
@@ -4833,6 +4833,7 @@ function _invalidateForMutation(action) {
     wipe("adminListCoaches");
     wipe("adminListCoachingSessions");
     wipe("adminListCoachPayments");
+    wipe("adminListCoachPayouts");
   }
   if (isOpenPlayMutation) {
     wipe("adminListOpenPlaySessions");
@@ -6616,7 +6617,7 @@ function ScreenDashboard() {
       {/* Today's takings by method — Cash vs ABA reconciliation. */}
       {payBreakdown && payBreakdown.byMethod && (
         <div className="stat-card" style={{ marginBottom: 18, padding: "16px 20px" }}>
-          <div className="label">Today's takings by method</div>
+          <div className="label">Today's takings by method · net of refunds & coach payouts</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 18, alignItems: "baseline", marginTop: 8 }}>
             {Object.entries(payBreakdown.byMethod).map(([method, amt]) => (
               <div key={method} style={{ fontFamily: "var(--mono)", fontSize: 14 }}>
@@ -7113,7 +7114,7 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
       } else if (o.entryType === "walkin") {
         r = await api("adminMarkWalkInPlayerPaid", { playerId: o.id, paymentMethod: mth });
       } else if (o.entryType === "coaching") {
-        r = await api("adminMarkCoachingSessionsPaid", { sessionIds: [o.id] });
+        r = await api("adminMarkCoachingSessionsPaid", { sessionIds: [o.id], paymentMethod: mth });
       } else {
         r = { ok: false, error: "Unknown entry type: " + o.entryType };
       }
@@ -10458,9 +10459,9 @@ function ScreenCoaching() {
     if (tab === "sessions") loadSessions();
   }, [tab, sessDateFrom, sessDateTo, sessCoachFilter, sessPaymentFilter]);
 
-  // Fetch payments when tab is opened for first time
+  // Fetch payments when the Collect or Pay Coaches tab is opened for first time
   useEffect(() => {
-    if (tab === "payments" && payments === null) loadPayments();
+    if ((tab === "payments" || tab === "payouts") && payments === null) loadPayments();
   }, [tab]);
 
   // LIVE UPDATE: refetch on any mutation event. Uses a ref to always call
@@ -10471,7 +10472,7 @@ function ScreenCoaching() {
   _liveRefreshRef.current = () => {
     loadCoaches();
     if (tab === "sessions") loadSessions();
-    if (tab === "payments") loadPayments();
+    if (tab === "payments" || tab === "payouts") loadPayments();
   };
   useEffect(() => {
     function onDataChanged() {
@@ -10496,7 +10497,8 @@ function ScreenCoaching() {
       <div className="coaching-tabs">
         <button className={tab === "sessions" ? "on" : ""} onClick={() => setTab("sessions")}>Sessions</button>
         <button className={tab === "coaches" ? "on" : ""} onClick={() => setTab("coaches")}>Coaches</button>
-        <button className={tab === "payments" ? "on" : ""} onClick={() => setTab("payments")}>Payments Due</button>
+        <button className={tab === "payments" ? "on" : ""} onClick={() => setTab("payments")}>Collect</button>
+        <button className={tab === "payouts" ? "on" : ""} onClick={() => setTab("payouts")}>Pay Coaches</button>
       </div>
 
       {tab === "sessions" && (
@@ -10517,6 +10519,14 @@ function ScreenCoaching() {
       {tab === "payments" && (
         <PaymentsDueView
           data={payments}
+          loading={paymentsLoading && payments === null}
+          reload={loadPayments}
+        />
+      )}
+      {tab === "payouts" && (
+        <PayCoachesView
+          data={payments}
+          coaches={coaches}
           loading={paymentsLoading && payments === null}
           reload={loadPayments}
         />
@@ -10679,11 +10689,14 @@ function CoachModal({ coach, onClose, onSaved }) {
         <div className="field" style={{ marginTop: 18 }}>
           <div className="field-label" style={{ marginBottom: 10 }}>Deal Type · Default</div>
           <select value={form.dealType} onChange={(e) => setForm({ ...form, dealType: e.target.value })}>
-            <option value="flat_rent">Flat court rent — coach pays $X/hr</option>
-            <option value="rev_share">Revenue share — facility takes % of lesson fee</option>
-            <option value="hybrid">Hybrid — court rent + revenue share</option>
+            <option value="flat_rent">Court rental — coach pays you to use the court</option>
+            <option value="rev_share">Revenue split — you collect the fee & keep a %</option>
             <option value="custom">Custom — set per session</option>
           </select>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.04em", opacity: 0.6, marginTop: 6, lineHeight: 1.5 }}>
+            <strong>Court rental:</strong> the coach books the court for a flat fee; their lessons are their own business.<br/>
+            <strong>Revenue split:</strong> you take the student's payment and keep your %, the coach gets the rest.
+          </div>
         </div>
 
         {(form.dealType === "flat_rent" || form.dealType === "hybrid") && (
@@ -10856,8 +10869,14 @@ function SessionsView({ coaches, sessions, loading, dateFrom, setDateFrom, dateT
             </div>
             <div className="amounts">
               <div className="facility">${s.facilityEarns.toFixed(2)}</div>
-              <div className="coach-take">Coach: ${s.coachTakes.toFixed(2)}</div>
-              <div className="lesson">Lesson: ${s.lessonFee.toFixed(2)}</div>
+              {s.dealTypeUsed === "flat_rent" ? (
+                <div className="coach-take">Court rental</div>
+              ) : (
+                <>
+                  <div className="coach-take">Coach: ${s.coachTakes.toFixed(2)}</div>
+                  <div className="lesson">Lesson: ${s.lessonFee.toFixed(2)}</div>
+                </>
+              )}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <button className="btn-sm" onClick={(e) => { e.stopPropagation(); duplicate(s); }} title="Duplicate to next week">↻ +1wk</button>
@@ -10913,6 +10932,7 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
     studentPhone: session ? session.studentPhone : "",
     groupSize: session ? session.groupSize : 1,
     lessonFee: session ? session.lessonFee : 0,
+    discountPct: 0,
     manualOverride: session ? session.manualOverride : false,
     facilityEarnsOverride: session ? session.facilityEarns : 0,
     coachTakesOverride: session ? session.coachTakes : 0,
@@ -10925,18 +10945,28 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
 
   const selectedCoach = coaches.find(c => c.coachId === form.coachId);
 
+  // Discount: form.lessonFee is the GROSS fee (coach's standard charge); a
+  // discount % reduces it to the NET fee the student actually pays. The net
+  // fee drives the whole split, so all downstream math/revenue uses net.
+  const grossFee = parseFloat(form.lessonFee) || 0;
+  const discountPct = Math.max(0, Math.min(100, parseFloat(form.discountPct) || 0));
+  const netFee = Math.round(grossFee * (1 - discountPct / 100) * 100) / 100;
+  const discountAmt = Math.round((grossFee - netFee) * 100) / 100;
+
   // Compute facility earns + coach takes from coach's deal terms
   const auto = useMemo(() => {
     if (!selectedCoach) return { facilityEarns: 0, coachTakes: 0, formula: "" };
-    const fee = parseFloat(form.lessonFee) || 0;
+    const fee = netFee;
     const rate = parseFloat(selectedCoach.courtRate) || 0;
     const pct = parseFloat(selectedCoach.revSharePct) || 0;
     const hrs = parseFloat(form.durationHours) || 0;
     let facility = 0;
     let formula = "";
     if (selectedCoach.dealType === "flat_rent") {
-      facility = rate * hrs;
-      formula = `$${rate}/hr × ${hrs}h = $${facility.toFixed(2)}`;
+      // Pure court rental: the "fee" entered IS the rental we charge the coach,
+      // and we keep all of it. The coach's student fee is off our books.
+      facility = fee;
+      formula = `Court rental — you keep all $${fee.toFixed(2)}`;
     } else if (selectedCoach.dealType === "rev_share") {
       facility = fee * (pct / 100);
       formula = `$${fee.toFixed(2)} × ${pct}% = $${facility.toFixed(2)}`;
@@ -10952,10 +10982,22 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
     facility = Math.round(facility * 100) / 100;
     const coachTakes = Math.round((fee - facility) * 100) / 100;
     return { facilityEarns: facility, coachTakes: coachTakes, formula: formula };
-  }, [selectedCoach, form.lessonFee, form.durationHours]);
+  }, [selectedCoach, netFee, form.durationHours]);
 
   const facilityEarns = form.manualOverride ? parseFloat(form.facilityEarnsOverride) || 0 : auto.facilityEarns;
   const coachTakes = form.manualOverride ? parseFloat(form.coachTakesOverride) || 0 : auto.coachTakes;
+
+  const isFlatRent = selectedCoach && selectedCoach.dealType === "flat_rent";
+
+  // For a flat-rent coach, default the court-rental fee to their rate × hours
+  // (editable for negotiation). Runs when the coach or duration changes on a
+  // new session; the staff can still type a negotiated amount afterwards.
+  useEffect(() => {
+    if (isNew && isFlatRent) {
+      const rent = Math.round((parseFloat(selectedCoach.courtRate) || 0) * (parseFloat(form.durationHours) || 0) * 100) / 100;
+      setForm(f => ({ ...f, lessonFee: rent }));
+    }
+  }, [form.coachId, form.durationHours, isFlatRent]);
 
   function toggleCourt(c) {
     setForm(f => {
@@ -10972,6 +11014,13 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
     if (!form.courts.length) return showToast("Pick at least one court", "error");
     if (!form.durationHours || form.durationHours <= 0) return showToast("Duration required", "error");
 
+    // Build notes: prepend a discount tag (strip any prior one to avoid
+    // duplicates on re-save). The stored lessonFee is the NET fee.
+    const baseNotes = String(form.notes || "").replace(/^\[Discount [^\]]*\]\s*/, "");
+    const notesOut = discountPct > 0
+      ? `[Discount ${discountPct}% · $${grossFee.toFixed(2)} → $${netFee.toFixed(2)}]` + (baseNotes ? " " + baseNotes : "")
+      : String(form.notes || "");  // no discount set → leave notes untouched (preserve any history)
+
     setSubmitting(true);
     if (isNew) {
       const r = await api("adminCreateCoachingSession", {
@@ -10984,13 +11033,13 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
         studentName: form.studentName,
         studentPhone: form.studentPhone,
         groupSize: form.groupSize,
-        lessonFee: form.lessonFee,
+        lessonFee: netFee,
         manualOverride: form.manualOverride ? "true" : "false",
         facilityEarns: facilityEarns,
         coachTakes: coachTakes,
         paymentStatus: form.paymentStatus,
         paymentMethod: form.paymentMethod,
-        notes: form.notes
+        notes: notesOut
       });
       setSubmitting(false);
       if (r.ok) {
@@ -11008,14 +11057,14 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
         studentName: form.studentName,
         studentPhone: form.studentPhone,
         groupSize: form.groupSize,
-        lessonFee: form.lessonFee,
+        lessonFee: netFee,
         manualOverride: form.manualOverride ? "true" : "false",
         facilityEarns: facilityEarns,
         coachTakes: coachTakes,
         paymentStatus: form.paymentStatus,
         paymentMethod: form.paymentMethod,
         paymentDate: form.paymentDate,
-        notes: form.notes
+        notes: notesOut
       });
       setSubmitting(false);
       if (r.ok) {
@@ -11039,13 +11088,47 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
     if (!ok) return;
     setSubmitting(true);
     const r = await api("adminCancelCoachingSession", { sessionId: session.sessionId });
-    setSubmitting(false);
-    if (r.ok) {
-      showToast("Cancelled", "success");
-      onSaved && onSaved();
-    } else {
+    if (!r.ok) {
+      setSubmitting(false);
       showToast(r.error || "Failed", "error");
+      return;
     }
+
+    // If the student had already paid, offer to refund right now — otherwise a
+    // cancelled session leaves the collected money sitting in the reconciliation.
+    const wasPaid = String(session.paymentStatus || "").toLowerCase() === "paid";
+    if (wasPaid) {
+      const fee = parseFloat(session.lessonFee) || 0;
+      const reclaim = session.coachPaidOut ? (parseFloat(session.coachTakes) || 0) : 0;
+      const doRefund = await confirmAction({
+        title: "Refund the student $" + fee.toFixed(2) + "?",
+        message: "This session was already collected" + (session.paymentMethod ? " (" + session.paymentMethod + ")" : "") + "."
+          + (reclaim > 0 ? " You'll also reclaim $" + reclaim.toFixed(2) + " already paid to the coach." : ""),
+        consequence: "Reverses the payment in your Cash/ABA reconciliation so your books stay correct. Choose Skip if you're keeping the money.",
+        confirmLabel: "Yes, refund $" + fee.toFixed(2),
+        cancelLabel: "Skip refund"
+      });
+      if (doRefund) {
+        const rf = await api("adminRefundCoachingSession", { sessionId: session.sessionId });
+        setSubmitting(false);
+        if (rf.ok) {
+          showToast("Cancelled & refunded $" + (rf.studentRefunded || 0).toFixed(2)
+            + (rf.coachReclaimed > 0 ? " · reclaimed $" + rf.coachReclaimed.toFixed(2) + " from coach" : ""), "success");
+        } else {
+          showToast("Cancelled, but refund failed: " + (rf.error || "try again from the session"), "error");
+        }
+        onSaved && onSaved();
+        return;
+      }
+      showToast("Cancelled — money kept (no refund)", "success");
+      setSubmitting(false);
+      onSaved && onSaved();
+      return;
+    }
+
+    setSubmitting(false);
+    showToast("Cancelled", "success");
+    onSaved && onSaved();
   }
 
   const timeOptions = useMemo(() => {
@@ -11169,68 +11252,114 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
           </div>
         )}
 
-        <div className="field">
-          <div className="field-label">Lesson fee · TOTAL for this session · $</div>
-          <input
-            type="number"
-            min="0"
-            step="0.5"
-            value={form.lessonFee}
-            onChange={(e) => setForm({ ...form, lessonFee: parseFloat(e.target.value) || 0 })}
-            placeholder="Total amount coach charged the student(s)"
-          />
-          <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.05em", opacity: 0.65, marginTop: 6, lineHeight: 1.5 }}>
-            Enter the <strong>total fee</strong> the student actually pays (after any discount). The split below auto-calculates from the coach's deal. <br/>
-            <span style={{ color: "var(--clay)" }}>Giving a discount?</span> Just enter the discounted amount here — e.g. coach normally charges $30 but you offered $25, enter <strong>25</strong>. Both the facility and the coach absorb the discount proportionally. To make the facility absorb the full discount (coach gets normal earnings), enable the override below.
+        <div className="field-row">
+          <div className="field">
+            <div className="field-label">{isFlatRent ? "Court rental fee · $" : "Lesson fee · standard · $"}</div>
+            <input
+              type="number"
+              min="0"
+              step="0.5"
+              value={form.lessonFee}
+              onChange={(e) => setForm({ ...form, lessonFee: parseFloat(e.target.value) || 0 })}
+              placeholder={isFlatRent ? "What the coach pays you for the court" : "Coach's standard total fee"}
+            />
           </div>
+          <div className="field">
+            <div className="field-label">Discount · %</div>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              value={form.discountPct}
+              onChange={(e) => setForm({ ...form, discountPct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
+              placeholder="0"
+            />
+          </div>
+        </div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.05em", opacity: 0.65, marginTop: 6, marginBottom: 4, lineHeight: 1.5 }}>
+          {isFlatRent ? (
+            <>
+              This is a <strong>court rental</strong> — what the coach pays you to book the court. Defaults to their rate × hours; edit to negotiate. A <strong>discount %</strong> lowers the rental. The coach keeps whatever they charge their student — that's between them and the student, not on your books.
+            </>
+          ) : (
+            <>
+              Enter the coach's <strong>standard fee</strong>, then a <strong>discount %</strong> if you're offering one. The net fee (what the student pays) drives the split below.<br/>
+              <span style={{ color: "var(--clay)" }}>Who absorbs the discount?</span> Rev-share coaches → shared proportionally. Hybrid → your court-rent portion is protected, the rest is shared. To make the <strong>facility</strong> absorb the discount instead (coach keeps normal earnings), enable the override below.
+            </>
+          )}
         </div>
 
         {/* Math preview */}
         <div className="math-preview">
-          <div className="row">
-            <span className="k">Lesson fee</span>
-            <span className="v">${(parseFloat(form.lessonFee) || 0).toFixed(2)}</span>
-          </div>
-          <div className="row total facility">
-            <span className="k">Facility earns</span>
-            <span className="v">${facilityEarns.toFixed(2)}</span>
-          </div>
-          <div className="row total coach">
-            <span className="k">Coach takes</span>
-            <span className="v">${coachTakes.toFixed(2)}</span>
-          </div>
-          {auto.formula && !form.manualOverride && (
-            <div className="formula">{auto.formula}</div>
+          {discountPct > 0 && (
+            <>
+              <div className="row">
+                <span className="k">{isFlatRent ? "Standard rental" : "Standard fee"}</span>
+                <span className="v">${grossFee.toFixed(2)}</span>
+              </div>
+              <div className="row" style={{ color: "var(--clay)" }}>
+                <span className="k">Discount ({discountPct}%)</span>
+                <span className="v">−${discountAmt.toFixed(2)}</span>
+              </div>
+            </>
           )}
-          <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
-            <input
-              type="checkbox"
-              id="override"
-              checked={form.manualOverride}
-              onChange={(e) => setForm({
-                ...form,
-                manualOverride: e.target.checked,
-                facilityEarnsOverride: e.target.checked ? facilityEarns : 0,
-                coachTakesOverride: e.target.checked ? coachTakes : 0
-              })}
-            />
-            <label htmlFor="override" style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 600, cursor: "pointer" }}>
-              Override default split for this session
-            </label>
-          </div>
-          {form.manualOverride && (
-            <div className="field-row" style={{ marginTop: 10 }}>
-              <div className="field">
-                <div className="field-label">Facility earns</div>
-                <input type="number" step="0.5" value={form.facilityEarnsOverride}
-                  onChange={(e) => setForm({ ...form, facilityEarnsOverride: parseFloat(e.target.value) || 0 })} />
+          {isFlatRent ? (
+            <>
+              <div className="row total facility">
+                <span className="k">Court rental — you collect</span>
+                <span className="v">${netFee.toFixed(2)}</span>
               </div>
-              <div className="field">
-                <div className="field-label">Coach takes</div>
-                <input type="number" step="0.5" value={form.coachTakesOverride}
-                  onChange={(e) => setForm({ ...form, coachTakesOverride: parseFloat(e.target.value) || 0 })} />
+              <div className="formula">Pure court rental · no coach payout · coach keeps their own student fee</div>
+            </>
+          ) : (
+            <>
+              <div className="row">
+                <span className="k">{discountPct > 0 ? "Net lesson fee" : "Lesson fee"}</span>
+                <span className="v">${netFee.toFixed(2)}</span>
               </div>
-            </div>
+              <div className="row total facility">
+                <span className="k">Facility earns</span>
+                <span className="v">${facilityEarns.toFixed(2)}</span>
+              </div>
+              <div className="row total coach">
+                <span className="k">Coach takes</span>
+                <span className="v">${coachTakes.toFixed(2)}</span>
+              </div>
+              {auto.formula && !form.manualOverride && (
+                <div className="formula">{auto.formula}</div>
+              )}
+              <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  type="checkbox"
+                  id="override"
+                  checked={form.manualOverride}
+                  onChange={(e) => setForm({
+                    ...form,
+                    manualOverride: e.target.checked,
+                    facilityEarnsOverride: e.target.checked ? facilityEarns : 0,
+                    coachTakesOverride: e.target.checked ? coachTakes : 0
+                  })}
+                />
+                <label htmlFor="override" style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 600, cursor: "pointer" }}>
+                  Override default split for this session
+                </label>
+              </div>
+              {form.manualOverride && (
+                <div className="field-row" style={{ marginTop: 10 }}>
+                  <div className="field">
+                    <div className="field-label">Facility earns</div>
+                    <input type="number" step="0.5" value={form.facilityEarnsOverride}
+                      onChange={(e) => setForm({ ...form, facilityEarnsOverride: parseFloat(e.target.value) || 0 })} />
+                  </div>
+                  <div className="field">
+                    <div className="field-label">Coach takes</div>
+                    <input type="number" step="0.5" value={form.coachTakesOverride}
+                      onChange={(e) => setForm({ ...form, coachTakesOverride: parseFloat(e.target.value) || 0 })} />
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -11342,27 +11471,25 @@ function PaymentsDueView({ data, loading, reload }) {
     return <div style={{ padding: 40, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>;
   }
 
-  const totalOwed = data.reduce((s, c) => s + c.pendingAmount, 0);
-  const totalPaid = data.reduce((s, c) => s + c.paidAmount, 0);
-  const totalCoachTakes = data.reduce((s, c) => s + c.coachTakesPending, 0);
+  const totalToCollect = data.reduce((s, c) => s + (c.toCollect || 0), 0);
+  const totalToCollectSessions = data.reduce((s, c) => s + (c.toCollectSessions || 0), 0);
+  const totalFacilityPaid = data.reduce((s, c) => s + (c.paidAmount || 0), 0);
 
   return (
     <div>
+      <div style={{ marginBottom: 18, padding: "12px 14px", borderLeft: "3px solid var(--green)", background: "rgba(0,0,0,0.025)", borderRadius: 6, fontSize: 12, lineHeight: 1.5 }}>
+        <strong>Money IN.</strong> These are sessions the student hasn't paid you for yet. Collecting one records the <strong>full lesson fee</strong> to your Cash/ABA reconciliation. Paying coaches their cut happens separately on the <strong>Pay Coaches</strong> tab.
+      </div>
       <div className="stat-grid" style={{ marginBottom: 24 }}>
         <div className="stat-card accent-clay">
-          <div className="label">Coaches owe us</div>
-          <div className="value">${totalOwed.toFixed(2)}</div>
-          <div className="sub">Across all unpaid sessions</div>
+          <div className="label">To collect from students</div>
+          <div className="value">${totalToCollect.toFixed(2)}</div>
+          <div className="sub">{totalToCollectSessions} unpaid session{totalToCollectSessions === 1 ? "" : "s"} · full lesson fee</div>
         </div>
         <div className="stat-card accent-green">
-          <div className="label">Already collected</div>
-          <div className="value">${totalPaid.toFixed(2)}</div>
-          <div className="sub">All-time paid sessions</div>
-        </div>
-        <div className="stat-card accent-wood">
-          <div className="label">Coaches haven't taken</div>
-          <div className="value">${totalCoachTakes.toFixed(2)}</div>
-          <div className="sub">Their earnings on unpaid sessions</div>
+          <div className="label">Facility earned · all-time</div>
+          <div className="value">${totalFacilityPaid.toFixed(2)}</div>
+          <div className="sub">Your share of collected sessions</div>
         </div>
       </div>
 
@@ -11383,7 +11510,7 @@ function PaymentsDueView({ data, loading, reload }) {
           return (
             <div key={c.coachId} style={{ marginBottom: 10 }}>
               <div
-                className={"coach-pay-card" + (c.pendingAmount > 0 ? " has-debt" : "") + (isExpanded ? " expanded" : "")}
+                className={"coach-pay-card" + ((c.toCollect || 0) > 0 ? " has-debt" : "") + (isExpanded ? " expanded" : "")}
                 onClick={() => expand(c.coachId)}
                 style={{ cursor: "pointer", marginBottom: 0 }}
               >
@@ -11392,13 +11519,13 @@ function PaymentsDueView({ data, loading, reload }) {
                   <div className="meta">{c.coachId} · {c.phone}</div>
                 </div>
                 <div style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.12em", opacity: 0.6 }}>
-                  <div>{c.pendingSessions} unpaid · {c.paidSessions} paid</div>
-                  <div style={{ marginTop: 2 }}>Lifetime $ {c.paidAmount.toFixed(2)} collected</div>
+                  <div>{c.toCollectSessions} to collect · {c.paidSessions} collected</div>
+                  <div style={{ marginTop: 2 }}>Facility earned $ {c.paidAmount.toFixed(2)}</div>
                 </div>
                 <div className="owes">
-                  <div className="v">${c.pendingAmount.toFixed(2)}</div>
+                  <div className="v">${(c.toCollect || 0).toFixed(2)}</div>
                   <div className="label">
-                    {c.pendingAmount > 0 ? (isExpanded ? "▼ Hide sessions" : "▶ Show sessions") : "All settled"}
+                    {(c.toCollect || 0) > 0 ? (isExpanded ? "▼ Hide sessions" : "▶ Show sessions") : "All collected"}
                   </div>
                 </div>
               </div>
@@ -11415,7 +11542,7 @@ function PaymentsDueView({ data, loading, reload }) {
                     <>
                       <div className="pay-expand-head">
                         <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase", opacity: 0.7, fontWeight: 700 }}>
-                          {sessions.length} unpaid session{sessions.length === 1 ? "" : "s"} · total ${sessions.reduce((s, x) => s + x.facilityEarns, 0).toFixed(2)}
+                          {sessions.length} to collect · total ${sessions.reduce((s, x) => s + (x.dealTypeUsed === "flat_rent" ? x.facilityEarns : x.lessonFee), 0).toFixed(2)}
                         </div>
                         <button
                           className="btn primary"
@@ -11424,7 +11551,7 @@ function PaymentsDueView({ data, loading, reload }) {
                             openPaymentModal(c, sessions.map(s => s.sessionId));
                           }}
                         >
-                          Mark all paid · ${sessions.reduce((s, x) => s + x.facilityEarns, 0).toFixed(2)}
+                          Collect all · ${sessions.reduce((s, x) => s + (x.dealTypeUsed === "flat_rent" ? x.facilityEarns : x.lessonFee), 0).toFixed(2)}
                         </button>
                       </div>
                       {sessions.map(s => (
@@ -11450,7 +11577,7 @@ function PaymentsDueView({ data, loading, reload }) {
           totalAmount={
             (coachSessions[paymentModal.coach.coachId] || [])
               .filter(s => paymentModal.sessionIds.indexOf(s.sessionId) >= 0)
-              .reduce((sum, s) => sum + s.facilityEarns, 0)
+              .reduce((sum, s) => sum + (s.dealTypeUsed === "flat_rent" ? s.facilityEarns : s.lessonFee), 0)
           }
           onClose={() => setPaymentModal(null)}
           onConfirm={confirmPayment}
@@ -11475,12 +11602,21 @@ function PaymentSessionRow({ session, onMarkPaid }) {
         </div>
       </div>
       <div style={{ textAlign: "right", fontFamily: "var(--mono)" }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: "var(--clay)" }}>${session.facilityEarns.toFixed(2)}</div>
-        <div style={{ fontSize: 9, opacity: 0.5, letterSpacing: "0.06em", marginTop: 2 }}>
-          Lesson ${session.lessonFee.toFixed(2)}
-        </div>
+        {session.dealTypeUsed === "flat_rent" ? (
+          <>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--clay)" }}>${session.facilityEarns.toFixed(2)}</div>
+            <div style={{ fontSize: 9, opacity: 0.5, letterSpacing: "0.06em", marginTop: 2 }}>court rental · you keep all</div>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--clay)" }}>${session.lessonFee.toFixed(2)}</div>
+            <div style={{ fontSize: 9, opacity: 0.5, letterSpacing: "0.06em", marginTop: 2 }}>
+              You keep ${session.facilityEarns.toFixed(2)} · coach ${session.coachTakes.toFixed(2)}
+            </div>
+          </>
+        )}
       </div>
-      <button className="btn-sm primary" onClick={onMarkPaid}>Mark paid</button>
+      <button className="btn-sm primary" onClick={onMarkPaid}>Collect</button>
     </div>
   );
 }
@@ -11536,6 +11672,262 @@ function PaymentConfirmModal({ coach, sessionIds, totalAmount, onClose, onConfir
           <button className="btn ghost" onClick={onClose} disabled={submitting}>Cancel</button>
           <button className="btn primary" onClick={go} disabled={submitting}>
             {submitting ? "Recording…" : "Confirm payment"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/* ----- Pay Coaches subview (money OUT) ----- */
+
+function PayCoachesView({ data, coaches, loading, reload }) {
+  const [expandedCoachId, setExpandedCoachId] = useState(null);
+  const [coachSessions, setCoachSessions] = useState({});  // coachId -> payable sessions[]
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [payoutModal, setPayoutModal] = useState(null);    // { coach, sessions[] }
+
+  async function expand(coachId) {
+    if (expandedCoachId === coachId) { setExpandedCoachId(null); return; }
+    setExpandedCoachId(coachId);
+    if (!coachSessions[coachId]) {
+      setLoadingSessions(true);
+      // All COLLECTED (student-paid) sessions for this coach; keep the ones not
+      // yet paid out to the coach.
+      const r = await api("adminListCoachingSessions", { coachId: coachId, paymentStatus: "paid" });
+      setLoadingSessions(false);
+      if (r.ok) {
+        const payable = (r.sessions || []).filter(s => !s.coachPaidOut);
+        setCoachSessions(prev => ({ ...prev, [coachId]: payable }));
+      }
+    }
+  }
+
+  function openPayout(coach, sessions) {
+    if (!sessions || sessions.length === 0) return;
+    setPayoutModal({ coach, sessions });
+  }
+
+  async function confirmPayout(method, payoutDate, notes) {
+    if (!payoutModal) return;
+    const coachId = payoutModal.coach.coachId;
+    const sessionIds = payoutModal.sessions.map(s => s.sessionId);
+    setExpandedCoachId(null);
+    setPayoutModal(null);
+    const r = await api("adminPayCoach", {
+      coachId: coachId,
+      sessionIds: JSON.stringify(sessionIds),
+      method: method,
+      payoutDate: payoutDate,
+      notes: notes || ""
+    });
+    if (r.ok) {
+      const tillNote = r.affectsTill ? " · cash out of till" : " · " + method + " (till unchanged)";
+      showToast(`Paid ${r.coachName || "coach"} $${r.amount.toFixed(2)} · ${r.paidSessions} session${r.paidSessions === 1 ? "" : "s"}${tillNote}`, "success");
+      setCoachSessions(prev => { const next = { ...prev }; delete next[coachId]; return next; });
+      reload();
+    } else {
+      showToast((r.error || "Failed to record payout") + " — refreshing", "error");
+      reload();
+    }
+  }
+
+  if (data === null) {
+    return <div style={{ padding: 40, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>;
+  }
+
+  const totalOwe = data.reduce((s, c) => s + (c.oweCoach || 0), 0);
+  const totalPaidOut = data.reduce((s, c) => s + (c.paidOutToCoach || 0), 0);
+  const oweCoaches = data.filter(c => (c.oweCoach || 0) > 0.001);
+
+  return (
+    <div>
+      <div style={{ marginBottom: 18, padding: "12px 14px", borderLeft: "3px solid var(--clay)", background: "rgba(0,0,0,0.025)", borderRadius: 6, fontSize: 12, lineHeight: 1.5 }}>
+        <strong>Money OUT.</strong> Pay each coach their share of sessions you've <strong>already collected</strong> from students. <strong>Cash</strong> payouts come out of your till and reduce today's cash count; <strong>transfer/ABA</strong> payouts are logged but don't touch the till.
+      </div>
+      <div className="stat-grid" style={{ marginBottom: 24 }}>
+        <div className="stat-card accent-clay">
+          <div className="label">You owe coaches</div>
+          <div className="value">${totalOwe.toFixed(2)}</div>
+          <div className="sub">Their cut of collected sessions, not yet paid</div>
+        </div>
+        <div className="stat-card accent-green">
+          <div className="label">Paid to coaches · all-time</div>
+          <div className="value">${totalPaidOut.toFixed(2)}</div>
+          <div className="sub">Across all completed payouts</div>
+        </div>
+      </div>
+
+      <div className="section-label">
+        <span><span className="num">01</span><span className="name">Coaches you owe · click to expand</span></span>
+        <span className="right">{oweCoaches.length} coach{oweCoaches.length === 1 ? "" : "es"}</span>
+      </div>
+      {oweCoaches.length === 0 ? (
+        <EmptyState
+          icon="✓"
+          title="All coaches paid up"
+          hint="Once you collect a coaching session from a student, the coach's share shows here to pay out."
+        />
+      ) : (
+        oweCoaches.map(c => {
+          const isExpanded = expandedCoachId === c.coachId;
+          const sessions = coachSessions[c.coachId] || [];
+          return (
+            <div key={c.coachId} style={{ marginBottom: 10 }}>
+              <div
+                className={"coach-pay-card has-debt" + (isExpanded ? " expanded" : "")}
+                onClick={() => expand(c.coachId)}
+                style={{ cursor: "pointer", marginBottom: 0 }}
+              >
+                <div>
+                  <div className="name">{c.name}</div>
+                  <div className="meta">{c.coachId} · {c.phone}</div>
+                </div>
+                <div style={{ textAlign: "right", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.12em", opacity: 0.6 }}>
+                  <div>{c.oweSessions} to pay · {c.paidOutSessions} paid</div>
+                  <div style={{ marginTop: 2 }}>Paid out $ {(c.paidOutToCoach || 0).toFixed(2)}</div>
+                </div>
+                <div className="owes">
+                  <div className="v">${(c.oweCoach || 0).toFixed(2)}</div>
+                  <div className="label">{isExpanded ? "▼ Hide sessions" : "▶ Show sessions"}</div>
+                </div>
+              </div>
+
+              {isExpanded && (
+                <div className="pay-expand">
+                  {loadingSessions && !sessions.length ? (
+                    <div style={{ padding: 20, display: "flex", justifyContent: "center" }}><BouncingBall size="sm" /></div>
+                  ) : sessions.length === 0 ? (
+                    <div className="empty-mini" style={{ padding: 14 }}>No sessions awaiting payout for this coach</div>
+                  ) : (
+                    <>
+                      <div className="pay-expand-head">
+                        <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase", opacity: 0.7, fontWeight: 700 }}>
+                          {sessions.length} session{sessions.length === 1 ? "" : "s"} · owe ${sessions.reduce((s, x) => s + x.coachTakes, 0).toFixed(2)}
+                        </div>
+                        <button
+                          className="btn primary"
+                          onClick={(e) => { e.stopPropagation(); openPayout(c, sessions); }}
+                        >
+                          Pay coach · ${sessions.reduce((s, x) => s + x.coachTakes, 0).toFixed(2)}
+                        </button>
+                      </div>
+                      {sessions.map(s => (
+                        <PayoutSessionRow
+                          key={s.sessionId}
+                          session={s}
+                          onPay={() => openPayout(c, [s])}
+                        />
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+
+      {payoutModal && (
+        <CoachPayoutModal
+          coach={payoutModal.coach}
+          sessions={payoutModal.sessions}
+          onClose={() => setPayoutModal(null)}
+          onConfirm={confirmPayout}
+        />
+      )}
+    </div>
+  );
+}
+
+function PayoutSessionRow({ session, onPay }) {
+  return (
+    <div className="pay-expand-row">
+      <div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 700 }}>
+          {session.date} · {session.time} · {session.durationHours}h · C·{session.courtNumbers}
+        </div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, letterSpacing: "0.06em", marginTop: 3 }}>
+          {session.studentName || "—"} · {session.sessionType} · collected {session.paymentMethod || "?"}
+        </div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.4, letterSpacing: "0.14em", textTransform: "uppercase", marginTop: 2 }}>
+          {session.sessionId}{session.manualOverride ? " · MANUAL" : ""}
+        </div>
+      </div>
+      <div style={{ textAlign: "right", fontFamily: "var(--mono)" }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "var(--wood)" }}>${session.coachTakes.toFixed(2)}</div>
+        <div style={{ fontSize: 9, opacity: 0.5, letterSpacing: "0.06em", marginTop: 2 }}>
+          Lesson ${session.lessonFee.toFixed(2)} · you kept ${session.facilityEarns.toFixed(2)}
+        </div>
+      </div>
+      <button className="btn-sm primary" onClick={onPay}>Pay</button>
+    </div>
+  );
+}
+
+function CoachPayoutModal({ coach, sessions, onClose, onConfirm }) {
+  const [method, setMethod] = useState("Cash");
+  const [date, setDate] = useState(todayISO());
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const total = sessions.reduce((s, x) => s + x.coachTakes, 0);
+  const isCash = method.toLowerCase() === "cash";
+
+  async function go() {
+    if (submitting) return;  // double-tap guard
+    setSubmitting(true);
+    await onConfirm(method, date, notes);
+    setSubmitting(false);
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">Pay coach</div>
+            <h2>{coach.name}</h2>
+          </div>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
+        </div>
+
+        <div className="modal-detail-row">
+          <span className="k">Sessions</span>
+          <span className="v">{sessions.length}</span>
+        </div>
+        <div className="modal-detail-row total">
+          <span className="k">Paying coach</span>
+          <span className="v">${total.toFixed(2)}</span>
+        </div>
+
+        <div className="field" style={{ marginTop: 18 }}>
+          <div className="field-label">Payout method</div>
+          <select value={method} onChange={(e) => setMethod(e.target.value)}>
+            <option value="Cash">Cash (from till)</option>
+            <option value="ABA">ABA transfer</option>
+            <option value="Bank Transfer">Bank transfer</option>
+            <option value="Wing">Wing</option>
+          </select>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.04em", opacity: 0.65, marginTop: 6, lineHeight: 1.5, color: isCash ? "var(--clay)" : "inherit" }}>
+            {isCash
+              ? "Cash comes out of your till — this reduces today's cash count in reconciliation by $" + total.toFixed(2) + "."
+              : "Transfer payout is logged but does NOT change your till/QR takings reconciliation."}
+          </div>
+        </div>
+        <div className="field">
+          <div className="field-label">Payout date</div>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <div className="field">
+          <div className="field-label">Note (optional)</div>
+          <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. weekly settle" />
+        </div>
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button className="btn primary" onClick={go} disabled={submitting}>
+            {submitting ? "Recording…" : "Confirm payout · $" + total.toFixed(2)}
           </button>
         </div>
       </div>
