@@ -5964,9 +5964,9 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
           name: isCoaching
             ? "Coach: " + (b.coachName || b.name || "—")
             : isWalkIn
-            ? "Open Play · " + (b.playerCount || 0) + "/" + (b.playerCap || 15)
+            ? "Walk-in · " + (b.playerCount || 0) + "/" + (b.playerCap || 15)
             : isOpenPlay
-            ? (b.title || "Drop-in") + " · " + (b.playerCount || 0) + (b.playerCap ? "/" + b.playerCap : "")
+            ? (b.title || "Walk-in") + " · " + (b.playerCount || 0) + (b.playerCap ? "/" + b.playerCap : "")
             : isTournament
             ? "🏆 " + (b.title || "Tournament") + " · " + (b.playerCount || 0) + (b.playerCap ? "/" + b.playerCap : "")
             : (b.name || "—"),
@@ -6159,7 +6159,7 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
           <span className="swatch"><i className="sw-booking" /> Court booking</span>
           <span className="swatch"><i className="sw-coaching" /> ★ Coaching</span>
           <span className="swatch"><i className="sw-walkin" /> ◉ Walk-in</span>
-          <span className="swatch"><i className="sw-openplay" /> ◎ Drop-in</span>
+          <span className="swatch"><i className="sw-openplay" /> ◎ Walk-in</span>
           <span className="swatch"><i className="sw-tournament" /> 🏆 Tournament</span>
         </div>
         <div className="legend-group">
@@ -6510,7 +6510,7 @@ function ScreenDashboard() {
             const openPlay = (data.openPlay && data.openPlay.revenuePaid) || 0;
             const mem = (data.members && data.members.revenueToday) || 0;
             // Operational = court bookings + POS sales + coaching + walk-in + open play.
-            // Open play used to be excluded — bug. Open play registrations
+            // Walk-in used to be excluded — bug. Walk-in registrations
             // that customers paid for ARE operational revenue today.
             const operational = court + pos + coaching + walkin + openPlay;
             const total = operational + mem;
@@ -6543,7 +6543,7 @@ function ScreenDashboard() {
                   "\nCourt: " + fmtMoney(court) +
                   "\nWalk-in: " + fmtMoney(walkin) +
                   "\nCoaching: " + fmtMoney(coaching) +
-                  "\nOpen Play: " + fmtMoney(openPlay) +
+                  "\nWalk-in: " + fmtMoney(openPlay) +
                   "\nPOS: " + fmtMoney(pos) +
                   (mem > 0 ? "\nMemberships: " + fmtMoney(mem) : "")
                 }>
@@ -6600,7 +6600,7 @@ function ScreenDashboard() {
               if (courtP > 0) breakdown.push("Court: " + fmtMoney(courtP));
               if (walkinP > 0) breakdown.push("Walk-in: " + fmtMoney(walkinP));
               if (coachP > 0) breakdown.push("Coaching: " + fmtMoney(coachP));
-              if (opP > 0) breakdown.push("Open Play: " + fmtMoney(opP));
+              if (opP > 0) breakdown.push("Walk-in: " + fmtMoney(opP));
               return (
                 <>
                   <div className="value" style={valueFitStyle(totalP)} title={breakdown.join("\n")}>{fmtMoneyWhole(totalP)}</div>
@@ -7555,14 +7555,14 @@ function TodaysPulsePanel({ data, onOpenPlayClick }) {
         </div>
       </div>
 
-      {/* Tournament + Open Play activity — surfaced here so the dashboard
+      {/* Tournament + Walk-in activity — surfaced here so the dashboard
           actually reflects everything happening at the venue today, not
           just regular court bookings. */}
       {((data.tournaments && (data.tournaments.activeToday > 0 || data.tournaments.upcoming30d > 0)) ||
         (data.openPlay && data.openPlay.sessions > 0)) && (
         <div className="pulse-metric" style={{ borderTop: "1px dashed var(--rule-strong)", paddingTop: 12 }}>
           <div className="label">Programs running</div>
-          {/* Open Play row — only shown when sessions are CURRENTLY active
+          {/* Walk-in row — only shown when sessions are CURRENTLY active
               (backend filters out sessions whose end time has passed). If
               all of today's sessions have ended already, we don't surface
               them here even though they contributed revenue earlier today.
@@ -7593,7 +7593,7 @@ function TodaysPulsePanel({ data, onOpenPlayClick }) {
                 title={clickable ? "Click to view session details" : undefined}
               >
               <div>
-                <span style={{ fontWeight: 700, fontSize: 14 }}>◎ Drop-in</span>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>◎ Walk-in</span>
                 <span style={{ opacity: 0.65, marginLeft: 8, fontSize: 12 }}>
                   {data.openPlay.sessions} session{data.openPlay.sessions === 1 ? "" : "s"}
                   {data.openPlay.players > 0 && " · " + data.openPlay.players + " player" + (data.openPlay.players === 1 ? "" : "s")}
@@ -7853,7 +7853,7 @@ function ScreenBookings() {
     return entries.filter(e => e.date === date && e.entryType === "walkin");
   }, [entries, date]);
 
-  // Open Play sessions on day (separate from guest bookings)
+  // Walk-in sessions on day (separate from guest bookings)
   const dayOpenPlay = useMemo(() => {
     if (!entries) return [];
     return entries.filter(e => e.date === date && e.entryType === "openplay");
@@ -7957,7 +7957,7 @@ function ScreenBookings() {
             <button className={view === "week" ? "on" : ""} onClick={() => setView("week")}>Week</button>
             <button className={view === "month" ? "on" : ""} onClick={() => setView("month")}>Month</button>
           </div>
-          <button className="btn primary" onClick={() => setAddBookingFlow("chooser")}>+ Add booking</button>
+          <button className="btn primary" onClick={() => setAddBookingFlow("court")}>+ Add booking</button>
         </div>
       </div>
 
@@ -8095,7 +8095,7 @@ function ScreenBookings() {
                           <div className="when">{e.time}<span className="endtime">→ {e.timeEnd}</span></div>
                           <div className="who">
                             <div className="name">
-                              ◉ Open Play · Court {e.courtNumbers}
+                              ◉ Walk-in · Court {e.courtNumbers}
                               <span style={{
                                 marginLeft: 8, fontFamily: "var(--mono)", fontSize: 9,
                                 letterSpacing: "0.16em", textTransform: "uppercase",
@@ -8134,7 +8134,7 @@ function ScreenBookings() {
                           <div className="when">{e.time}<span className="endtime">→ {e.timeEnd}</span></div>
                           <div className="who">
                             <div className="name">
-                              ◎ {e.title || "Open Play"} · Court{e.courtNumbers && e.courtNumbers.indexOf(",") !== -1 ? "s" : ""} {e.courtNumbers}
+                              ◎ {e.title || "Walk-in"} · Court{e.courtNumbers && e.courtNumbers.indexOf(",") !== -1 ? "s" : ""} {e.courtNumbers}
                               <span style={{
                                 marginLeft: 8, fontFamily: "var(--mono)", fontSize: 9,
                                 letterSpacing: "0.16em", textTransform: "uppercase",
@@ -8414,7 +8414,7 @@ function MonthView({ entries, centerDate, onDayClick }) {
       } else if (e.entryType === "openplay") {
         map[e.date].openplay++;
         map[e.date].revenue += (e.total || 0);
-        // Open Play sessions occupy MULTIPLE courts for their full duration —
+        // Walk-in sessions occupy MULTIPLE courts for their full duration —
         // slot capacity must count slots × courts, like bookings.
         const courtCount = String(e.courtNumbers || "").split(",").filter(Boolean).length;
         map[e.date].slots += (e.slots || 0) * courtCount;
@@ -9338,16 +9338,11 @@ function AddBookingChooserModal({ onClose, onPick }) {
           <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, padding: "10px 0 20px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12, padding: "10px 0 20px" }}>
           <button className="big-choice" onClick={() => onPick("court")}>
             <div className="icon">⬛</div>
             <div className="title">Court reservation</div>
             <div className="sub">Reserve one or more courts for a group at the regular hourly rate</div>
-          </button>
-          <button className="big-choice walkin-choice" onClick={() => onPick("walkin")}>
-            <div className="icon">◉</div>
-            <div className="title">Drop-in · Open play</div>
-            <div className="sub">Open a court for individual players to join · $3-5 per visit</div>
           </button>
         </div>
       </div>
@@ -9415,7 +9410,7 @@ function NewWalkInBlockModal({ dateDefault, onClose, onCreated }) {
     });
     setSubmitting(false);
     if (r.ok) {
-      showToast("Open play block created · $" + r.rate + "/player", "success");
+      showToast("Walk-in block created · $" + r.rate + "/player", "success");
       onCreated && onCreated(r.blockId);
     } else {
       showToast(r.error || "Failed", "error");
@@ -9438,8 +9433,8 @@ function NewWalkInBlockModal({ dateDefault, onClose, onCreated }) {
       <div className="modal" style={{ maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
-            <div className="kicker">Open court for drop-in players</div>
-            <h2>New Open Play</h2>
+            <div className="kicker">Open court for walk-in players</div>
+            <h2>New Walk-in</h2>
           </div>
           <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
@@ -9502,7 +9497,7 @@ function NewWalkInBlockModal({ dateDefault, onClose, onCreated }) {
 
         <div className="field">
           <div className="field-label">Notes (optional)</div>
-          <textarea value={form.notes} placeholder="e.g. Open play night · all skill levels"
+          <textarea value={form.notes} placeholder="e.g. Walk-in night · all skill levels"
             onChange={(e) => setForm({ ...form, notes: e.target.value })} />
         </div>
 
@@ -9616,7 +9611,7 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
         <div className="modal-head">
           <div>
             <div className="kicker">{block.blockId} · {block.date}</div>
-            <h2>Open Play · Court {block.courtNumber}</h2>
+            <h2>Walk-in · Court {block.courtNumber}</h2>
           </div>
           <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
@@ -14569,7 +14564,7 @@ function bookingReceipt(b) {
 function openPlayReceipt(s, p) {
   var amt = Number(p.amountPaid != null ? p.amountPaid : (s.price || 0)) || 0;
   return { saleId: p.id || p.registrationId || "", date: new Date(), customerName: p.name || "", customerPhone: p.phone || "", memberTier: "",
-    items: [], attached: [{ name: "Open Play · " + (s.title || "session") + (s.date ? " · " + s.date : ""), price: amt }],
+    items: [], attached: [{ name: "Walk-in · " + (s.title || "session") + (s.date ? " · " + s.date : ""), price: amt }],
     subtotal: amt, memberDiscountAmount: 0, discountAmount: 0, total: amt, paymentMethod: p.paymentMethod || "Cash", cashReceived: amt, changeGiven: 0 };
 }
 
@@ -14891,7 +14886,7 @@ function ScreenCustomers() {
     { id: "guest", label: "Court guests" },
     { id: "walkin", label: "Walk-in players" },
     { id: "student", label: "Coaching students" },
-    { id: "openplay", label: "Drop-in players" },
+    { id: "openplay", label: "Walk-in players" },
     { id: "tournament", label: "Tournament players" }
   ];
 
@@ -15031,7 +15026,7 @@ function CustomerHistoryModal({ customer, onClose }) {
     : customer.sources.indexOf("student") >= 0
     ? "★ Coaching student"
     : customer.sources.indexOf("openplay") >= 0
-    ? "◎ Drop-in player"
+    ? "◎ Walk-in player"
     : customer.sources.indexOf("tournament") >= 0
     ? "🏆 Tournament player"
     : "Court guest";
@@ -15055,7 +15050,7 @@ function CustomerHistoryModal({ customer, onClose }) {
               guest: { label: "Court guest", bg: "var(--green)", color: "var(--cream)" },
               walkin: { label: "◉ Walk-in player", bg: "var(--peach,#D9785C)", color: "var(--cream)" },
               student: { label: "★ Coaching student", bg: "var(--wood)", color: "var(--cream)" },
-              openplay: { label: "◎ Drop-in player", bg: "#5B6BA8", color: "var(--cream)" },
+              openplay: { label: "◎ Walk-in player", bg: "#5B6BA8", color: "var(--cream)" },
               tournament: { label: "🏆 Tournament player", bg: "var(--clay)", color: "var(--cream)" }
             }[s];
             if (!cfg) return null;
@@ -15086,7 +15081,7 @@ function CustomerHistoryModal({ customer, onClose }) {
                 <div className="value" style={{ color: "var(--wood)" }}>{data.totalCoachingSessions}</div>
               </div>
               <div className="stat-card" style={{ borderColor: "#5B6BA8" }}>
-                <div className="label">Drop-ins / Tournament</div>
+                <div className="label">Walk-ins / Tournament</div>
                 <div className="value" style={{ color: "#5B6BA8" }}>
                   {(data.totalOpenPlay || 0)}
                   <span style={{ opacity: 0.5, fontSize: "0.7em" }}> · {data.totalTournaments || 0}🏆</span>
@@ -15186,7 +15181,7 @@ function CustomerHistoryModal({ customer, onClose }) {
                 sections.push(
                   <React.Fragment key="openplay">
                     <div className="section-label">
-                      <span><span className="num">{num()}</span><span className="name" style={{ color: "#5B6BA8" }}>◎ Drop-in Sessions</span></span>
+                      <span><span className="num">{num()}</span><span className="name" style={{ color: "#5B6BA8" }}>◎ Walk-in Sessions</span></span>
                       <span className="right">{data.openPlay.length} registrations</span>
                     </div>
                     <div style={{ maxHeight: 240, overflowY: "auto", marginBottom: 16 }}>
@@ -15406,7 +15401,7 @@ function generateAccountingPdf(report) {
     ["Walk-in (open play)", fmtUsd(inc2.walkinRev)],
     ["Coaching (facility share)", fmtUsd(inc2.coachingRev)],
     ["POS sales", fmtUsd(inc2.posRev)],
-    ["Open play", fmtUsd(inc2.openPlayRev || 0)],
+    ["Walk-in", fmtUsd(inc2.openPlayRev || 0)],
     ["Sponsorships", fmtUsd(inc2.sponsorshipRev)],
     ["Memberships sold", fmtUsd(inc2.membershipFeesThisMonth)]
   ];
@@ -15487,7 +15482,7 @@ function generateAccountingPdf(report) {
   _ilLine("Walk-in (open play)", fmtUsd(inc.walkinRev), { indent: 10 });
   _ilLine("Coaching (facility share only)", fmtUsd(inc.coachingRev), { indent: 10 });
   _ilLine("POS / Retail", fmtUsd(inc.posRev), { indent: 10 });
-  _ilLine("Open play", fmtUsd(inc.openPlayRev || 0), { indent: 10 });
+  _ilLine("Walk-in", fmtUsd(inc.openPlayRev || 0), { indent: 10 });
   _ilDivider({ indent: 10 });
   _ilLine("Subtotal — operational", fmtUsd(inc.grossOperationalRevenue), { bold: true });
   _ilSpacer(8);
@@ -17872,8 +17867,8 @@ function ScreenOpenPlay() {
     <div className="main">
       <div className="main-head">
         <div>
-          <div className="title">Drop-in Sessions</div>
-          <h1>Open Play</h1>
+          <div className="title">Walk-in Sessions</div>
+          <h1>Walk-in</h1>
         </div>
         <div className="meta">
           {lastUpdated && <LastUpdated ts={lastUpdated} />}
@@ -17971,7 +17966,7 @@ function ScreenOpenPlay() {
           title={filter === "upcoming" ? "No upcoming sessions" : "No sessions"}
           hint={
             filter === "upcoming"
-              ? "Create a drop-in session to fill off-peak hours. Players sign up directly from the booking site with their name, phone, and skill level."
+              ? "Create a walk-in session to fill off-peak hours. Players sign up directly from the booking site with their name, phone, and skill level."
               : ""
           }
           action={filter === "upcoming" ? { label: "+ Create first session", onClick: () => setShowCreate(true), primary: true } : null}
@@ -18258,8 +18253,8 @@ function OpenPlayCreateModal({ onClose, onCreated }) {
       <div className="modal" style={{ maxWidth: 720 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
-            <div className="kicker">Drop-in Session</div>
-            <h2>New Open Play</h2>
+            <div className="kicker">Walk-in Session</div>
+            <h2>New Walk-in</h2>
           </div>
           <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
@@ -18273,7 +18268,7 @@ function OpenPlayCreateModal({ onClose, onCreated }) {
             type="text"
             value={form.title}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
-            placeholder="e.g. 'Beginner Drop-In', '3.5+ Open Play'"
+            placeholder="e.g. 'Beginner Drop-In', '3.5+ Walk-in'"
             style={{ width: "100%", fontSize: 16, fontWeight: 600 }}
             maxLength={80}
             autoFocus
@@ -18615,7 +18610,7 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
         <div className="modal" style={{ maxWidth: 800 }} onClick={(e) => e.stopPropagation()}>
           <div className="modal-head">
             <div>
-              <div className="kicker">Open Play</div>
+              <div className="kicker">Walk-in</div>
               <h2>Loading…</h2>
             </div>
             <button className="x" onClick={onClose} aria-label="Close">×</button>
@@ -18638,8 +18633,8 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
       <div className="modal" style={{ maxWidth: 800 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
-            <div className="kicker">{s.id} · Open Play</div>
-            <h2>{s.title || "Open Play session"}</h2>
+            <div className="kicker">{s.id} · Walk-in</div>
+            <h2>{s.title || "Walk-in session"}</h2>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {!isCancelled && (
@@ -21911,7 +21906,7 @@ function ScreenSettings() {
             </div>
             <div style={{ fontSize: 12, opacity: 0.7, lineHeight: 1.4 }}>
               Removes the old dropdown restriction (free / booked / booked-walkin / booked-coach)
-              from the Availability sheet so tournaments and Open Play sessions can
+              from the Availability sheet so tournaments and Walk-in sessions can
               write their marker IDs (TRN:*, OP:*) without rejection. Run once.
             </div>
           </div>
@@ -22276,7 +22271,7 @@ function DataIntegrityCard() {
               <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
                 {report.offGridOpenPlay.length > 0 && (
                   <li>
-                    <strong>{report.offGridOpenPlay.length}</strong> Open Play session(s) with off-grid times:
+                    <strong>{report.offGridOpenPlay.length}</strong> Walk-in session(s) with off-grid times:
                     <ul style={{ marginTop: 2, marginBottom: 4, fontSize: 11, opacity: 0.85 }}>
                       {report.offGridOpenPlay.slice(0, 5).map((op, i) => (
                         <li key={i}>
@@ -22607,12 +22602,11 @@ function QuickCreateFab({ go, screen }) {
   // Menu items — each maps to a screen + an action it will perform on arrival
   const items = [
     { id: "bookings",     icon: "⬛", label: "New booking",        hint: "Court reservation" },
-    { id: "walkin",       icon: "◉", label: "New walk-in block",   hint: "Drop-in open play" },
     { id: "coaching",     icon: "★", label: "New coaching session", hint: "Private or group lesson" },
     { id: "pos",          icon: "$", label: "New POS sale",        hint: "Ring up drinks/products" },
     { id: "members",      icon: "★", label: "New member",          hint: "Sign up Founding or Standard" },
     { id: "tournaments",  icon: "🏆", label: "New tournament",      hint: "Block courts, set fees, track players" },
-    { id: "openplay",     icon: "◎", label: "New open play",       hint: "Scheduled drop-in, players sign up online" },
+    { id: "openplay",     icon: "◎", label: "New walk-in",         hint: "Players sign up online or add at the desk" },
     { id: "sponsorships", icon: "⬛", label: "New sponsor banner",  hint: "Sell ad space" },
   ];
 
@@ -22795,7 +22789,7 @@ function App() {
         api("adminDashboardKpi").catch(() => {});
         api("adminOperationalKpi").catch(() => {});
       }, 800);
-      // All other tabs (Settings, Sponsorships, Open Play, Tournaments,
+      // All other tabs (Settings, Sponsorships, Walk-in, Tournaments,
       // Customers, SMS, POS history, Finances) are now lazy: the per-screen
       // useEffect fetches on first navigation. With server-side caching
       // on the heavy reads (adminDashboard, adminListTimelineEntries), the
@@ -22933,7 +22927,7 @@ function App() {
     { id: "customers", label: "Customers", ready: true },
     { id: "finances",  label: "Finances",  ready: true },
     { id: "tournaments", label: "Tournaments", ready: true },
-    { id: "openplay",  label: "Open Play",  ready: true },
+    { id: "openplay",  label: "Walk-in",  ready: true },
     { id: "sponsorships", label: "Sponsorships", ready: true },
     { id: "sms",       label: "SMS Log",   ready: true },
     { id: "settings",  label: "Settings",  ready: true }
