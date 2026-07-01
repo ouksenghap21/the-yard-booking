@@ -5449,7 +5449,7 @@ function ScreenConfirm({ state, setState, go, lang }) {
 /* ===================== SCREEN 5: MY BOOKINGS ===================== */
 function ScreenMyBookings({ state, setState, go, lang }) {
   const [data, setData] = useState(null);
-  const [opRegs, setOpRegs] = useState(null);          // Open Play registrations
+  const [opRegs, setOpRegs] = useState(null);          // Walk-in registrations
   const [trnRegs, setTrnRegs] = useState(null);        // Tournament registrations
   const [walkIns, setWalkIns] = useState(null);        // Walk-in activity (read-only)
   const [loading, setLoading] = useState(true);
@@ -5529,7 +5529,7 @@ function ScreenMyBookings({ state, setState, go, lang }) {
     load();
   }
 
-  // Active Open Play and tournament regs (not past). Walk-ins split into
+  // Active Walk-in and tournament regs (not past). Walk-ins split into
   // "active/today" (still on-schedule today or future) vs "past" (history).
   const activeOpRegs = (opRegs || []).filter(r => !r.isPast);
   const activeTrnRegs = (trnRegs || []).filter(r => !r.isPast);
@@ -5581,7 +5581,7 @@ function ScreenMyBookings({ state, setState, go, lang }) {
               shortest lead time (typically "today" or "this weekend"). */}
           {activeOpRegs.length > 0 && (
             <>
-              <SectionLabel n={sectionNums.drop_in}>{lang === "km" ? "ល្បែង​ដ្រ៉ុបអ៊ីន" : "Drop-in sessions"}</SectionLabel>
+              <SectionLabel n={sectionNums.drop_in}>{lang === "km" ? "ល្បែង​ដ្រ៉ុបអ៊ីន" : "Walk-in sessions"}</SectionLabel>
               {activeOpRegs.map(r => (
                 <div key={r.registrationId} className="booking-card" style={{ borderLeft: "4px solid #5B6BA8" }}>
                   <div className="top">
@@ -5805,7 +5805,7 @@ function ScreenMyBookings({ state, setState, go, lang }) {
         </div>
       )}
 
-      {/* Universal cancel modal — used for Open Play and Tournament cancellations.
+      {/* Universal cancel modal — used for Walk-in and Tournament cancellations.
           Identical UX to the regular booking cancel modal so users don't have
           to learn a new pattern; differs only in the API endpoint hit. */}
       {universalCancel && (
@@ -5987,9 +5987,9 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
       <div className="op-screen">
         <div className="row-between" style={{ marginBottom: 12 }}>
           <Lockup size={0.92} onClick={() => go(state.token ? "booking" : "phone")} />
-          <span className="pill">{lang === "km" ? "ល្បែង" : "Drop-in"}</span>
+          <span className="pill">{lang === "km" ? "ល្បែង" : "Walk-in"}</span>
         </div>
-        <h1 className="h-display" style={{ fontSize: 48, margin: "10px 0 8px" }}>Open Play</h1>
+        <h1 className="h-display" style={{ fontSize: 48, margin: "10px 0 8px" }}>Walk-in</h1>
         <p className="op-lede" style={{ textAlign: "left", margin: "0 0 24px", maxWidth: "34ch" }}>
           {lang === "km"
             ? "គ្មានក្រុម? គ្មានបញ្ហា។ ចុះឈ្មោះវគ្គដែលបានកំណត់ ដើរចូល ហើយត្រូវបានផ្គូផ្គងនឹងអ្នកលេងកម្រិតរបស់អ្នក។"
@@ -5999,7 +5999,7 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
         {/* User's existing registrations (upcoming) */}
         {activeRegs.length > 0 && (
           <div className="op-my-section">
-            <div className="op-section-label">YOUR DROP-INS</div>
+            <div className="op-section-label">YOUR WALK-INS</div>
             {activeRegs.map(r => (
               <div
                 key={r.registrationId}
@@ -6046,7 +6046,7 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
         {!isLoading && upcoming.length === 0 && (
           <div className="op-empty">
             <div className="op-empty-icon">◎</div>
-            <div className="op-empty-title">No drop-in sessions scheduled</div>
+            <div className="op-empty-title">No walk-in sessions scheduled</div>
             <div className="op-empty-hint">
               Check back soon, or book a regular court instead.
             </div>
@@ -6375,7 +6375,7 @@ function OpenPlaySessionModal({ session, myReg, profile, state, setState, go, la
   }
 
   // Header (shared)
-  const title = session.title || "Open Play";
+  const title = session.title || "Walk-in";
   const dateMeta = fmtSessionDate(session.date) + " · " + session.startTime + " · " + session.durationHours + "h";
   const courtsMeta = "Court" + (String(session.courts || "").indexOf(",") !== -1 ? "s" : "") + " " + session.courts;
 
@@ -7328,7 +7328,7 @@ function App() {
             {lang === "km" ? "កក់" : "Book"}
           </button>
           <button className={screen === "openplay" ? "on" : ""} onClick={() => go("openplay")}>
-            {lang === "km" ? "ល្បែង" : "Drop-in"}
+            {lang === "km" ? "ល្បែង" : "Walk-in"}
           </button>
           <button className={screen === "myBookings" ? "on" : ""} onClick={() => go("myBookings")}>
             {lang === "km" ? "ការ​កក់" : "Manage"}
