@@ -4045,49 +4045,53 @@ function WheelPicker({ value, onChange, slots, lang }) {
 
   function onScroll() {
     const el = scrollRef.current;
-    if (!el || !userScrollingRef.current) return;
+    if (!el) return;
+    // Mark recent input so the auto-centering effect doesn't fight the finger.
     lastUserInputRef.current = Date.now();
 
-    // LIVE update: emit the slot directly under center as the user scrolls.
-    // Throttled via rAF so we don't thrash React, and only fires onChange
-    // when the centered slot actually changes — minimizing parent re-renders.
+    // LIVE feedback: highlight the slot under the center line as it scrolls
+    // (throttled via rAF). Gives immediate response on browsers that stream
+    // scroll events; the poll below guarantees the FINAL commit regardless.
     if (!el._rafPending) {
       el._rafPending = true;
       requestAnimationFrame(() => {
         el._rafPending = false;
-        const i = Math.round(el.scrollTop / ITEM_H);
-        const clamped = Math.max(0, Math.min(slots.length - 1, i));
-        const slot = slots[clamped];
-        if (slot && slot.left > 0 && slot.t !== value) {
-          onChange(slot.t);
-        }
+        const i = Math.max(0, Math.min(slots.length - 1, Math.round(el.scrollTop / ITEM_H)));
+        const slot = slots[i];
+        if (slot && slot.left > 0 && slot.t !== value) onChange(slot.t);
       });
     }
 
-    // SETTLE: when scrolling stops, snap to a valid slot (skip over Full ones).
-    clearTimeout(el._t);
-    el._t = setTimeout(() => {
-      const i = Math.round(el.scrollTop / ITEM_H);
-      const clamped = Math.max(0, Math.min(slots.length - 1, i));
-      const slot = slots[clamped];
-      const isFull = (s) => !s || s.left <= 0;
-      if (slot && !isFull(slot)) {
-        if (slot.t !== value) onChange(slot.t);
-      } else {
-        let target = -1;
-        for (let step = 1; step < slots.length; step++) {
-          const up = clamped - step;
-          const down = clamped + step;
-          if (down < slots.length && !isFull(slots[down])) { target = down; break; }
-          if (up >= 0 && !isFull(slots[up])) { target = up; break; }
+    // REST DETECTION BY POLLING — the reliable, cross-browser way to know the
+    // wheel has truly settled. iOS momentum frequently fires NO 'scrollend' and
+    // stops emitting scroll events before the final resting position, which is
+    // why the selection used to lag until the user tapped. We poll scrollTop
+    // every ~70ms until it stops changing, THEN commit the centered slot
+    // (snapping past any Full ones). No dependency on iOS event quirks.
+    clearTimeout(el._rest);
+    el._rest = setTimeout(function poll() {
+      const cur = el.scrollTop;
+      if (el._prevST === cur) {
+        el._prevST = null;
+        const i = Math.max(0, Math.min(slots.length - 1, Math.round(cur / ITEM_H)));
+        const isFull = (s) => !s || s.left <= 0;
+        let target = i;
+        if (isFull(slots[i])) {
+          target = -1;
+          for (let step = 1; step < slots.length; step++) {
+            if (i + step < slots.length && !isFull(slots[i + step])) { target = i + step; break; }
+            if (i - step >= 0 && !isFull(slots[i - step])) { target = i - step; break; }
+          }
         }
         if (target >= 0) {
-          onChange(slots[target].t);
-          el.scrollTo({ top: target * ITEM_H, behavior: "smooth" });
+          if (slots[target].t !== value) onChange(slots[target].t);
+          if (target !== i) el.scrollTo({ top: target * ITEM_H, behavior: "smooth" });
         }
+      } else {
+        el._prevST = cur;
+        el._rest = setTimeout(poll, 70);
       }
-      userScrollingRef.current = false;
-    }, 40);
+    }, 70);
   }
 
   // Reliable commit when momentum scrolling truly ends. iOS 16+ / Chrome 114+
