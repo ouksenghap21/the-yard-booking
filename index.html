@@ -4090,6 +4090,35 @@ function WheelPicker({ value, onChange, slots, lang }) {
     }, 40);
   }
 
+  // Reliable commit when momentum scrolling truly ends. iOS 16+ / Chrome 114+
+  // fire 'scrollend' only once the wheel has settled, so the centered slot
+  // always commits without needing a second tap. The 40ms timeout above stays
+  // as a fallback for browsers that lack 'scrollend'.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !("onscrollend" in window)) return;
+    function commit() {
+      const i = Math.round(el.scrollTop / ITEM_H);
+      const clamped = Math.max(0, Math.min(slots.length - 1, i));
+      const isFull = (x) => !x || x.left <= 0;
+      let target = clamped;
+      if (isFull(slots[clamped])) {
+        target = -1;
+        for (let step = 1; step < slots.length; step++) {
+          if (clamped + step < slots.length && !isFull(slots[clamped + step])) { target = clamped + step; break; }
+          if (clamped - step >= 0 && !isFull(slots[clamped - step])) { target = clamped - step; break; }
+        }
+      }
+      if (target >= 0) {
+        if (slots[target].t !== value) onChange(slots[target].t);
+        if (target !== clamped) el.scrollTo({ top: target * ITEM_H, behavior: "smooth" });
+      }
+      userScrollingRef.current = false;
+    }
+    el.addEventListener("scrollend", commit);
+    return () => el.removeEventListener("scrollend", commit);
+  }, [slots, value, onChange]);
+
   return (
     <div className="wheel" style={{ height: ITEM_H * 5 }}>
       <div className="wheel-mask-top" />
@@ -4800,14 +4829,27 @@ function ScreenBooking({ state, setState, go, lang, config }) {
     return { available, unavailable };
   }, [availSlots, time, slots]);
 
-  /* If selected courts become unavailable after duration change, prune */
+  /* If selected courts become unavailable for the chosen time+duration, prune
+     them — but TELL the user, so their picked court is never silently swapped. */
+  const courtPruneMountedRef = useRef(false);
   useEffect(() => {
     const valid = pickedCourts.filter(n => courtAvailability.available.includes(n));
-    if (valid.length === 0 && courtAvailability.available.length > 0) {
-      setPickedCourts([courtAvailability.available[0]]);
-    } else if (valid.length !== pickedCourts.length) {
-      setPickedCourts(valid.length ? valid : [courtAvailability.available[0] || 1]);
+    if (valid.length !== pickedCourts.length) {
+      const dropped = pickedCourts.filter(n => !courtAvailability.available.includes(n));
+      const next = (valid.length === 0 && courtAvailability.available.length > 0)
+        ? [courtAvailability.available[0]]
+        : (valid.length ? valid : [courtAvailability.available[0] || 1]);
+      setPickedCourts(next);
+      if (courtPruneMountedRef.current && dropped.length && courtAvailability.available.length > 0) {
+        const dl = dropped.map(n => pad2(n)).join(", ");
+        showToast(
+          (dropped.length === 1 ? "Court " + dl + " isn't" : "Courts " + dl + " aren't") +
+          " free for the full time — switched to Court " + pad2(next[0]) + ".",
+          "info"
+        );
+      }
     }
+    courtPruneMountedRef.current = true;
   }, [courtAvailability.unavailable.join(",")]);
 
   /* Force 2 slots + 1 court when birthday session claimed */
