@@ -4069,9 +4069,12 @@ function WheelPicker({ value, onChange, slots, lang }) {
     // every ~70ms until it stops changing, THEN commit the centered slot
     // (snapping past any Full ones). No dependency on iOS event quirks.
     clearTimeout(el._rest);
+    el._prevST = null;
     el._rest = setTimeout(function poll() {
       const cur = el.scrollTop;
-      if (el._prevST === cur) {
+      // "Rested" once scrollTop stops moving — tolerant of sub-pixel jitter that
+      // a strict === compare would never satisfy (leaving the row faded forever).
+      if (el._prevST != null && Math.abs(cur - el._prevST) < 1) {
         el._prevST = null;
         const i = Math.max(0, Math.min(slots.length - 1, Math.round(cur / ITEM_H)));
         const isFull = (s) => !s || s.left <= 0;
@@ -4085,7 +4088,10 @@ function WheelPicker({ value, onChange, slots, lang }) {
         }
         if (target >= 0) {
           if (slots[target].t !== value) onChange(slots[target].t);
-          if (target !== i) el.scrollTo({ top: target * ITEM_H, behavior: "smooth" });
+          // ALWAYS align the center line to the committed slot, so the bold
+          // (selected) row and the row under the guides are the same one. A rest
+          // between two rows was leaving the selection looking faded / off-centre.
+          if (Math.abs(cur - target * ITEM_H) > 1) el.scrollTo({ top: target * ITEM_H, behavior: "smooth" });
         }
       } else {
         el._prevST = cur;
