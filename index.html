@@ -4208,7 +4208,11 @@ function Stepper({ value, onChange, min, max, unitLabel }) {
    footprint is fixed, so the layout is intentionally hard-coded. */
 function CourtRail({ value, onChange, count = 8, unavailable = [], lang }) {
   function toggle(num) {
-    if (unavailable.includes(num)) return;
+    if (unavailable.includes(num)) {
+      showToast((lang === "km" ? "តារាង " : "Court ") + pad2(num) +
+        (lang === "km" ? " មិន​ទំនេរ​សម្រាប់​ពេល/រយៈពេល​នេះ" : " isn't free for this time/duration"), "info");
+      return;
+    }
     if (value.includes(num)) {
       const next = value.filter(v => v !== num);
       onChange(next.length === 0 ? [num] : next);
@@ -4957,7 +4961,7 @@ function ScreenBooking({ state, setState, go, lang, config }) {
       // H3: stash the client quote so the confirm screen can reconcile it
       // against the server's settled total and flag any mismatch.
       const quotedTotal = pricing ? pricing.total : null;
-      setState(s => ({ ...s, confirmation: r.confirmation, quotedTotal: quotedTotal }));
+      setState(s => ({ ...s, confirmation: r.confirmation, quotedTotal: quotedTotal, requestedCourts: pickedCourts.join(",") }));
       go("confirm");
     } finally {
       submittingRef.current = false;
@@ -5244,6 +5248,14 @@ function ScreenConfirm({ state, setState, go, lang }) {
   // throws and blanks the just-paid success screen.
   const firstCourt = String(c.courtNumbers || c.courts || "1").split(",")[0].trim() || "1";
 
+  // If the courts actually booked differ from what the customer picked (their
+  // court was taken between viewing and confirming, so the server assigned the
+  // next free one), flag it — otherwise "I picked 8 but got 7" looks like a bug.
+  const _bookedCourts = String(c.courtNumbers || "").split(",").map(x => parseInt(x.trim())).filter(n => n >= 1).sort((a, b) => a - b);
+  const _askedCourts = String(state.requestedCourts || "").split(",").map(x => parseInt(x.trim())).filter(n => n >= 1).sort((a, b) => a - b);
+  const courtMismatch = _bookedCourts.length > 0 && _askedCourts.length > 0 &&
+    (_bookedCourts.length !== _askedCourts.length || _bookedCourts.some((n, i) => n !== _askedCourts[i]));
+
   // Reconcile client quote vs server charge. state.quotedTotal is the price
   // the customer saw before paying; if the server settled on a meaningfully
   // different number, surface a gentle informational notice (not an error).
@@ -5317,6 +5329,13 @@ function ScreenConfirm({ state, setState, go, lang }) {
           <span className="k">{c.courts > 1 ? t("c_courts", null, lang) : t("c_court", null, lang)}</span>
           <span className="v">{c.courtNumbers}</span>
         </div>
+        {courtMismatch && (
+          <div className="hint" style={{ marginTop: 4, marginBottom: 6, color: "var(--clay)", opacity: 0.95 }}>
+            {lang === "km"
+              ? "តារាង​ដែល​អ្នក​ជ្រើស​មិន​ទំនេរ​ទៀត​ទេ — អ្នក​ត្រូវ​បាន​កក់​តារាង​ខាង​លើ​ជំនួស។"
+              : "The court you picked was no longer free at that time — you're booked on the court shown above instead."}
+          </div>
+        )}
         <div className="detail-row">
           <span className="k">{t("c_duration", null, lang)}</span>
           <span className="v">{lang === "km" ? formatDurationKm(c.slots) : formatDuration(c.slots)}</span>
