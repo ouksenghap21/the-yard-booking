@@ -4650,7 +4650,8 @@ var MUTATING_ACTIONS = new Set([
   "adminSendReceiptSms",
   "adminMarkWalkInPlayerPaid","adminMarkCoachingSessionsPaid","adminPayCoach","adminRefundCoachingSession",
   "adminUpdateOpenPlayPlayer","adminRemoveOpenPlayPlayer","adminAddOpenPlayPlayer","adminUpdateOpenPlaySession",
-  "adminCreateSponsorship","adminUpdateSponsorship","adminCancelSponsorship"
+  "adminCreateSponsorship","adminUpdateSponsorship","adminCancelSponsorship",
+  "adminRefreshCache"
 ]);
 function genRequestId(){
   try { if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID(); } catch(e){}
@@ -6469,6 +6470,16 @@ function ScreenDashboard() {
               <LastUpdated ts={lastUpdated} />
             </div>
           )}
+          <button
+            onClick={async () => {
+              try { await api("adminRefreshCache", {}, { bypassCache: true }); } catch (e) {}
+              refresh({ fresh: true });
+              showToast("Refreshed from the live sheet", "success");
+            }}
+            title="Force a full refresh from the sheet — use after editing data directly in Google Sheets (hand edits don't auto-refresh)"
+            style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", padding: "4px 9px", border: "1.5px solid var(--ink)", borderRadius: 4, background: "transparent", cursor: "pointer" }}>
+            ↻ Refresh
+          </button>
         </div>
       </div>
 
