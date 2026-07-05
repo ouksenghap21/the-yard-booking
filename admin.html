@@ -4646,6 +4646,7 @@ var MUTATING_ACTIONS = new Set([
   "adminSetPosSettings","adminSetGoals","adminSetLandingConfig",
   "posCreateSale","adminSettleCombined","tabOpen","tabClose","tabAddItem","tabRemoveItem",
   "tabCancel","tabAttachBooking","tabAttachWalkInPlayer","tabDetachBooking","tabDetachWalkInPlayer",
+  "tabAttachOpenPlayPlayer","tabDetachOpenPlayPlayer",
   "adminRenewMember",
   "adminSendReceiptSms",
   "adminMarkWalkInPlayerPaid","adminMarkCoachingSessionsPaid","adminPayCoach","adminRefundCoachingSession",
@@ -12950,6 +12951,15 @@ function TabDetailModal({ tabId, products, onClose }) {
     else showToast(r.error || "Failed", "error");
   }
 
+  async function detachOpenPlay(registrationId) {
+    if (!confirm("Detach this walk-in player from the tab?")) return;
+    setWorking(true);
+    const r = await api("tabDetachOpenPlayPlayer", { registrationId: registrationId });
+    setWorking(false);
+    if (r.ok) load();
+    else showToast(r.error || "Failed", "error");
+  }
+
   async function cancelTab() {
     if (!confirm("Cancel this tab? Items will be discarded. Attached bookings/walk-ins will revert to Pending (need separate payment).")) return;
     setWorking(true);
@@ -13019,8 +13029,8 @@ function TabDetailModal({ tabId, products, onClose }) {
           </div>
           <div>
             <div className="kicker">Walk-in</div>
-            <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 22, color: "var(--peach,#D9785C)" }}>${data.playerTotal.toFixed(2)}</div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.5 }}>{data.walkInPlayers.length} player{data.walkInPlayers.length === 1 ? "" : "s"}</div>
+            <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 22, color: "var(--peach,#D9785C)" }}>${(data.playerTotal + (data.openPlayTotal || 0)).toFixed(2)}</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.5 }}>{data.walkInPlayers.length + (data.openPlayPlayers ? data.openPlayPlayers.length : 0)} player{(data.walkInPlayers.length + (data.openPlayPlayers ? data.openPlayPlayers.length : 0)) === 1 ? "" : "s"}</div>
           </div>
           <div style={{ borderLeft: "1.5px solid var(--ink)", paddingLeft: 14 }}>
             <div className="kicker">Total</div>
@@ -13109,6 +13119,35 @@ function TabDetailModal({ tabId, products, onClose }) {
                     ${p.amount.toFixed(2)}
                     {isOpen && (
                       <button className="btn-sm" onClick={() => detachPlayer(p.playerId)} disabled={working}
+                        style={{ color: "var(--clay)" }}>detach</button>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Walk-in (open-play) players section */}
+        {data.openPlayPlayers && data.openPlayPlayers.length > 0 && (
+          <>
+            <div className="section-label">
+              <span><span className="num">04</span><span className="name" style={{ color: "var(--peach,#D9785C)" }}>Walk-in Players</span></span>
+              <span className="right">{data.openPlayPlayers.length}</span>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              {data.openPlayPlayers.map(p => (
+                <div key={p.registrationId} className="modal-detail-row" style={{ padding: "8px 0" }}>
+                  <span className="k">
+                    <strong>{p.name}</strong>
+                    <span style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, marginLeft: 6 }}>
+                      {p.date} {p.time}
+                    </span>
+                  </span>
+                  <span className="v" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    ${p.amount.toFixed(2)}
+                    {isOpen && (
+                      <button className="btn-sm" onClick={() => detachOpenPlay(p.registrationId)} disabled={working}
                         style={{ color: "var(--clay)" }}>detach</button>
                     )}
                   </span>
@@ -13349,6 +13388,18 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
               sub: "WALK-IN"
             });
           });
+        } else if (e.entryType === "openplay_player") {
+          flat.push({
+            kind: "openplay_player",
+            id: e.id,
+            label: (e.label || "Walk-in") + (e.name ? " · " + e.name : ""),
+            phone: String(e.customerPhone || e.phone || ""),
+            name: String(e.customerName || e.name || ""),
+            date: e.date || "",
+            time: e.time || "",
+            amount: e.total || e.amount || 0,
+            sub: "WALK-IN"
+          });
         }
       });
       setEntries(flat);
@@ -13362,6 +13413,8 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
       r = await api("tabAttachBooking", { tabId: tabId, bookingId: entry.id });
     } else if (entry.kind === "walkin_player") {
       r = await api("tabAttachWalkInPlayer", { tabId: tabId, playerId: entry.id });
+    } else if (entry.kind === "openplay_player") {
+      r = await api("tabAttachOpenPlayPlayer", { tabId: tabId, registrationId: entry.id });
     } else {
       r = { ok: false, error: "Unknown entry type" };
     }
