@@ -6945,20 +6945,22 @@ function SponsorStrip() {
   //   - scale: optional size multiplier (e.g. 0.85 to shrink a logo
   //     that's visually too large, 1.15 to bump up a small one).
   const SPONSORS = [
-    // 2026-07-06 refresh — full sponsor set. blend "none" = logo has real
-    // transparency; "multiply" knocks out white backgrounds on jpg/flat png.
-    { name: "Pocari Sweat",   file: "pocari-sweat.svg",   blend: "none" },
-    { name: "Keren",          file: "keren.png",          blend: "multiply" },
-    { name: "Cambodia Water", file: "cambodia-water.jpg", blend: "multiply" },
-    { name: "Bacchus",        file: "bacchus.jpg",        blend: "multiply" },
-    { name: "Cambodia Cola",  file: "cambodia-cola.png",  blend: "multiply" },
-    { name: "Palvin",         file: "palvin.jpg",         blend: "multiply" },
-    { name: "Lay Green",      file: "lay-green.png",      blend: "none" },
-    { name: "Red Ant",        file: "red-ant.png",        blend: "multiply" },
-    { name: "Selkirk",        file: "selkirk.webp",       blend: "none" },
-    { name: "Envirocam",      file: "envirocam.png",      blend: "none" },
-    { name: "Forma",          file: "forma.png",          blend: "multiply" },
-    { name: "The Social",     file: "the-social.jpg",     blend: "multiply" }
+    // 2026-07-06 refresh — full sponsor set, filenames EXACTLY as uploaded
+    // to /sponsors/ (GitHub Pages is case-sensitive; spaces are fine, the
+    // browser URL-encodes them). blend "none" = logo has real transparency;
+    // "multiply" knocks out white backgrounds on jpg/flat png.
+    { name: "Pocari Sweat",   file: "pocari sweat.svg",     blend: "none" },
+    { name: "Keren",          file: "keren.png",            blend: "multiply" },
+    { name: "Cambodia Water", file: "cambodia water.jpeg",  blend: "multiply" },
+    { name: "Bacchus",        file: "bacchus.jpeg",         blend: "multiply" },
+    { name: "Cambodia Cola",  file: "cambodia cola .png",   blend: "multiply" },
+    { name: "Palvin",         file: "palvin.jpeg",          blend: "multiply" },
+    { name: "Lay Green",      file: "lay green.png",        blend: "none" },
+    { name: "Red Ant",        file: "red ant.png",          blend: "multiply" },
+    { name: "Selkirk",        file: "selkirk .webp",        blend: "none" },
+    { name: "Envirocam",      file: "Envirocam.png",        blend: "none" },
+    { name: "Forma",          file: "Forma.png",            blend: "multiply" },
+    { name: "The Social",     file: "the social .jpeg",     blend: "multiply" }
   ];
 
   if (!SPONSORS || SPONSORS.length === 0) return null;
