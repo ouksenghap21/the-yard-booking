@@ -4495,7 +4495,8 @@ const API_CACHE_TTL = {
   tabListOpen: 10000,
   adminListWalkInBlocks: 15000,
   adminListTournaments: 30000,
-  adminGetTournament: 15000
+  adminGetTournament: 15000,
+  adminListCorporateAccounts: 60000
 };
 
 const _apiCache = new Map();
@@ -4652,6 +4653,7 @@ var MUTATING_ACTIONS = new Set([
   "adminMarkWalkInPlayerPaid","adminMarkCoachingSessionsPaid","adminPayCoach","adminRefundCoachingSession",
   "adminUpdateOpenPlayPlayer","adminRemoveOpenPlayPlayer","adminAddOpenPlayPlayer","adminUpdateOpenPlaySession",
   "adminCreateSponsorship","adminUpdateSponsorship","adminCancelSponsorship",
+  "adminCreateCorporateAccount","adminUpdateCorporateAccount",
   "adminRefreshCache"
 ]);
 function genRequestId(){
@@ -4873,6 +4875,9 @@ function _invalidateForMutation(action) {
   }
   if (isSponsorshipMutation) {
     wipe("adminListSponsorships");
+  }
+  if (/^(adminCreateCorporateAccount|adminUpdateCorporateAccount)/.test(action)) {
+    wipe("adminListCorporateAccounts");
   }
   if (isBookingMutation) {
     wipe("adminListBookings");
@@ -8973,18 +8978,26 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
     time: "18:00",
     slots: 2,
     courts: [],
-    email: ""
+    email: "",
+    corporateId: ""
   });
   const [availSlots, setAvailSlots] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [pricePreview, setPricePreview] = useState(null);
   const [config, setConfig] = useState(null);
   const [memberInfo, setMemberInfo] = useState(null);
+  const [corpAccounts, setCorpAccounts] = useState([]);
 
   // Load pricing config once when modal opens
   useEffect(() => {
     getCachedConfig().then(c => setConfig(c));
+    // Corporate accounts (negotiated pricing) — dropdown only shows if any exist
+    api("adminListCorporateAccounts").then(r => {
+      if (r.ok) setCorpAccounts((r.accounts || []).filter(a => a.status === "Active"));
+    }).catch(() => {});
   }, []);
+
+  const selectedCorp = corpAccounts.find(a => a.accountId === form.corporateId) || null;
 
   // Load availability for selected date
   useEffect(() => {
@@ -9110,7 +9123,8 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
         slots: form.slots,
         courts: form.courts.length,
         courtList: form.courts.join(","),  // explicit list — backend respects this
-        source: "Staff"
+        corporateId: form.corporateId || "",  // negotiated rate applied server-side
+        source: form.corporateId ? "Corporate" : "Staff"
       });
     } catch (e) {
       setSubmitting(false);
@@ -9179,6 +9193,33 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
         </div>
+
+        {/* Corporate account — only shows when accounts exist. Selecting one
+            applies the negotiated rate SERVER-SIDE at create time. */}
+        {corpAccounts.length > 0 && (
+          <div className="field">
+            <div className="field-label">Corporate account <span style={{ opacity: 0.5 }}>· optional</span></div>
+            <select
+              value={form.corporateId}
+              onChange={(e) => setForm({ ...form, corporateId: e.target.value })}
+              style={{ width: "100%", padding: "10px 12px", border: "1.5px solid var(--ink)", borderRadius: 4, background: "var(--cream)", fontFamily: "var(--sans)", fontSize: 14 }}
+            >
+              <option value="">— None (standard pricing) —</option>
+              {corpAccounts.map(a => (
+                <option key={a.accountId} value={a.accountId}>
+                  {a.company} · {a.rateType === "flat_hourly" ? "$" + a.rateValue + "/court-hr" : a.rateValue + "% off"}
+                </option>
+              ))}
+            </select>
+            {selectedCorp && (
+              <div style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 10.5, letterSpacing: "0.06em", color: "var(--green)", fontWeight: 700 }}>
+                {selectedCorp.rateType === "flat_hourly"
+                  ? "CORPORATE RATE: $" + selectedCorp.rateValue.toFixed(2) + " × " + (form.slots / 2) + "h × " + (form.courts.length || 1) + " court(s) = $" + (selectedCorp.rateValue * (form.slots / 2) * (form.courts.length || 1)).toFixed(2)
+                  : "CORPORATE RATE: " + selectedCorp.rateValue + "% off — final price applied at create"}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="field-row">
           <div className="field">
@@ -14983,11 +15024,305 @@ function SaleConfirmModal({ sale, onClose }) {
    CUSTOMERS — unified list of members + guests
    ==================================================================== */
 
+/* ====================================================================
+   CORPORATE ACCOUNTS — companies with negotiated court pricing.
+   Manage accounts + pull a monthly statement (invoice basis).
+   ==================================================================== */
+function CorporateAccountsModal({ onClose }) {
+  const [accounts, setAccounts] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [editAcct, setEditAcct] = useState(null);
+  const [stmtAcct, setStmtAcct] = useState(null);
+
+  async function load() {
+    const r = await api("adminListCorporateAccounts", {}, { bypassCache: true });
+    if (r.ok) setAccounts(r.accounts || []);
+    else showToast(r.error || "Failed to load accounts", "error");
+  }
+  useEffect(() => { load(); }, []);
+
+  function rateLabel(a) {
+    return a.rateType === "flat_hourly" ? "$" + a.rateValue.toFixed(2) + " / court-hour" : a.rateValue + "% off rack rate";
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 680, maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">Negotiated court pricing</div>
+            <h2>Corporate Accounts</h2>
+          </div>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <button className="btn primary" onClick={() => setShowAdd(true)}>+ New account</button>
+        </div>
+
+        {accounts === null ? (
+          <div style={{ padding: 30, display: "flex", justifyContent: "center" }}><BouncingBall size="sm" /></div>
+        ) : accounts.length === 0 ? (
+          <div className="empty">
+            No corporate accounts yet. Create one when a company negotiates
+            special court pricing — their bookings will automatically use the
+            agreed rate and you can pull a monthly statement for invoicing.
+          </div>
+        ) : (
+          accounts.map(a => (
+            <div key={a.accountId} style={{
+              padding: "12px 14px", border: "1.5px solid " + (a.status === "Active" ? "var(--ink)" : "rgba(26,26,26,0.25)"),
+              borderRadius: 6, marginBottom: 8, background: a.status === "Active" ? "var(--paper)" : "transparent",
+              opacity: a.status === "Active" ? 1 : 0.6,
+              display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "center"
+            }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>
+                  {a.company}
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", marginLeft: 8, opacity: 0.5 }}>{a.accountId}</span>
+                  {a.status !== "Active" && (
+                    <span style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", marginLeft: 8, color: "var(--clay)", fontWeight: 700 }}>INACTIVE</span>
+                  )}
+                </div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, marginTop: 3, color: "var(--green)", fontWeight: 700 }}>{rateLabel(a)}</div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6, marginTop: 2 }}>
+                  {(a.contactName || "no contact") + (a.contactPhone ? " · " + a.contactPhone : "") + (a.contactEmail ? " · " + a.contactEmail : "")}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="btn-sm" onClick={() => setStmtAcct(a)}>Statement</button>
+                <button className="btn-sm" onClick={() => setEditAcct(a)}>Edit</button>
+              </div>
+            </div>
+          ))
+        )}
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose}>Close</button>
+        </div>
+
+        {(showAdd || editAcct) && (
+          <CorporateAccountFormModal
+            account={editAcct}
+            onClose={() => { setShowAdd(false); setEditAcct(null); }}
+            onSaved={() => { setShowAdd(false); setEditAcct(null); load(); }}
+          />
+        )}
+        {stmtAcct && <CorporateStatementModal account={stmtAcct} onClose={() => setStmtAcct(null)} />}
+      </div>
+    </div>
+  );
+}
+
+function CorporateAccountFormModal({ account, onClose, onSaved }) {
+  const isEdit = !!account;
+  const [form, setForm] = useState({
+    company: account ? account.company : "",
+    contactName: account ? account.contactName : "",
+    contactPhone: account ? account.contactPhone : "",
+    contactEmail: account ? account.contactEmail : "",
+    rateType: account ? account.rateType : "flat_hourly",
+    rateValue: account ? String(account.rateValue) : "",
+    status: account ? account.status : "Active",
+    notes: account ? account.notes : ""
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    if (!form.company.trim()) return showToast("Company name required", "error");
+    const rv = parseFloat(form.rateValue);
+    if (isNaN(rv) || rv <= 0) return showToast("Enter a valid rate", "error");
+    setSaving(true);
+    const params = {
+      company: form.company, contactName: form.contactName, contactPhone: form.contactPhone,
+      contactEmail: form.contactEmail, rateType: form.rateType, rateValue: rv, notes: form.notes
+    };
+    let r;
+    if (isEdit) {
+      params.accountId = account.accountId;
+      params.status = form.status;
+      r = await api("adminUpdateCorporateAccount", params);
+    } else {
+      r = await api("adminCreateCorporateAccount", params);
+    }
+    setSaving(false);
+    if (r.ok) { showToast(isEdit ? "Account updated" : "Account created · " + r.accountId, "success"); onSaved(); }
+    else showToast(r.error || "Failed", "error");
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 210 }}>
+      <div className="modal" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">{isEdit ? account.accountId : "New corporate account"}</div>
+            <h2>{isEdit ? "Edit Account" : "Add Corporate Account"}</h2>
+          </div>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
+        </div>
+
+        <div className="field">
+          <div className="field-label">Company name</div>
+          <input type="text" autoFocus={!isEdit} value={form.company} placeholder="e.g. Acme Co. Ltd."
+            onChange={(e) => setForm({ ...form, company: e.target.value })} />
+        </div>
+        <div className="field-row">
+          <div className="field">
+            <div className="field-label">Contact name</div>
+            <input type="text" value={form.contactName} onChange={(e) => setForm({ ...form, contactName: e.target.value })} />
+          </div>
+          <div className="field">
+            <div className="field-label">Contact phone</div>
+            <input type="tel" inputMode="numeric" value={form.contactPhone}
+              onChange={(e) => setForm({ ...form, contactPhone: e.target.value.replace(/[^0-9]/g, "") })} />
+          </div>
+        </div>
+        <div className="field">
+          <div className="field-label">Contact email <span style={{ opacity: 0.5 }}>· optional</span></div>
+          <input type="email" value={form.contactEmail} onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} />
+        </div>
+
+        <div className="field-row">
+          <div className="field">
+            <div className="field-label">Pricing type</div>
+            <select value={form.rateType} onChange={(e) => setForm({ ...form, rateType: e.target.value })}
+              style={{ width: "100%", padding: "10px 12px", border: "1.5px solid var(--ink)", borderRadius: 4, background: "var(--cream)", fontFamily: "var(--sans)", fontSize: 14 }}>
+              <option value="flat_hourly">Flat $ per court-hour</option>
+              <option value="discount_pct">% off rack rate</option>
+            </select>
+          </div>
+          <div className="field">
+            <div className="field-label">{form.rateType === "flat_hourly" ? "Rate ($/court-hour)" : "Discount (%)"}</div>
+            <input type="number" min="0" step="0.5" value={form.rateValue}
+              placeholder={form.rateType === "flat_hourly" ? "e.g. 10" : "e.g. 20"}
+              onChange={(e) => setForm({ ...form, rateValue: e.target.value })} />
+          </div>
+        </div>
+
+        {isEdit && (
+          <div className="field">
+            <div className="field-label">Status</div>
+            <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}
+              style={{ width: "100%", padding: "10px 12px", border: "1.5px solid var(--ink)", borderRadius: 4, background: "var(--cream)", fontFamily: "var(--sans)", fontSize: 14 }}>
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive (keeps history, blocks new bookings)</option>
+            </select>
+          </div>
+        )}
+
+        <div className="field">
+          <div className="field-label">Notes <span style={{ opacity: 0.5 }}>· optional</span></div>
+          <input type="text" value={form.notes} placeholder="e.g. 4 courts, first Friday monthly"
+            onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+        </div>
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn primary" onClick={submit} disabled={saving}>
+            {saving ? "Saving…" : (isEdit ? "Save changes" : "Create account")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CorporateStatementModal({ account, onClose }) {
+  const [month, setMonth] = useState(todayISO().substring(0, 7));
+  const [stmt, setStmt] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  async function load(m) {
+    setLoading(true);
+    const r = await api("adminCorporateStatement", { accountId: account.accountId, month: m }, { bypassCache: true });
+    setLoading(false);
+    if (r.ok) setStmt(r);
+    else showToast(r.error || "Failed to load statement", "error");
+  }
+  useEffect(() => { load(month); }, [month]);
+
+  function copyStatement() {
+    if (!stmt) return;
+    const L = [];
+    L.push("THE YARD — CORPORATE STATEMENT");
+    L.push(account.company + " (" + account.accountId + ") · " + stmt.month);
+    L.push("");
+    for (const b of stmt.lines) {
+      L.push(b.date + "  " + b.time + "  " + b.courtCount + " court(s) [" + b.courts + "]  $" + b.total.toFixed(2) + "  " + b.status);
+    }
+    L.push("");
+    L.push("Bookings: " + stmt.bookingCount);
+    L.push("Total: $" + stmt.totalBilled.toFixed(2) + "  (Paid: $" + stmt.totalPaid.toFixed(2) + " · Outstanding: $" + stmt.totalPending.toFixed(2) + ")");
+    try {
+      navigator.clipboard.writeText(L.join("\n"));
+      showToast("Statement copied — paste into your invoice", "success");
+    } catch (e) { showToast("Copy failed — select and copy manually", "error"); }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 210 }}>
+      <div className="modal" style={{ maxWidth: 620, maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">{account.company}</div>
+            <h2>Monthly Statement</h2>
+          </div>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14 }}>
+          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)}
+            style={{ padding: "8px 10px", border: "1.5px solid var(--ink)", borderRadius: 4, background: "var(--cream)", fontFamily: "var(--mono)", fontSize: 12 }} />
+          <button className="btn-sm primary" onClick={copyStatement} disabled={!stmt || !stmt.lines.length}>Copy statement</button>
+        </div>
+
+        {loading || !stmt ? (
+          <div style={{ padding: 30, display: "flex", justifyContent: "center" }}><BouncingBall size="sm" /></div>
+        ) : stmt.lines.length === 0 ? (
+          <div className="empty">No bookings for {account.company} in {stmt.month}.</div>
+        ) : (
+          <>
+            {stmt.lines.map(b => (
+              <div key={b.bookingId} style={{
+                display: "grid", gridTemplateColumns: "90px 1fr auto auto", gap: 10, alignItems: "center",
+                padding: "8px 10px", borderBottom: "1px solid rgba(26,26,26,0.08)", fontFamily: "var(--mono)", fontSize: 11.5
+              }}>
+                <span>{b.date.substring(5)}</span>
+                <span>{b.time} · {b.courtCount} court{b.courtCount === 1 ? "" : "s"} ({b.courts})</span>
+                <span style={{ fontWeight: 700 }}>${b.total.toFixed(2)}</span>
+                <span style={{
+                  fontSize: 9, letterSpacing: "0.1em", fontWeight: 700, padding: "3px 7px", borderRadius: 3,
+                  color: b.status.toLowerCase() === "paid" ? "var(--green)" : "var(--clay)",
+                  border: "1px solid currentColor"
+                }}>{b.status.toUpperCase()}</span>
+              </div>
+            ))}
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 14, fontFamily: "var(--mono)", fontSize: 12.5, fontWeight: 700 }}>
+              <span>{stmt.bookingCount} booking{stmt.bookingCount === 1 ? "" : "s"}</span>
+              <span>Total ${stmt.totalBilled.toFixed(2)} · Paid ${stmt.totalPaid.toFixed(2)} · Outstanding <span style={{ color: stmt.totalPending > 0 ? "var(--clay)" : "var(--green)" }}>${stmt.totalPending.toFixed(2)}</span></span>
+            </div>
+            {stmt.cancelled.length > 0 && (
+              <div style={{ marginTop: 10, fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55 }}>
+                {stmt.cancelled.length} cancelled booking(s) excluded from totals.
+              </div>
+            )}
+          </>
+        )}
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ScreenCustomers() {
   const [customers, setCustomers] = useState(null);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [historyCustomer, setHistoryCustomer] = useState(null);
+  const [showCorporate, setShowCorporate] = useState(false);
 
   async function load() {
     const params = { search: search, type: typeFilter === "all" ? "" : typeFilter };
@@ -15038,7 +15373,16 @@ function ScreenCustomers() {
           </div>
           <h1>Customers</h1>
         </div>
+        <button
+          className="btn"
+          style={{ alignSelf: "center" }}
+          onClick={() => setShowCorporate(true)}
+        >
+          Corporate accounts
+        </button>
       </div>
+
+      {showCorporate && <CorporateAccountsModal onClose={() => setShowCorporate(false)} />}
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
         <input
