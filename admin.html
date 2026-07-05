@@ -4834,6 +4834,13 @@ function _invalidateForMutation(action) {
     wipe("posListSales");
     wipe("adminListSettleableEntries");
   }
+  // QA fix: creating/cancelling/paying bookings, walk-ins, open-play and
+  // coaching entries ALSO changes what's attachable in the POS/tab pickers.
+  // Previously only POS/tab mutations wiped this cache, so a just-added
+  // walk-in player could be missing from "+ Attach" for up to 10s.
+  if (isBookingMutation || isWalkInMutation || isOpenPlayMutation || isCoachingMutation) {
+    wipe("adminListSettleableEntries");
+  }
   if (isTabMutation) {
     wipe("tabListOpen");
     wipe("tabListAll");
@@ -6552,22 +6559,27 @@ function ScreenDashboard() {
                 title={
                   "Total revenue today: " + fmtMoney(total) +
                   "\nCourt: " + fmtMoney(court) +
-                  "\nWalk-in: " + fmtMoney(walkin) +
+                  "\nWalk-in (court block): " + fmtMoney(walkin) +
                   "\nCoaching: " + fmtMoney(coaching) +
-                  "\nWalk-in: " + fmtMoney(openPlay) +
+                  "\nWalk-in (session): " + fmtMoney(openPlay) +
                   "\nPOS: " + fmtMoney(pos) +
-                  (mem > 0 ? "\nMemberships: " + fmtMoney(mem) : "")
+                  (mem > 0 ? "\nMemberships: " + fmtMoney(mem) : "") +
+                  "\n\nRecognized by session date. Prepayments and pay-laters" +
+                  "\nappear in Takings on the day the money was collected."
                 }>
                   {fmtMoney(total)}
                 </div>
                 <div className="sub" style={{ color: "var(--cream)", opacity: 0.85, marginTop: 8 }}>
-                  {fmtMoneyWhole(operational)} operational
+                  {/* QA fix: exact cents — whole-dollar rounding made the
+                      breakdown disagree with the total ($270+$200 ≠ $469.50) */}
+                  {fmtMoney(operational)} operational
                   {mem > 0 && (
-                    <> · <span style={{ fontWeight: 700 }}>+{fmtMoneyWhole(mem)} memberships</span></>
+                    <> · <span style={{ fontWeight: 700 }}>+{fmtMoney(mem)} memberships</span></>
                   )}
                   {totalPending > 0 && (
-                    <> · {fmtMoneyWhole(totalPending)} pending</>
+                    <> · {fmtMoney(totalPending)} pending</>
                   )}
+                  {" · by session date"}
                 </div>
               </>
             );
@@ -6609,9 +6621,9 @@ function ScreenDashboard() {
               const totalP = courtP + walkinP + coachP + opP;
               const breakdown = [];
               if (courtP > 0) breakdown.push("Court: " + fmtMoney(courtP));
-              if (walkinP > 0) breakdown.push("Walk-in: " + fmtMoney(walkinP));
+              if (walkinP > 0) breakdown.push("Walk-in (court block): " + fmtMoney(walkinP));
               if (coachP > 0) breakdown.push("Coaching: " + fmtMoney(coachP));
-              if (opP > 0) breakdown.push("Walk-in: " + fmtMoney(opP));
+              if (opP > 0) breakdown.push("Walk-in (session): " + fmtMoney(opP));
               return (
                 <>
                   <div className="value" style={valueFitStyle(totalP)} title={breakdown.join("\n")}>{fmtMoneyWhole(totalP)}</div>
@@ -6638,7 +6650,7 @@ function ScreenDashboard() {
       {/* Today's takings by method — Cash vs ABA reconciliation. */}
       {payBreakdown && payBreakdown.byMethod && (
         <div className="stat-card" style={{ marginBottom: 18, padding: "16px 20px" }}>
-          <div className="label">Today's takings by method · net of refunds & cash coach payouts</div>
+          <div className="label">Today's takings by method · by payment date · net of refunds & cash coach payouts</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 18, alignItems: "baseline", marginTop: 8 }}>
             {Object.entries(payBreakdown.byMethod).map(([method, amt]) => (
               <div key={method} style={{ fontFamily: "var(--mono)", fontSize: 14 }}>
