@@ -4661,6 +4661,7 @@ var MUTATING_ACTIONS = new Set([
   "adminUpdateOpenPlayPlayer","adminRemoveOpenPlayPlayer","adminAddOpenPlayPlayer","adminUpdateOpenPlaySession",
   "adminCreateSponsorship","adminUpdateSponsorship","adminCancelSponsorship",
   "adminCreateCorporateAccount","adminUpdateCorporateAccount",
+  "adminCreateStaff","adminUpdateStaff",
   "adminRefreshCache"
 ]);
 function genRequestId(){
@@ -5815,11 +5816,14 @@ function ScreenLogin({ onAuth }) {
   async function tryAuth(pin) {
     setChecking(true);
     setError("");
-    // Verify PIN by hitting a PIN-protected endpoint
+    // Verify PIN via adminWhoAmI — works for BOTH the owner PIN and staff
+    // PINs (staff may not have dashboard access, so adminDashboard would
+    // wrongly reject them). Also returns role + allowed tabs for the UI.
     setStoredPin(pin);
-    const r = await api("adminDashboard");
+    const r = await api("adminWhoAmI", {}, { bypassCache: true });
     setChecking(false);
     if (r.ok) {
+      try { sessionStorage.setItem("yard-staff-info", JSON.stringify({ role: r.role, name: r.name, allowedTabs: r.allowedTabs || [] })); } catch (e) {}
       onAuth();
     } else {
       setStoredPin("");
@@ -6207,6 +6211,8 @@ function ScreenDashboard() {
   const [kpiData, setKpiData] = useState(null);
   const [opKpiData, setOpKpiData] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [lastChecked, setLastChecked] = useState(null);   // every successful 10s pulse
+  const lastFullRefreshRef = useRef(0);                    // failsafe timer baseline
   const [clock, setClock] = useState(fmtClock());
   // Today's takings split by tender (Cash vs ABA). Fetched once on load.
   const [payBreakdown, setPayBreakdown] = useState(null);
@@ -6372,6 +6378,7 @@ function ScreenDashboard() {
     if (k && k.ok) setKpiData(k);
     if (ok && ok.ok) setOpKpiData(ok);
     setLastUpdated(new Date());
+    lastFullRefreshRef.current = Date.now();
   }
 
   // Today's Cash-vs-ABA reconciliation. Fetch on mount and whenever a
@@ -6403,6 +6410,7 @@ function ScreenDashboard() {
       try {
         const r = await api("adminPulse", {}, { bypassCache: true });
         if (r && r.ok && r.fingerprint) {
+          setLastChecked(new Date());   // prove the 10s heartbeat to the user
           if (r.fingerprint !== lastFingerprint) {
             const isFirst = lastFingerprint === "";
             lastFingerprint = r.fingerprint;
@@ -6411,6 +6419,12 @@ function ScreenDashboard() {
             if (!isFirst) {
               refresh({ fresh: true });
             }
+          } else if (Date.now() - (lastFullRefreshRef.current || 0) > 5 * 60 * 1000) {
+            // FAILSAFE: even with an unchanged fingerprint, do a full refresh
+            // every 5 minutes. Catches hand-edits made directly in the Google
+            // Sheet (same row count, no data-version bump) and any missed
+            // invalidation — the dashboard can never be >5 min stale while open.
+            refresh({ fresh: true });
           }
         }
       } catch (e) {
@@ -6488,6 +6502,11 @@ function ScreenDashboard() {
           {lastUpdated && (
             <div style={{ marginTop: 4 }}>
               <LastUpdated ts={lastUpdated} />
+              {lastChecked && (
+                <span style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.4, marginLeft: 8 }}>
+                  · checked {fmtRelativeTime(lastChecked)}
+                </span>
+              )}
             </div>
           )}
           <button
@@ -21773,6 +21792,190 @@ function PricingRuleRow({ rule, idx, isFirst, isLast, onUpdate, onToggleDay, onR
   );
 }
 
+/* ====================================================================
+   STAFF ACCOUNTS — employee PINs with per-tab permissions (owner only).
+   Server enforces the permissions on every API call; the sidebar just
+   hides what a staff member can't use.
+   ==================================================================== */
+const STAFF_TAB_CHOICES = [
+  { id: "dashboard", label: "Dashboard" }, { id: "bookings", label: "Bookings" },
+  { id: "pos", label: "POS" }, { id: "openplay", label: "Walk-in" },
+  { id: "tournaments", label: "Tournaments" }, { id: "members", label: "Members" },
+  { id: "customers", label: "Customers" }, { id: "coaching", label: "Coaching" },
+  { id: "finances", label: "Finances" }, { id: "sponsorships", label: "Sponsorships" },
+  { id: "sms", label: "SMS Log" }, { id: "settings", label: "Settings" }
+];
+
+function StaffAccountsCard() {
+  const info = getStaffInfo();
+  const isStaffUser = !!(info && info.role === "staff");   // owner-only card
+  const [staff, setStaff] = useState(null);
+  const [editing, setEditing] = useState(null);      // staff object being edited
+  const [showAdd, setShowAdd] = useState(false);
+  const [denied, setDenied] = useState(false);
+
+  async function load() {
+    const r = await api("adminListStaff", {}, { bypassCache: true });
+    if (r.ok) setStaff(r.staff || []);
+    else if (/Owner PIN/i.test(r.error || "")) setDenied(true);
+  }
+  useEffect(() => { if (!isStaffUser) load(); }, []);
+
+  if (isStaffUser || denied) return null;
+
+  return (
+    <div className="settings-card">
+      <h3>Staff accounts & permissions</h3>
+      <div className="desc">
+        Give each employee their own 6-digit PIN and choose which tabs they can use.
+        Permissions are enforced by the server on every action — a staff PIN can't
+        touch a tab you haven't ticked, even via the API. Every sale and payment
+        they take is logged under their name in the Payments ledger.
+      </div>
+
+      {staff === null ? (
+        <div style={{ padding: 16 }}><BouncingBall size="sm" /></div>
+      ) : staff.length === 0 ? (
+        <div style={{ padding: "14px 0", fontFamily: "var(--mono)", fontSize: 11, opacity: 0.6 }}>
+          No staff accounts yet — you're the only login.
+        </div>
+      ) : (
+        staff.map(st => (
+          <div key={st.staffId} style={{
+            display: "grid", gridTemplateColumns: "1fr auto auto", gap: 10, alignItems: "center",
+            padding: "10px 12px", border: "1px solid rgba(26,26,26,0.15)", borderRadius: 6,
+            marginBottom: 6, background: st.status === "Active" ? "var(--paper)" : "transparent",
+            opacity: st.status === "Active" ? 1 : 0.55
+          }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>
+                {st.name}
+                <span style={{ fontFamily: "var(--mono)", fontSize: 9, marginLeft: 8, opacity: 0.5 }}>{st.staffId}</span>
+                {st.status !== "Active" && <span style={{ fontFamily: "var(--mono)", fontSize: 9, marginLeft: 8, color: "var(--clay)", fontWeight: 700 }}>DISABLED</span>}
+              </div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, opacity: 0.6, marginTop: 3, letterSpacing: "0.04em" }}>
+                {st.allowedTabs.map(t => (STAFF_TAB_CHOICES.find(c => c.id === t) || { label: t }).label).join(" · ")}
+              </div>
+            </div>
+            <button className="btn-sm" onClick={() => setEditing(st)}>Edit</button>
+            <button className="btn-sm ghost" style={{ color: st.status === "Active" ? "var(--clay)" : "var(--green)" }}
+              onClick={async () => {
+                const next = st.status === "Active" ? "Disabled" : "Active";
+                const r = await api("adminUpdateStaff", { staffId: st.staffId, status: next });
+                if (r.ok) { showToast(st.name + " " + next.toLowerCase(), "success"); load(); }
+                else showToast(r.error || "Failed", "error");
+              }}>
+              {st.status === "Active" ? "Disable" : "Enable"}
+            </button>
+          </div>
+        ))
+      )}
+
+      <div style={{ marginTop: 10 }}>
+        <button className="btn primary" onClick={() => setShowAdd(true)}>+ Add staff member</button>
+      </div>
+
+      {(showAdd || editing) && (
+        <StaffFormModal
+          member={editing}
+          onClose={() => { setShowAdd(false); setEditing(null); }}
+          onSaved={() => { setShowAdd(false); setEditing(null); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function StaffFormModal({ member, onClose, onSaved }) {
+  const isEdit = !!member;
+  const [name, setName] = useState(member ? member.name : "");
+  const [pin, setPin] = useState("");
+  const [tabs, setTabs] = useState(member ? member.allowedTabs.slice() : ["dashboard", "bookings", "pos", "openplay"]);
+  const [saving, setSaving] = useState(false);
+
+  function toggleTab(id) {
+    setTabs(prev => prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]);
+  }
+
+  async function submit() {
+    if (!name.trim()) return showToast("Name required", "error");
+    if (!isEdit && !/^\d{6}$/.test(pin)) return showToast("PIN must be exactly 6 digits", "error");
+    if (isEdit && pin && !/^\d{6}$/.test(pin)) return showToast("New PIN must be exactly 6 digits", "error");
+    if (!tabs.length) return showToast("Pick at least one tab", "error");
+    setSaving(true);
+    const params = { name: name.trim(), allowedTabs: tabs.join(",") };
+    let r;
+    if (isEdit) {
+      params.staffId = member.staffId;
+      if (pin) params.pin = pin;   // blank = keep existing PIN
+      r = await api("adminUpdateStaff", params);
+    } else {
+      params.pin = pin;
+      r = await api("adminCreateStaff", params);
+    }
+    setSaving(false);
+    if (r.ok) { showToast(isEdit ? "Staff updated" : name + " added — they can sign in with their PIN now", "success"); onSaved(); }
+    else showToast(r.error || "Failed", "error");
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 210 }}>
+      <div className="modal" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="kicker">{isEdit ? member.staffId : "New staff login"}</div>
+            <h2>{isEdit ? "Edit " + member.name : "Add Staff Member"}</h2>
+          </div>
+          <button className="x" onClick={onClose} aria-label="Close">×</button>
+        </div>
+
+        <div className="field">
+          <div className="field-label">Name</div>
+          <input type="text" autoFocus={!isEdit} value={name} placeholder="e.g. Sok Dara"
+            onChange={(e) => setName(e.target.value)} />
+        </div>
+
+        <div className="field">
+          <div className="field-label">{isEdit ? "New PIN (leave blank to keep current)" : "6-digit PIN"}</div>
+          <input type="text" inputMode="numeric" value={pin} placeholder="e.g. 482913" maxLength={6}
+            onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))} />
+          <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, opacity: 0.55, marginTop: 4 }}>
+            They'll use this PIN on the same admin login screen you do.
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="field-label">Tabs this person can use</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 4 }}>
+            {STAFF_TAB_CHOICES.map(c => (
+              <label key={c.id} style={{
+                display: "flex", alignItems: "center", gap: 7, padding: "8px 10px",
+                border: "1.5px solid " + (tabs.includes(c.id) ? "var(--ink)" : "rgba(26,26,26,0.2)"),
+                borderRadius: 5, cursor: "pointer", fontSize: 12.5, fontWeight: tabs.includes(c.id) ? 700 : 400,
+                background: tabs.includes(c.id) ? "var(--paper)" : "transparent"
+              }}>
+                <input type="checkbox" checked={tabs.includes(c.id)} onChange={() => toggleTab(c.id)}
+                  style={{ accentColor: "var(--green)" }} />
+                {c.label}
+              </label>
+            ))}
+          </div>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, opacity: 0.55, marginTop: 6 }}>
+            Tip: Settings gives access to pricing, promos and this staff list — most employees shouldn't have it.
+          </div>
+        </div>
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn primary" onClick={submit} disabled={saving}>
+            {saving ? "Saving…" : (isEdit ? "Save changes" : "Create login")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ScreenSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -22084,6 +22287,8 @@ function ScreenSettings() {
           <h1>Settings</h1>
         </div>
       </div>
+
+      <StaffAccountsCard />
 
       <div className="settings-card">
         <h3>Pricing & Hours</h3>
@@ -23309,9 +23514,24 @@ function QuickCreateFab({ go, screen }) {
   );
 }
 
+function getStaffInfo() {
+  try {
+    const raw = sessionStorage.getItem("yard-staff-info");
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return null;
+}
+
 function App() {
   const [authed, setAuthed] = useState(!!getStoredPin());
-  const [screen, setScreen] = useState("dashboard");
+  const staffInfo = getStaffInfo();
+  const isStaff = !!(staffInfo && staffInfo.role === "staff");
+  const allowedTabIds = isStaff ? (staffInfo.allowedTabs || []) : null;  // null = all
+  const canSee = (id) => !allowedTabIds || allowedTabIds.indexOf(id) >= 0;
+  const [screen, setScreen] = useState(() => {
+    if (!allowedTabIds || allowedTabIds.indexOf("dashboard") >= 0) return "dashboard";
+    return allowedTabIds[0] || "dashboard";
+  });
 
   // Validate the stored PIN on boot, then prefetch common tabs so navigation feels instant
   useEffect(() => {
@@ -23433,6 +23653,7 @@ function App() {
 
   function signOut() {
     setStoredPin("");
+    try { sessionStorage.removeItem("yard-staff-info"); } catch (e) {}
     invalidateApiCache("");  // wipe all cached responses so next user starts clean
     setAuthed(false);
   }
@@ -23538,7 +23759,7 @@ function App() {
     { id: "customers", label: "Customers", ready: true },
     { id: "finances",  label: "Finances",  ready: true },
     { id: "tournaments", label: "Tournaments", ready: true },
-    { id: "openplay",  label: "Open Play",  ready: true },
+    { id: "openplay",  label: "Walk-in",  ready: true },
     { id: "sponsorships", label: "Sponsorships", ready: true },
     { id: "sms",       label: "SMS Log",   ready: true },
     { id: "settings",  label: "Settings",  ready: true }
@@ -23742,10 +23963,13 @@ function App() {
           <div className="sub">Admin · Toul Kork</div>
         </div>
         <nav>
-          {NAV_GROUPS.map(g => (
+          {NAV_GROUPS.map(g => {
+            const visibleIds = g.ids.filter(canSee);
+            if (!visibleIds.length) return null;
+            return (
             <React.Fragment key={g.label}>
               <div className="nav-group-label">{g.label}</div>
-              {g.ids.map(id => {
+              {visibleIds.map(id => {
                 const t = tabs.find(x => x.id === id);
                 if (!t) return null;
                 return (
@@ -23776,10 +24000,11 @@ function App() {
                 );
               })}
             </React.Fragment>
-          ))}
+            );
+          })}
         </nav>
         <div className="footer">
-          <div className="staff">Signed in</div>
+          <div className="staff">{isStaff ? "Signed in · " + (staffInfo.name || "Staff") : "Signed in · Owner"}</div>
           <button className="signout" onClick={signOut}>
             <span>Sign out</span>
           </button>
