@@ -2778,7 +2778,7 @@ h1.h-display{ text-wrap:balance; }
     margin: 0 auto;
     max-width: 1100px;
     padding: 0 16px 12px;
-    font-family: "Manrope", system-ui, -apple-system, sans-serif;
+    font-family: var(--sans);
   }
   #yard-tournament-banner .ytb-track {
     position: relative;
@@ -2806,7 +2806,7 @@ h1.h-display{ text-wrap:balance; }
     flex-shrink: 0;
     padding: 4px 10px;
     border-radius: 999px;
-    font-family: "DM Mono", "Courier New", monospace;
+    font-family: var(--mono);
     font-size: 9px;
     font-weight: 700;
     letter-spacing: 0.18em;
@@ -2817,7 +2817,7 @@ h1.h-display{ text-wrap:balance; }
   #yard-tournament-banner .ytb-badge.upcoming { background: #A8744A; color: #F1EAD6; }
   #yard-tournament-banner .ytb-main { flex: 1; min-width: 0; }
   #yard-tournament-banner .ytb-title {
-    font-family: "Fraunces", "Georgia", serif;
+    font-family: var(--serif);
     font-size: 18px;
     font-weight: 500;
     line-height: 1.2;
@@ -2826,7 +2826,7 @@ h1.h-display{ text-wrap:balance; }
     white-space: nowrap;
   }
   #yard-tournament-banner .ytb-meta {
-    font-family: "DM Mono", "Courier New", monospace;
+    font-family: var(--mono);
     font-size: 11px;
     opacity: 0.78;
     margin-top: 3px;
@@ -2836,7 +2836,7 @@ h1.h-display{ text-wrap:balance; }
   }
   #yard-tournament-banner .ytb-cta {
     flex-shrink: 0;
-    font-family: "DM Mono", "Courier New", monospace;
+    font-family: var(--mono);
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.1em;
@@ -6222,66 +6222,66 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
       )}
 
       <style>{`
-        .op-screen { max-width: 720px; margin: 0 auto; padding: 24px 20px 80px; font-family: "Manrope", system-ui, sans-serif; color: #1A1A1A; }
+        .op-screen { max-width: 720px; margin: 0 auto; padding: 24px 20px 80px; font-family: var(--sans); color: var(--ink); }
         .op-hero { margin-bottom: 28px; text-align: center; }
-        .op-kicker { font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.18em; opacity: 0.7; margin-bottom: 12px; }
-        .op-title { font-family: "Fraunces", "Georgia", serif; font-size: 44px; font-weight: 500; margin: 0 0 12px; letter-spacing: -0.02em; }
+        .op-kicker { font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; opacity: 0.7; margin-bottom: 12px; }
+        .op-title { font-family: var(--serif); font-size: 44px; font-weight: 500; margin: 0 0 12px; letter-spacing: -0.02em; }
         .op-lede { font-size: 15px; line-height: 1.5; opacity: 0.75; max-width: 460px; margin: 0 auto; }
-        .op-section-label { font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.18em; opacity: 0.7; margin-bottom: 12px; font-weight: 700; }
+        .op-section-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; opacity: 0.7; margin-bottom: 12px; font-weight: 700; }
 
         /* Your bookings */
         .op-my-section { margin-bottom: 8px; }
         .op-my-card {
           display: grid; grid-template-columns: 32px 1fr 120px; gap: 12px;
-          padding: 14px 16px; background: #3D7A4F; color: #F1EAD6;
-          border-radius: 6px; cursor: pointer; margin-bottom: 8px;
-          transition: transform 0.15s, box-shadow 0.15s;
+          padding: 14px 16px; background: var(--green); color: var(--cream);
+          border: 1.5px solid var(--ink);
+          border-radius: 14px; cursor: pointer; margin-bottom: 8px;
+          transition: transform 0.15s;
         }
-        .op-my-card:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,0.18); }
+        .op-my-card:hover { transform: translateY(-1px); }
         .op-my-check {
           align-self: center; font-size: 18px; font-weight: 700;
           background: rgba(255,255,255,0.18); width: 28px; height: 28px;
           border-radius: 50%; display: flex; align-items: center; justify-content: center;
         }
-        .op-my-title { font-family: "Fraunces", serif; font-size: 17px; font-weight: 500; margin-bottom: 2px; }
-        .op-my-meta { font-family: "DM Mono", monospace; font-size: 10px; opacity: 0.85; }
+        .op-my-title { font-family: var(--serif); font-size: 17px; font-weight: 500; margin-bottom: 2px; }
+        .op-my-meta { font-family: var(--mono); font-size: 10px; opacity: 0.85; }
         .op-my-side { text-align: right; }
-        .op-my-status { font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.9; font-weight: 700; }
-        .op-my-action { font-family: "DM Mono", monospace; font-size: 9px; opacity: 0.7; margin-top: 3px; }
+        .op-my-status { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.9; font-weight: 700; }
+        .op-my-action { font-family: var(--mono); font-size: 9px; opacity: 0.7; margin-top: 3px; }
 
-        .op-loading { padding: 40px; text-align: center; font-family: "DM Mono", monospace; font-size: 12px; opacity: 0.5; letter-spacing: 0.1em; text-transform: uppercase; }
-        .op-empty { padding: 60px 20px; text-align: center; border: 1px solid rgba(26,26,26,0.12); border-radius: 6px; background: rgba(26,26,26,0.02); }
+        .op-loading { padding: 40px; text-align: center; font-family: var(--mono); font-size: 12px; opacity: 0.5; letter-spacing: 0.1em; text-transform: uppercase; }
+        .op-empty { padding: 60px 20px; text-align: center; border: 1.5px dashed rgba(26,26,26,0.35); border-radius: 14px; background: var(--paper); }
         .op-empty-icon { font-size: 48px; opacity: 0.3; margin-bottom: 14px; }
-        .op-empty-title { font-family: "Fraunces", serif; font-size: 22px; margin-bottom: 6px; }
+        .op-empty-title { font-family: var(--serif); font-size: 22px; margin-bottom: 6px; }
         .op-empty-hint { font-size: 14px; opacity: 0.6; margin-bottom: 18px; }
-        .op-empty-cta { background: transparent; color: #C64F3A; border: 1.5px solid #C64F3A; padding: 10px 20px; border-radius: 4px; font-family: "DM Mono", monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; cursor: pointer; }
+        .op-empty-cta { background: transparent; color: var(--clay); border: 1.5px solid var(--clay); padding: 10px 20px; border-radius: 4px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; cursor: pointer; }
 
         .op-list { display: flex; flex-direction: column; gap: 12px; }
         .op-card {
           display: grid; grid-template-columns: 110px 1fr 110px; gap: 16px;
-          padding: 16px 18px; background: #FFF;
-          border: 1px solid rgba(26,26,26,0.12);
-          border-left: 4px solid #C64F3A; border-radius: 6px;
+          padding: 16px 18px; background: var(--paper);
+          border: 1.5px solid var(--ink); border-radius: 14px;
           cursor: pointer;
-          transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+          transition: transform 0.15s ease, background 0.15s ease;
         }
-        .op-card:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(26,26,26,0.10); border-left-color: #1A1A1A; }
-        .op-card.full { opacity: 0.55; cursor: not-allowed; border-left-color: rgba(26,26,26,0.3); }
-        .op-card.full:hover { transform: none; box-shadow: none; }
-        .op-card.mine { border-left-color: #3D7A4F; background: rgba(61,122,79,0.04); }
+        .op-card:hover { transform: translateY(-1px); background: var(--cream-2); }
+        .op-card.full { opacity: 0.55; cursor: not-allowed; border-style: dashed; }
+        .op-card.full:hover { transform: none; background: var(--paper); }
+        .op-card.mine { border-color: var(--green); background: rgba(61,122,79,0.06); }
 
-        .op-card-date { font-family: "DM Mono", monospace; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
-        .op-card-time { font-family: "DM Mono", monospace; font-size: 11px; opacity: 0.65; margin-top: 3px; }
-        .op-card-title { font-family: "Fraunces", serif; font-size: 19px; font-weight: 500; margin-bottom: 4px; letter-spacing: -0.005em; }
-        .op-card-meta { font-family: "DM Mono", monospace; font-size: 11px; opacity: 0.7; }
-        .op-card-dupr { font-family: "DM Mono", monospace; font-size: 10px; color: #A8744A; margin-top: 4px; letter-spacing: 0.05em; }
+        .op-card-date { font-family: var(--mono); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+        .op-card-time { font-family: var(--mono); font-size: 11px; opacity: 0.65; margin-top: 3px; }
+        .op-card-title { font-family: var(--serif); font-size: 19px; font-weight: 500; margin-bottom: 4px; letter-spacing: -0.005em; }
+        .op-card-meta { font-family: var(--mono); font-size: 11px; opacity: 0.7; }
+        .op-card-dupr { font-family: var(--mono); font-size: 10px; color: var(--wood); margin-top: 4px; letter-spacing: 0.05em; }
         .op-card-notes { font-size: 12px; opacity: 0.6; margin-top: 6px; font-style: italic; }
         .op-card-side { text-align: right; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
-        .op-card-price { font-family: "Fraunces", serif; font-size: 22px; font-weight: 500; }
-        .op-card-spots { font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.65; }
-        .op-card-spots.low { color: #A8744A; opacity: 1; font-weight: 700; }
-        .op-card-spots.full { color: #C64F3A; opacity: 1; font-weight: 700; }
-        .op-card-spots.mine { color: #3D7A4F; opacity: 1; font-weight: 700; }
+        .op-card-price { font-family: var(--serif); font-size: 22px; font-weight: 500; }
+        .op-card-spots { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.65; }
+        .op-card-spots.low { color: var(--wood); opacity: 1; font-weight: 700; }
+        .op-card-spots.full { color: var(--clay); opacity: 1; font-weight: 700; }
+        .op-card-spots.mine { color: var(--green); opacity: 1; font-weight: 700; }
 
         /* Skeleton loading */
         .op-skeleton { pointer-events: none; }
@@ -6295,15 +6295,15 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
         @keyframes skShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
         /* Past history */
-        .op-past-history { margin-top: 30px; padding: 14px 16px; background: rgba(26,26,26,0.03); border-radius: 6px; }
-        .op-past-history summary { font-family: "DM Mono", monospace; font-size: 11px; letter-spacing: 0.12em; opacity: 0.7; cursor: pointer; font-weight: 700; }
+        .op-past-history { margin-top: 30px; padding: 14px 16px; background: var(--cream-2); border: 1px solid rgba(26,26,26,0.15); border-radius: 10px; }
+        .op-past-history summary { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; opacity: 0.7; cursor: pointer; font-weight: 700; }
         .op-past-row { display: grid; grid-template-columns: 130px 1fr 70px; gap: 10px; padding: 8px 0; border-top: 1px solid rgba(26,26,26,0.08); font-size: 12px; }
-        .op-past-row .d { font-family: "DM Mono", monospace; opacity: 0.7; }
-        .op-past-row .t { font-family: "Fraunces", serif; }
-        .op-past-row .s { font-family: "DM Mono", monospace; font-size: 10px; opacity: 0.6; text-align: right; }
+        .op-past-row .d { font-family: var(--mono); opacity: 0.7; }
+        .op-past-row .t { font-family: var(--serif); }
+        .op-past-row .s { font-family: var(--mono); font-size: 10px; opacity: 0.6; text-align: right; }
 
         .op-footer { margin-top: 32px; text-align: center; }
-        .op-back { background: transparent; border: none; color: #1A1A1A; opacity: 0.6; padding: 10px 16px; font-family: "DM Mono", monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; }
+        .op-back { background: transparent; border: none; color: var(--ink); opacity: 0.6; padding: 10px 16px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; }
         .op-back:hover { opacity: 1; }
 
         @media (max-width: 540px) {
@@ -6610,36 +6610,36 @@ function OpenPlaySessionModal({ session, myReg, profile, state, setState, go, la
       <style>{`
         .op-modal-overlay { position: fixed; inset: 0; background: rgba(26,26,26,0.55); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; animation: opFadeIn 0.15s ease; }
         @keyframes opFadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .op-modal { background: #F1EAD6; border-radius: 8px; padding: 28px 24px 24px; max-width: 460px; width: 100%; position: relative; box-shadow: 0 12px 40px rgba(26,26,26,0.3); font-family: "Manrope", system-ui, sans-serif; color: #1A1A1A; max-height: 92vh; overflow-y: auto; }
+        .op-modal { background: #F1EAD6; border-radius: 8px; padding: 28px 24px 24px; max-width: 460px; width: 100%; position: relative; box-shadow: 0 12px 40px rgba(26,26,26,0.3); font-family: var(--sans); color: #1A1A1A; max-height: 92vh; overflow-y: auto; }
         .op-modal-x { position: absolute; top: 12px; right: 14px; background: transparent; border: none; font-size: 26px; line-height: 1; color: #1A1A1A; opacity: 0.5; cursor: pointer; padding: 4px 8px; }
         .op-modal-x:hover { opacity: 1; }
-        .op-modal-kicker { font-family: "DM Mono", monospace; font-size: 9px; letter-spacing: 0.18em; opacity: 0.6; margin-bottom: 8px; font-weight: 700; }
-        .op-modal-title { font-family: "Fraunces", serif; font-size: 24px; font-weight: 500; margin: 0 0 6px; letter-spacing: -0.01em; }
-        .op-modal-meta { font-family: "DM Mono", monospace; font-size: 11px; opacity: 0.7; margin-bottom: 4px; }
+        .op-modal-kicker { font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em; opacity: 0.6; margin-bottom: 8px; font-weight: 700; }
+        .op-modal-title { font-family: var(--serif); font-size: 24px; font-weight: 500; margin: 0 0 6px; letter-spacing: -0.01em; }
+        .op-modal-meta { font-family: var(--mono); font-size: 11px; opacity: 0.7; margin-bottom: 4px; }
 
-        .op-restriction { margin-top: 14px; padding: 10px 12px; background: rgba(168,116,74,0.12); color: #A8744A; border-radius: 4px; font-family: "DM Mono", monospace; font-size: 11px; letter-spacing: 0.06em; font-weight: 700; }
+        .op-restriction { margin-top: 14px; padding: 10px 12px; background: rgba(168,116,74,0.12); color: #A8744A; border-radius: 4px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; font-weight: 700; }
 
         .op-reg-status { margin-top: 18px; padding: 14px; background: rgba(61,122,79,0.08); border-radius: 4px; border-left: 3px solid #3D7A4F; }
         .op-reg-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px; }
-        .op-reg-row > span:first-child { opacity: 0.7; font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+        .op-reg-row > span:first-child { opacity: 0.7; font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
         .op-reg-row > span:last-child { font-weight: 600; }
         .op-reg-row .ok { color: #3D7A4F; }
         .op-reg-row .warn { color: #A8744A; }
-        .op-reg-row .mono { font-family: "DM Mono", monospace; font-size: 11px; }
+        .op-reg-row .mono { font-family: var(--mono); font-size: 11px; }
 
         .op-field { margin-top: 16px; }
-        .op-field label { display: block; font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.7; margin-bottom: 6px; font-weight: 600; }
+        .op-field label { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.7; margin-bottom: 6px; font-weight: 600; }
         .op-field input { width: 100%; padding: 10px 12px; font-size: 15px; font-family: inherit; border: 1.5px solid rgba(26,26,26,0.15); background: #FFF; border-radius: 4px; box-sizing: border-box; color: #1A1A1A; }
         .op-field input:focus { outline: none; border-color: #1A1A1A; }
         .op-hint { font-size: 11px; opacity: 0.55; margin-top: 5px; line-height: 1.4; }
 
         .op-skill-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-        .op-skill-btn { padding: 9px 4px; border: 1.5px solid rgba(26,26,26,0.18); background: #FFF; border-radius: 4px; font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: 0.06em; font-weight: 700; cursor: pointer; color: #1A1A1A; text-transform: uppercase; transition: all 0.1s; }
+        .op-skill-btn { padding: 9px 4px; border: 1.5px solid rgba(26,26,26,0.18); background: #FFF; border-radius: 4px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; font-weight: 700; cursor: pointer; color: #1A1A1A; text-transform: uppercase; transition: all 0.1s; }
         .op-skill-btn:hover { border-color: #1A1A1A; }
         .op-skill-btn.active { background: #1A1A1A; color: #F1EAD6; border-color: #1A1A1A; }
 
         .op-error { margin-top: 14px; padding: 10px 12px; background: rgba(198,79,58,0.12); color: #C64F3A; border-radius: 4px; font-size: 13px; font-weight: 600; }
-        .op-submit { width: 100%; margin-top: 18px; padding: 14px 16px; background: #1A1A1A; color: #F1EAD6; border: none; border-radius: 4px; font-family: "DM Mono", monospace; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700; cursor: pointer; }
+        .op-submit { width: 100%; margin-top: 18px; padding: 14px 16px; background: #1A1A1A; color: #F1EAD6; border: none; border-radius: 4px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700; cursor: pointer; }
         .op-submit:hover { background: #2A2520; }
         .op-submit:disabled { opacity: 0.6; cursor: not-allowed; }
         .op-submit.ghost { background: transparent; color: #C64F3A; border: 1.5px solid #C64F3A; }
@@ -6648,8 +6648,8 @@ function OpenPlaySessionModal({ session, myReg, profile, state, setState, go, la
 
         .op-success-icon { width: 56px; height: 56px; margin: 8px auto 14px; border-radius: 50%; background: #3D7A4F; color: #F1EAD6; font-size: 32px; display: flex; align-items: center; justify-content: center; font-weight: 700; }
         .op-success-msg { text-align: center; font-size: 15px; margin: 4px 0 18px; opacity: 0.85; }
-        .op-success-detail { padding: 14px; background: rgba(26,26,26,0.04); border-radius: 4px; font-family: "DM Mono", monospace; font-size: 12px; margin-bottom: 16px; text-align: center; }
-        .op-success-detail b { font-family: "Fraunces", serif; font-size: 16px; font-weight: 500; }
+        .op-success-detail { padding: 14px; background: rgba(26,26,26,0.04); border-radius: 4px; font-family: var(--mono); font-size: 12px; margin-bottom: 16px; text-align: center; }
+        .op-success-detail b { font-family: var(--serif); font-size: 16px; font-weight: 500; }
         .op-success-detail > div { margin: 4px 0; }
       `}</style>
     </div>
@@ -7339,7 +7339,7 @@ function App() {
 
   // ── Coming-soon landing takeover (customers only; staff use admin.html).
   //    Bypass with ?preview so staff can preview the live site pre-launch.
-  const previewBypass = /(?:^|[?&#])preview(?:[=&]|$)/.test(location.search + location.hash);
+  const previewBypass = /(?:^|[?&#])preview(?:[=&#]|$)/.test(location.search + location.hash);  // QA fix: allow #hash after ?preview
   if (config && config.landing && config.landing.enabled && !previewBypass) {
     const opening = parseOpening(config.landing.openingDate);
     if (!opening || Date.now() < opening.getTime()) {
