@@ -10099,6 +10099,7 @@ function AddMemberModal({ foundingFull, onClose, onCreated }) {
   const [bMonth, setBMonth] = useState("");
   const [bDay, setBDay] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [receiptItem, setReceiptItem] = useState(null);
 
   async function submit() {
     if (submitting) return;  // double-tap guard
@@ -10123,7 +10124,9 @@ function AddMemberModal({ foundingFull, onClose, onCreated }) {
     setSubmitting(false);
     if (r.ok) {
       showToast("Member " + r.memberNumber + " added", "success");
-      onCreated && onCreated();
+      // Offer a receipt (print / SMS). onCreated (refresh + close) fires when the
+      // receipt is dismissed. Receipt-only — no POS sale, so no double-count.
+      setReceiptItem(membershipReceipt({ memberNumber: r.memberNumber, name: form.name, phone: form.phone, tier: form.tier, paymentMethod: form.paymentMethod }));
     } else {
       showToast(r.error || "Failed", "error");
     }
@@ -10235,6 +10238,7 @@ function AddMemberModal({ foundingFull, onClose, onCreated }) {
           </button>
         </div>
       </div>
+      {receiptItem && <ReceiptModal r={receiptItem} onClose={() => { setReceiptItem(null); onCreated && onCreated(); }} />}
     </div>
   );
 }
@@ -12248,10 +12252,12 @@ function ScreenPOS() {
     if (attached.length > 0) {
       const attachedBookings = attached.filter(a => a.kind === "booking").map(a => a.id);
       const attachedPlayers = attached.filter(a => a.kind === "walkin_player").map(a => a.id);
+      const attachedOpenPlay = attached.filter(a => a.kind === "openplay_player").map(a => a.id);
       r = await api("adminSettleCombined", {
         items: JSON.stringify(cart.map(x => ({ sku: x.sku, quantity: x.quantity }))),
         attachedBookings: JSON.stringify(attachedBookings),
         attachedWalkInPlayers: JSON.stringify(attachedPlayers),
+        attachedOpenPlayPlayers: JSON.stringify(attachedOpenPlay),
         discountPct: discountPct > 0 ? discountPct : 0,
         discountAmount: discountPct > 0 ? 0 : (parseFloat(discountAmount) || 0),  // staff portion only — backend re-derives the member discount itself (don't double it)
         paymentMethod: paymentMethod,
@@ -14120,6 +14126,22 @@ function AttachPickerModal({ alreadyAttached, onClose, onPick }) {
             sub: e.label || ""
           });
         }
+      } else if (e.entryType === "openplay_player") {
+        rows.push({
+          kind: "openplay_player",
+          id: e.id,
+          name: e.customerName || e.name || "Walk-in player",
+          phone: e.customerPhone || e.phone || "",
+          date: e.date || "",
+          time: e.time || "",
+          timeEnd: e.timeEnd || "",
+          courts: e.courtNumbers || "",
+          amount: e.total || e.amount || 0,
+          icon: "◉",
+          tone: "var(--peach,#D9785C)",
+          label: "Walk-in · " + (e.customerName || e.name || "Player"),
+          sub: e.label || ""
+        });
       }
     }
     return rows;
@@ -14659,6 +14681,16 @@ async function sendReceiptSms(r) {
     if (res.ok) showToast("Receipt texted to " + r.customerPhone, "success");
     else showToast(res.error || "Couldn't send the SMS receipt", "error");
   } finally { _smsSending = false; }
+}
+
+// Membership receipt — printed from the just-created member. Receipt-only:
+// the fee is already recorded as membership revenue, so this never creates a
+// POS sale and never double-counts.
+function membershipReceipt(m) {
+  var fee = (m.tier === "Founding") ? 200 : 150;
+  return { saleId: m.memberNumber || "", date: new Date(), customerName: m.name || "", customerPhone: m.phone || "", memberTier: m.tier || "",
+    items: [], attached: [{ name: (m.tier || "Standard") + " membership · 1 year", price: fee }],
+    subtotal: fee, memberDiscountAmount: 0, discountAmount: 0, total: fee, paymentMethod: m.paymentMethod || "Cash", cashReceived: fee, changeGiven: 0 };
 }
 
 function ReceiptModal({ r, onClose }) {
@@ -18221,7 +18253,7 @@ function OpenPlayCreateModal({ onClose, onCreated }) {
     date: defaultDate,
     startTime: "10:00",
     durationHours: 2,
-    courts: [1, 2],
+    courts: [1],
     title: "",
     skillLevel: "All",
     playerCap: 8,
@@ -18234,16 +18266,15 @@ function OpenPlayCreateModal({ onClose, onCreated }) {
   const [error, setError] = useState("");
 
   function toggleCourt(n) {
-    setForm(f => {
-      const has = f.courts.indexOf(n) !== -1;
-      return { ...f, courts: has ? f.courts.filter(c => c !== n) : [...f.courts, n].sort((a, b) => a - b) };
-    });
+    // Single-court sessions only: selecting a court replaces the selection.
+    // Need a second court? Create a second walk-in session.
+    setForm(f => ({ ...f, courts: [n] }));
   }
 
   async function save() {
     setError("");
     if (!form.title.trim()) { setError("Title is required"); return; }
-    if (form.courts.length === 0) { setError("Pick at least one court"); return; }
+    if (form.courts.length === 0) { setError("Pick a court"); return; }
     if (form.durationHours <= 0) { setError("Duration must be > 0"); return; }
     if (form.playerCap < 0) { setError("Cap can't be negative"); return; }
     if (form.price < 0) { setError("Price can't be negative"); return; }
@@ -18365,7 +18396,7 @@ function OpenPlayCreateModal({ onClose, onCreated }) {
         {/* Courts */}
         <div>
           <label style={{ display: "block", marginBottom: 8, fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>
-            Courts {form.courts.length > 0 ? "(" + form.courts.length + " selected)" : ""}
+            Court · pick one {form.courts.length > 0 ? "· C·" + form.courts[0] : ""}
           </label>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {courtNums.map(n => {
