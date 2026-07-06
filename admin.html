@@ -4640,7 +4640,7 @@ function cacheApi(action, params, data) {
   _apiCache.set(key, entry);
   if (_PERSIST_ENDPOINTS && _PERSIST_ENDPOINTS.has(action)) {
     try {
-      localStorage.setItem("yard.api." + key, JSON.stringify(entry));
+      localStorage.setItem(_LS_CACHE_PREFIX + key, JSON.stringify(entry));  // FINAL-QA fix: match hydrator prefix
     } catch (e) { /* localStorage full or denied — non-fatal */ }
   }
 }
@@ -4736,6 +4736,13 @@ async function _doFetchRaw(action, params) {
 // next read pulls fresh data.
 function _isMutation(action) {
   if (!action) return false;
+  // FINAL-QA fix: the authoritative list first — the verb heuristic below
+  // silently missed Add/Renew/Confirm/Flag/NoShow/Pay/Mark…Paid actions,
+  // so their cache invalidation + live-refresh events never fired.
+  if (typeof MUTATING_ACTIONS !== "undefined" && MUTATING_ACTIONS.has(action)) return true;
+  if (/^admin(Add|Renew|Confirm|Flag|NoShow|Pay|Broadcast|Generate|Duplicate|Close)/.test(action)) return true;
+  if (/^register/.test(action)) return true;
+  if (action.indexOf("Mark") >= 0 && action.indexOf("Paid") >= 0) return true;
   // Heuristics: prefixes that imply a write
   if (action.indexOf("Create") >= 0) return true;
   if (action.indexOf("Update") >= 0) return true;
@@ -9018,9 +9025,15 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
   useEffect(() => {
     getCachedConfig().then(c => setConfig(c));
     // Corporate accounts (negotiated pricing) — dropdown only shows if any exist
-    api("adminListCorporateAccounts").then(r => {
-      if (r.ok) setCorpAccounts((r.accounts || []).filter(a => a.status === "Active"));
-    }).catch(() => {});
+    function loadCorp() {
+      api("adminListCorporateAccounts", {}, { bypassCache: true }).then(r => {
+        if (r.ok) setCorpAccounts((r.accounts || []).filter(a => a.status === "Active"));
+      }).catch(() => {});
+    }
+    loadCorp();
+    // FINAL-QA fix: refresh if an account is created/edited while this modal is open
+    window.addEventListener("yard:data-changed", loadCorp);
+    return () => window.removeEventListener("yard:data-changed", loadCorp);
   }, []);
 
   const selectedCorp = corpAccounts.find(a => a.accountId === form.corporateId) || null;
@@ -13687,6 +13700,7 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
   const change = Math.max(0, cashGiven - finalTotal);
 
   async function submit() {
+    if (working) return;  // FINAL-QA fix: double-tap guard (button disabled alone is not enough)
     if (paymentMethod === "Cash" && finalTotal > 0 && !(parseFloat(cashReceived) >= finalTotal)) {
       showToast("Enter the cash amount received (≥ total)", "error");
       return;
@@ -23402,7 +23416,7 @@ function ShortcutHelpModal({ onClose }) {
 /* QuickCreateFab — floating + button in bottom-right that opens a menu of
  * quick-create actions. Navigates to the right screen and fires a global
  * "yard:open-create" event that screens listen for to auto-open their modal. */
-function QuickCreateFab({ go, screen }) {
+function QuickCreateFab({ go, screen, canSee }) {
   const [open, setOpen] = useState(false);
 
   function dispatch(target) {
@@ -23424,7 +23438,7 @@ function QuickCreateFab({ go, screen }) {
     { id: "tournaments",  icon: "🏆", label: "New tournament",      hint: "Block courts, set fees, track players" },
     { id: "openplay",     icon: "◎", label: "New walk-in",         hint: "Players sign up online or add at the desk" },
     { id: "sponsorships", icon: "⬛", label: "New sponsor banner",  hint: "Sell ad space" },
-  ];
+  ].filter(it => !canSee || canSee(it.id));   // FINAL-QA fix: hide screens this staff PIN can't use
 
   // Keyboard: Esc to close
   useEffect(() => {
@@ -23532,6 +23546,14 @@ function App() {
     if (!allowedTabIds || allowedTabIds.indexOf("dashboard") >= 0) return "dashboard";
     return allowedTabIds[0] || "dashboard";
   });
+  // FINAL-QA fix: login happens WITHOUT an App remount, so the initializer
+  // above may have run pre-login (no staff info yet). Snap to the first
+  // allowed tab whenever the current screen isn't permitted.
+  useEffect(() => {
+    if (authed && allowedTabIds && allowedTabIds.length && allowedTabIds.indexOf(screen) < 0) {
+      setScreen(allowedTabIds[0]);
+    }
+  }, [authed, screen, allowedTabIds ? allowedTabIds.join(",") : ""]);
 
   // Validate the stored PIN on boot, then prefetch common tabs so navigation feels instant
   useEffect(() => {
@@ -23655,6 +23677,7 @@ function App() {
     setStoredPin("");
     try { sessionStorage.removeItem("yard-staff-info"); } catch (e) {}
     invalidateApiCache("");  // wipe all cached responses so next user starts clean
+    setScreen("dashboard");  // FINAL-QA fix: don't leak the previous user's screen to the next login
     setAuthed(false);
   }
 
@@ -23866,6 +23889,11 @@ function App() {
   function go(id) {
     const t = tabs.find(x => x.id === id);
     if (!t || !t.ready) return;
+    // FINAL-QA fix: staff permission guard — Quick-create shortcuts and
+    // cross-screen "switch to X tab" hints could navigate into screens the
+    // staff member's PIN doesn't include. The backend rejects the actions
+    // anyway, but never even show the screen.
+    if (!canSee(id)) { showToast("Your account doesn't have access to that tab", "error"); return; }
     setScreen(id);
     // Fire the bundle endpoint to load ALL of this tab's data in one
     // server round-trip. The bundle hydrates the per-endpoint cache,
@@ -23955,7 +23983,7 @@ function App() {
   return (
     <div className="app-shell">
       <ConfirmHost />
-      <QuickCreateFab go={go} screen={screen} />
+      <QuickCreateFab go={go} screen={screen} canSee={canSee} />
       {showShortcutHelp && <ShortcutHelpModal onClose={() => setShowShortcutHelp(false)} />}
       <aside className="sidebar">
         <div className="logo">
