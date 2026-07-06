@@ -3792,7 +3792,14 @@ function isBirthdayEligibleClient(member, dateStr, windowDays) {
   const MS_PER_DAY = 1000 * 60 * 60 * 24;
   let diffDays = Infinity;
   for (const yr of [thisYear - 1, thisYear, thisYear + 1]) {
-    const bday = new Date(yr, bMonth - 1, bDay);
+    // FINAL-QA fix: Feb-29 birthdays roll to Mar 1 in non-leap years via the
+    // Date constructor; policy (matches backend) = celebrate Feb 28 instead.
+    let d29 = bDay;
+    if (bMonth === 2 && bDay === 29) {
+      const isLeap = (yr % 4 === 0 && yr % 100 !== 0) || yr % 400 === 0;
+      if (!isLeap) d29 = 28;
+    }
+    const bday = new Date(yr, bMonth - 1, d29);
     const d = Math.abs((checkDate - bday) / MS_PER_DAY);
     if (d < diffDays) diffDays = d;
   }
@@ -5987,15 +5994,23 @@ function ScreenMembership({ state, setState, go, lang }) {
 
 const OP_PROFILE_KEY = "yard.op_profile";
 
-function getOpProfile() {
+/* FINAL-QA fix: the walk-in profile cache (name/DUPR prefill) was one
+   GLOBAL key — after person A signed out and person B signed in on the
+   same device, B saw A's name, DUPR and registrations. Scope the key by
+   the signed-in phone, and migrate/ignore the old global key. */
+function _opProfileKeyFor(phone) {
+  const p = String(phone || "").replace(/\D/g, "");
+  return p ? OP_PROFILE_KEY + "." + p : OP_PROFILE_KEY;
+}
+function getOpProfile(phone) {
   try {
-    const raw = localStorage.getItem(OP_PROFILE_KEY);
+    const raw = localStorage.getItem(_opProfileKeyFor(phone));
     if (!raw) return null;
     return JSON.parse(raw);
   } catch (e) { return null; }
 }
-function saveOpProfile(p) {
-  try { localStorage.setItem(OP_PROFILE_KEY, JSON.stringify(p)); } catch (e) {}
+function saveOpProfile(p, phone) {
+  try { localStorage.setItem(_opProfileKeyFor(phone), JSON.stringify(p)); } catch (e) {}
 }
 
 function ScreenOpenPlay({ state, setState, go, lang, config }) {
@@ -6003,12 +6018,14 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
   const [myRegs, setMyRegs] = useState(null);
   const [activeSession, setActiveSession] = useState(null);  // session modal
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const [profile] = useState(() => getOpProfile() || {});
+  const [profile] = useState(() => getOpProfile(state.phone) || {});
 
   // Phone is the lookup key for "my registrations". Prefer the OP profile
   // (which the user may have used recently), fall back to the signed-in
   // phone if available.
-  const myPhone = (profile.phone || state.phone || "").trim();
+  // FINAL-QA fix: the AUTHENTICATED phone is the identity — the cached
+  // profile only prefills the form, it must never override who "me" is.
+  const myPhone = (state.phone || profile.phone || "").trim();
 
   async function loadAll() {
     // Fire both fetches in parallel
@@ -6389,7 +6406,7 @@ function OpenPlaySessionModal({ session, myReg, profile, state, setState, go, la
           phone: phone.trim(),
           skillSelf: skillSelf || "",
           duprSelf: duprSelf || ""
-        });
+        }, state.phone);
         setSuccessResp(r);
         setMode("success");
       } else {
@@ -7128,6 +7145,17 @@ function LandingPage({ config, lang, setLang }) {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
+  // FINAL-QA fix: launch moment — when the countdown crosses zero while a
+  // customer is sitting on this page, reload once so the booking app takes
+  // over automatically instead of requiring a manual tap.
+  useEffect(() => {
+    if (!opening) return;
+    if (Date.now() >= opening.getTime()) return;   // already past — normal gate handles it
+    const msLeft = opening.getTime() - Date.now();
+    if (msLeft > 24 * 3600000) return;             // only arm within the final day
+    const id = setTimeout(() => { try { location.reload(); } catch (e) {} }, msLeft + 1500);
+    return () => clearTimeout(id);
+  }, [config.landing.openingDate]);
 
   const [foundingStatus, setFoundingStatus] = useState(null);
   useEffect(() => {
