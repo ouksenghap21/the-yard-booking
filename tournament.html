@@ -1064,7 +1064,7 @@ h1.tournament-name{
         '</div>' +
 
         '<div class="field"><label>Phone number *</label>' +
-          '<input type="tel" id="f-phone" required inputmode="numeric" autocomplete="tel" placeholder="e.g. 012 345 678" value="' + escapeHtml(prefill.phone || "") + '" />' +
+          '<input type="tel" id="f-phone" required inputmode="numeric" autocomplete="tel" maxlength="15" placeholder="e.g. 012 345 678" value="' + escapeHtml(prefill.phone || "") + '" />' +
           '<div class="hint">We text you confirmation + bracket updates. We never share this.</div>' +
         '</div>' +
 
@@ -1156,7 +1156,10 @@ h1.tournament-name{
 
     if (!name) { errEl.textContent = "Please enter your name"; return; }
     var digits = phone.replace(/\D/g, "");
-    if (digits.length < 8) { errEl.textContent = "Please enter a valid phone number"; return; }
+    // M7 fix: clamp to 8-12 digits (matches the 8-12 digit range enforced by
+    // the server's phone-required endpoints, e.g. myTournamentRegistrations),
+    // rejecting obviously-junk input like a 16-digit paste.
+    if (digits.length < 8 || digits.length > 12) { errEl.textContent = "Please enter a valid phone number (8-12 digits)"; return; }
     if (dupr) {
       var duprNum = parseFloat(dupr);
       if (isNaN(duprNum) || duprNum < 2.0 || duprNum > 8.0) {
