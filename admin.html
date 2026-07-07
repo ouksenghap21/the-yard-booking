@@ -10199,6 +10199,17 @@ function ScreenMembers() {
   );
 }
 
+// H6 fix: mirrors the backend's _isValidMonthDay — validate MM-DD is a real
+// calendar date (correct day count per month; Feb allows 29 since there's no
+// year to check leap-ness against). Rejects Feb 30/31, Apr 31, etc.
+function _isValidMonthDayClient(month, day) {
+  const m = parseInt(month, 10);
+  const d = parseInt(day, 10);
+  if (isNaN(m) || isNaN(d) || m < 1 || m > 12 || d < 1) return false;
+  const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return d <= DAYS_IN_MONTH[m - 1];
+}
+
 function AddMemberModal({ foundingFull, onClose, onCreated }) {
   const [form, setForm] = useState({
     phone: "",
@@ -10221,7 +10232,7 @@ function AddMemberModal({ foundingFull, onClose, onCreated }) {
     if (!bMonth || !bDay) return showToast("Birthday required", "error");
     const m = parseInt(bMonth);
     const d = parseInt(bDay);
-    if (m < 1 || m > 12 || d < 1 || d > 31) return showToast("Invalid birthday", "error");
+    if (!_isValidMonthDayClient(m, d)) return showToast("That's not a real date (check the day for that month)", "error");
     const birthday = String(m).padStart(2, "0") + "-" + String(d).padStart(2, "0");
 
     setSubmitting(true);
@@ -10373,8 +10384,11 @@ function EditMemberModal({ member, onClose, onSaved }) {
     if (saving) return;  // double-tap guard
     if (form.birthday) {
       const m = /^(\d{2})-(\d{2})$/.exec(form.birthday);
-      if (!m || +m[1] < 1 || +m[1] > 12 || +m[2] < 1 || +m[2] > 31) {
-        return showToast("Birthday must be MM-DD (month 01-12, day 01-31)", "error");
+      if (!m) {
+        return showToast("Birthday must be MM-DD format (e.g. 05-15)", "error");
+      }
+      if (!_isValidMonthDayClient(+m[1], +m[2])) {
+        return showToast("That's not a real date (check the day for that month)", "error");
       }
     }
     if (form.expiryDate) {
@@ -12296,20 +12310,24 @@ function ScreenPOS() {
     });
   }, []);
 
+  // L10 fix: debounce the member lookup by 350ms so it doesn't fire a
+  // request on every single keystroke while the phone is being typed.
   useEffect(() => {
     if (!customerPhone || customerPhone.length < 6) { setMemberTier(""); setLookingUpTier(false); return; }
     let cancelled = false;
     setLookingUpTier(true);
-    api("adminGetMemberByPhone", { phone: customerPhone }).then(r => {
-      if (cancelled) return;
-      if (r.ok && r.member && String(r.member.status).toLowerCase() === "active" && !r.member.isExpired) {
-        setMemberTier(r.member.tier || "");
-      } else {
-        setMemberTier("");
-      }
-      setLookingUpTier(false);
-    }).catch(() => { if (!cancelled) setLookingUpTier(false); });
-    return () => { cancelled = true; };
+    const timer = setTimeout(() => {
+      api("adminGetMemberByPhone", { phone: customerPhone }).then(r => {
+        if (cancelled) return;
+        if (r.ok && r.member && String(r.member.status).toLowerCase() === "active" && !r.member.isExpired) {
+          setMemberTier(r.member.tier || "");
+        } else {
+          setMemberTier("");
+        }
+        setLookingUpTier(false);
+      }).catch(() => { if (!cancelled) setLookingUpTier(false); });
+    }, 350);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [customerPhone]);
   const memberDiscountAmount = useMemo(() => {
     return memberTier && eligibleSubtotal > 0 ? Math.round(eligibleSubtotal * memberDiscountPct) / 100 : 0;
@@ -12564,13 +12582,17 @@ function ScreenPOS() {
                     className="btn-sm"
                     title="Recall the previous sale's items"
                     onClick={() => {
-                      // Match against current products to get fresh price + stock
+                      // Match against current products to get fresh price + stock.
+                      // L11 fix: track WHICH items got dropped (and why — no longer
+                      // sold vs. out of stock) so the toast can name them instead
+                      // of silently shrinking the cart.
                       const rebuilt = [];
+                      const dropped = [];
                       for (const li of lastCart.items) {
                         const p = (products || []).find(x => x.sku === li.sku && x.active);
-                        if (!p) continue;
+                        if (!p) { dropped.push(li.name || li.sku); continue; }
                         const qty = Math.min(li.quantity, p.stock);
-                        if (qty < 1) continue;
+                        if (qty < 1) { dropped.push(p.name || li.sku); continue; }
                         rebuilt.push({
                           sku: p.sku, name: p.name, category: p.category,
                           price: p.price, quantity: qty, stockLimit: p.stock,
@@ -12578,11 +12600,16 @@ function ScreenPOS() {
                         });
                       }
                       if (rebuilt.length === 0) {
-                        showToast("Last cart items no longer available", "error");
+                        showToast(
+                          "Last cart items no longer available" + (dropped.length ? ": " + dropped.join(", ") : ""),
+                          "error"
+                        );
                         return;
                       }
                       setCart(rebuilt);
-                      showToast("Repeated last sale · " + rebuilt.length + " item" + (rebuilt.length === 1 ? "" : "s"), "success");
+                      const msg = "Repeated last sale · " + rebuilt.length + " item" + (rebuilt.length === 1 ? "" : "s") +
+                        (dropped.length ? " · dropped: " + dropped.join(", ") : "");
+                      showToast(msg, dropped.length ? "info" : "success");
                     }}
                   >
                     ↻ Repeat last
@@ -13539,8 +13566,14 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
   const sorted = useMemo(() => {
     if (!entries) return [];
     const cp = (customerPhone || "").trim();
+    // C2 fix: match the backend's _phoneKey identity algorithm (strip non-digits,
+    // then a leading 855 country code, then one leading 0) so "012345678" and
+    // "85512345678" are recognized as the same customer here too.
     function normalize(p) {
-      return String(p || "").replace(/[\s\-\(\)\+]/g, "");
+      let s = String(p || "").replace(/\D/g, "");
+      if (s.startsWith("855")) s = s.substring(3);
+      if (s.startsWith("0")) s = s.substring(1);
+      return s;
     }
     const cpNorm = normalize(cp);
     return [...entries].sort((a, b) => {
@@ -13591,7 +13624,10 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
           <div style={{ maxHeight: 420, overflowY: "auto" }}>
             {sorted.map(e => {
               function normalize(p) {
-                return String(p || "").replace(/[\s\-\(\)\+]/g, "");
+                let s = String(p || "").replace(/\D/g, "");
+                if (s.startsWith("855")) s = s.substring(3);
+                if (s.startsWith("0")) s = s.substring(1);
+                return s;
               }
               const matchPhone = customerPhone && normalize(e.phone) === normalize(customerPhone);
               const kindColor = e.kind === "walkin_player" ? "var(--peach,#D9785C)" : "var(--green)";
@@ -15832,6 +15868,34 @@ function generateAccountingPdf(report) {
   if (typeof window.jspdf === "undefined" || !window.jspdf.jsPDF) {
     throw new Error("PDF library not loaded");
   }
+  // M3 fix: guard report.incomeStatement (and the other top-level sections
+  // this function reads unconditionally) so a month with no data at all
+  // renders a friendly "no activity this month" report instead of throwing
+  // a TypeError on undefined property access.
+  if (!report || !report.incomeStatement || !report.period) {
+    report = Object.assign({
+      generatedAt: (report && report.generatedAt) || "",
+      basis: (report && report.basis) || "cash",
+      basisLabel: (report && report.basisLabel) || "Cash basis · revenue recognized when payment received",
+      period: (report && report.period) || { label: "This period", fromStr: "", toStr: "", daysInRange: 0 },
+      incomeStatement: {
+        courtRev: 0, walkinRev: 0, coachingRev: 0, posRev: 0, openPlayRev: 0,
+        sponsorshipRev: 0, sponsorshipMonthly: 0, sponsorshipOneOff: 0,
+        membershipFeesThisMonth: 0, grossOperationalRevenue: 0,
+        grossRevenue: 0, totalDiscountsApplied: 0, netRevenue: 0
+      },
+      paymentMethodSplit: {},
+      transactionCounts: {},
+      dailyCashReconciliation: [],
+      transactionLedger: [],
+      sponsorshipLedger: [],
+      outstandingReceivables: { memoOnly: false, bookings: [], walkIns: [], coaching: [], agingBuckets: {}, grandTotal: 0 },
+      members: { totalActiveFounding: 0, totalActiveStandard: 0, totalActive: 0, newThisMonth: 0, membershipRevenueRecognized: 0 },
+      methodology: ["No activity recorded for this period."],
+      notes: { currency: "USD", taxNote: "No transactions to report for this period.", voidsExcluded: "" },
+      _noActivity: true
+    }, report || {});
+  }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
@@ -15889,6 +15953,13 @@ function generateAccountingPdf(report) {
   doc.text("Report period: " + report.period.fromStr + " to " + report.period.toStr, M, y);
   doc.text("Generated: " + report.generatedAt + " (Asia/Phnom_Penh)", M, y + 12);
   doc.text("Basis: " + (report.basis === "accrual" ? "Accrual" : "Cash") + " · Currency: USD", M, y + 24);
+  if (report._noActivity) {
+    doc.setTextColor(...[217, 120, 92]);
+    doc.setFont("helvetica", "bold");
+    doc.text("No activity recorded for this period.", M, y + 40);
+    doc.setTextColor(...MUTED);
+    doc.setFont("helvetica", "normal");
+  }
   y += 50;
 
   // --- EXECUTIVE SUMMARY (key numbers in a clean box) ---
@@ -16907,6 +16978,14 @@ function AccountingReportPickerModal({ onClose, onPick }) {
   }
 
   function submitMonth() {
+    // M4 fix: the Month dropdown offers all 12 months regardless of the
+    // selected year, so e.g. picking "December" while the current year is
+    // still mid-year yields a future month — clamp/reject that here.
+    const curY = now.getFullYear(), curM = now.getMonth() + 1;
+    if (monthYear > curY || (monthYear === curY && monthMonth > curM)) {
+      showToast("Can't run a report for a future month", "error");
+      return;
+    }
     pick({ year: monthYear, month: monthMonth });
   }
 
@@ -17069,9 +17148,11 @@ function AccountingReportPickerModal({ onClose, onPick }) {
               <div className="field" style={{ flex: 2 }}>
                 <div className="field-label">Month</div>
                 <select value={monthMonth} onChange={(e) => setMonthMonth(parseInt(e.target.value))}>
-                  {MONTH_NAMES.map((name, i) => (
-                    <option key={i + 1} value={i + 1}>{name}</option>
-                  ))}
+                  {MONTH_NAMES.map((name, i) => {
+                    // M4 fix: disable future months when the selected year is the current year.
+                    const isFuture = monthYear === now.getFullYear() && (i + 1) > (now.getMonth() + 1);
+                    return <option key={i + 1} value={i + 1} disabled={isFuture}>{name}{isFuture ? " (future)" : ""}</option>;
+                  })}
                 </select>
               </div>
               <div className="field" style={{ flex: 1 }}>
@@ -20423,6 +20504,12 @@ function RevenueLineAddModal({ tournamentId, onClose, onChanged, patchT }) {
 
   async function submit() {
     if (isNaN(parseFloat(form.amount))) return showToast("Amount required", "error");
+    if (parseFloat(form.amount) < 0) return showToast("Amount cannot be negative", "error");
+    // M4 fix: reject a future "received" date (paired with the max= clamp on
+    // the date input, in case of manual entry bypassing that).
+    if (form.receivedDate && form.receivedDate > todayISO()) {
+      return showToast("Received date can't be in the future", "error");
+    }
     // Optimistic: show the line + close instantly; the server reload replaces
     // this placeholder and updates the authoritative totals a beat later.
     const optimistic = {
@@ -20493,7 +20580,7 @@ function RevenueLineAddModal({ tournamentId, onClose, onChanged, patchT }) {
             </div>
             <div className="field">
               <div className="field-label">Received date <span style={{ opacity: 0.5, fontSize: 10 }}>· blank = accrued</span></div>
-              <input type="date" value={form.receivedDate} onChange={(e) => setForm({ ...form, receivedDate: e.target.value })} />
+              <input type="date" max={todayISO()} value={form.receivedDate} onChange={(e) => setForm({ ...form, receivedDate: e.target.value })} />
             </div>
           </div>
           <div className="field">
@@ -20614,6 +20701,12 @@ function ExpenseLineAddModal({ tournamentId, onClose, onChanged, patchT }) {
 
   async function submit() {
     if (isNaN(parseFloat(form.amount))) return showToast("Amount required", "error");
+    if (parseFloat(form.amount) < 0) return showToast("Amount cannot be negative", "error");
+    // M4 fix: reject a future "paid" date (paired with the max= clamp on the
+    // date input, in case of manual entry bypassing that).
+    if (form.paidDate && form.paidDate > todayISO()) {
+      return showToast("Paid date can't be in the future", "error");
+    }
     // Optimistic: show the line + close instantly; the server reload replaces
     // this placeholder and updates the authoritative totals a beat later.
     const optimistic = {
@@ -20667,7 +20760,7 @@ function ExpenseLineAddModal({ tournamentId, onClose, onChanged, patchT }) {
             </div>
             <div className="field">
               <div className="field-label">Paid date <span style={{ opacity: 0.5, fontSize: 10 }}>· blank = accrued</span></div>
-              <input type="date" value={form.paidDate} onChange={(e) => setForm({ ...form, paidDate: e.target.value })} />
+              <input type="date" max={todayISO()} value={form.paidDate} onChange={(e) => setForm({ ...form, paidDate: e.target.value })} />
             </div>
           </div>
         </div>
@@ -20730,6 +20823,7 @@ function TournamentRosterTab({ t, onChanged, patchT }) {
         <BroadcastSmsModal
           tournamentId={t.id}
           tournamentName={t.name}
+          players={t.players}
           onClose={() => setShowBroadcast(false)}
         />
       )}
@@ -20808,9 +20902,15 @@ function PlayerAddModal({ tournamentId, defaultFee, onClose, onChanged, patchT, 
   async function submit() {
     if (!form.name.trim()) return showToast("Name required", "error");
     // Duplicate-phone guard: warn instantly (modal stays open to fix) if this
-    // number already belongs to an active player on this roster. Digit-only
-    // compare mirrors the server normalize; the backend is the authoritative net.
-    const digits = s => String(s || "").replace(/\D/g, "");
+    // number already belongs to an active player on this roster. Mirrors the
+    // server's _phoneKey identity algorithm (C2); the backend is the
+    // authoritative net regardless of this client-side check.
+    const digits = s => {
+      let d = String(s || "").replace(/\D/g, "");
+      if (d.startsWith("855")) d = d.substring(3);
+      if (d.startsWith("0")) d = d.substring(1);
+      return d;
+    };
     const entered = digits(form.phone);
     if (entered && (existingPhones || []).some(p => digits(p) === entered)) {
       showToast("\u26A0 This phone number is already registered for this tournament", "error");
@@ -20904,23 +21004,66 @@ function PlayerAddModal({ tournamentId, defaultFee, onClose, onChanged, patchT, 
   );
 }
 
-function BroadcastSmsModal({ tournamentId, tournamentName, onClose }) {
+function BroadcastSmsModal({ tournamentId, tournamentName, players, onClose }) {
   const [body, setBody] = useState("Hi {name}! Reminder about " + tournamentName + " — see you at The Yard.");
   const [target, setTarget] = useState("all");
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState(null);
+  const [result, setResult] = useState(null);   // cumulative { sent, failed, total }
+  const [progress, setProgress] = useState(null); // "batch X of Y" while paginating
+
+  // M6 fix: recipient count preview, computed client-side from the roster
+  // already loaded for this tournament — lets the confirm step show a real
+  // number before any SMS is sent (server is still authoritative for the
+  // actual send-time filter).
+  const recipientCount = useMemo(() => {
+    const list = players || [];
+    if (target === "paid") return list.filter(p => p.paid && p.phone).length;
+    if (target === "unpaid") return list.filter(p => !p.paid && p.phone).length;
+    return list.filter(p => p.phone).length;
+  }, [players, target]);
+
   async function send() {
     if (!body.trim()) return showToast("Message body required", "error");
-    setBusy(true);
-    const r = await api("adminBroadcastTournamentSms", {
-      tournamentId: tournamentId,
-      body: body,
-      targetGroup: target
+    if (recipientCount === 0) return showToast("No matching recipients", "error");
+
+    // M6 fix: confirm step showing the recipient count before anything sends.
+    const proceed = await confirmAction({
+      title: "Send SMS broadcast?",
+      message: "This will text " + recipientCount + " player" + (recipientCount === 1 ? "" : "s") + ".",
+      consequence: "SMS charges apply per message sent. This cannot be undone.",
+      confirmLabel: "Send to " + recipientCount
     });
+    if (!proceed) return;
+
+    setBusy(true);
+    setResult(null);
+    // M6 fix: server caps each call at 100 recipients and reports how many
+    // remain — paginate through the full roster across multiple calls
+    // instead of relying on one big synchronous loop (which risks the
+    // Apps Script 6-minute execution timeout on large rosters).
+    let offset = 0;
+    let cumulative = { sent: 0, failed: 0, total: 0 };
+    let lastErr = null;
+    for (;;) {
+      const r = await api("adminBroadcastTournamentSms", {
+        tournamentId: tournamentId,
+        body: body,
+        targetGroup: target,
+        offset: offset
+      });
+      if (!r.ok) { lastErr = r.error || "Failed"; break; }
+      cumulative.sent += r.sent;
+      cumulative.failed += r.failed;
+      cumulative.total = r.total;
+      setProgress("Sent batch through " + r.nextOffset + " of " + r.total + "…");
+      setResult({ ...cumulative });
+      if (r.done) break;
+      offset = r.nextOffset;
+    }
+    setProgress(null);
     setBusy(false);
-    setResult(r);
-    if (r.ok) showToast(r.sent + " sent · " + r.failed + " failed", r.failed > 0 ? "error" : "success");
-    else showToast(r.error || "Failed", "error");
+    if (lastErr) showToast(lastErr, "error");
+    else showToast(cumulative.sent + " sent · " + cumulative.failed + " failed", cumulative.failed > 0 ? "error" : "success");
   }
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -20937,6 +21080,9 @@ function BroadcastSmsModal({ tournamentId, tournamentName, onClose }) {
               <option value="paid">Paid players only</option>
               <option value="unpaid">Unpaid players only</option>
             </select>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6, marginTop: 4 }}>
+              {recipientCount} recipient{recipientCount === 1 ? "" : "s"}
+            </div>
           </div>
           <div className="field">
             <div className="field-label">
@@ -20947,7 +21093,12 @@ function BroadcastSmsModal({ tournamentId, tournamentName, onClose }) {
               {body.length} chars (SMS is ~160 chars per message)
             </div>
           </div>
-          {result && result.ok && (
+          {progress && (
+            <div style={{ padding: 10, marginTop: 8, fontFamily: "var(--mono)", fontSize: 11, opacity: 0.7 }}>
+              {progress}
+            </div>
+          )}
+          {result && (
             <div style={{
               padding: 10, marginTop: 8,
               background: result.failed > 0 ? "rgba(217,120,92,0.08)" : "rgba(61,122,79,0.08)",
@@ -22190,6 +22341,36 @@ function ScreenSettings() {
         showToast("Rule '" + r.name + "': start hour must be before end hour", "error"); return;
       }
     }
+
+    // M5 fix: detect overlapping rules BEFORE saving (mirrors the server's
+    // own overlap-warning algorithm in adminSetPricingRules) and require an
+    // explicit confirm rather than only warning AFTER the save already
+    // happened. Not a hard block — overlap can be a legitimate priority-order
+    // technique — but the admin must acknowledge it up front.
+    const preOverlaps = [];
+    for (let i = 0; i < pricingRules.length; i++) {
+      for (let j = i + 1; j < pricingRules.length; j++) {
+        const a = pricingRules[i], b = pricingRules[j];
+        const aDays = Array.isArray(a.days) ? a.days : String(a.days || "").split(",");
+        const bDays = Array.isArray(b.days) ? b.days : String(b.days || "").split(",");
+        const sharedDays = aDays.filter(d => bDays.indexOf(d) !== -1);
+        if (sharedDays.length === 0) continue;
+        const overlap = a.hourStart < b.hourEnd && b.hourStart < a.hourEnd;
+        if (overlap) {
+          preOverlaps.push("'" + a.name + "' and '" + b.name + "' overlap on " + sharedDays.join(","));
+        }
+      }
+    }
+    if (preOverlaps.length > 0) {
+      const proceed = await confirmAction({
+        title: "Overlapping pricing rules detected",
+        message: preOverlaps.join("\n"),
+        consequence: "The first matching rule (by row order) will win for overlapping slots. Save anyway?",
+        confirmLabel: "Save anyway"
+      });
+      if (!proceed) return;
+    }
+
     setSavingPricing(true);
     const r = await api("adminSetPricingRules", { rules: JSON.stringify(pricingRules) });
     setSavingPricing(false);
@@ -22261,6 +22442,20 @@ function ScreenSettings() {
     if (landingCfg.enabled && !landingCfg.openingDate) {
       showToast("Set an opening date before enabling the landing page", "error");
       return;
+    }
+    // M5 fix: reject an opening date that's already in the past when enabling
+    // the landing page — mirrors index.html's parseOpening() by interpreting
+    // the TZ-less "YYYY-MM-DDTHH:mm" value as Asia/Phnom_Penh (+07:00), so the
+    // comparison is correct regardless of the admin's own device timezone.
+    if (landingCfg.enabled && landingCfg.openingDate) {
+      let iso = String(landingCfg.openingDate).trim();
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(iso)) iso += ":00+07:00";
+      else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(iso)) iso += "+07:00";
+      const openingDt = new Date(iso);
+      if (!isNaN(openingDt.getTime()) && openingDt.getTime() < Date.now()) {
+        showToast("Opening date can't be in the past", "error");
+        return;
+      }
     }
     setSavingLanding(true);
     const r = await api("adminSetLandingConfig", {
