@@ -3331,6 +3331,9 @@ const STRINGS = {
     mb_cancel: "Cancel",
     mb_confirm_cancel: "Cancel this booking?",
     mb_confirm_cancel_sub: "This will free your court time and notify you by SMS.",
+    // H7 fix: sober refund/cutoff copy shown ADDITIONALLY when the booking
+    // being cancelled was already Paid — refunds aren't automatic/online.
+    mb_confirm_cancel_paid_notice: "This booking was already paid. Refunds are handled at the front counter, not automatically — please stop by or contact us after cancelling.",
     mb_keep: "Keep it",
     mb_confirm_cancel_yes: "Yes, cancel",
 
@@ -3351,6 +3354,11 @@ const STRINGS = {
     retry: "Try again",
     back: "Back",
     close: "Close",
+
+    // H1 fix: fail-closed boot screen when getConfig can't be reached
+    boot_fail_title: "Can't reach the booking system",
+    boot_fail_sub: "We couldn't load today's court info. Please check your connection and try again.",
+    boot_fail_retry: "Retry",
   },
   km: {
     open_hours: "០៦:០០ — ២២:០០",
@@ -3520,6 +3528,9 @@ const STRINGS = {
     mb_cancel: "លុបចោល",
     mb_confirm_cancel: "តើអ្នកពិតជាចង់លុបចោលការកក់នេះមែនទេ?",
     mb_confirm_cancel_sub: "តារាងនេះនឹងត្រូវបើកឱ្យអ្នកផ្សេងកក់វិញ ហើយប្រព័ន្ធនឹងជូនដំណឹងដល់អ្នកតាម SMS។",
+    // H7 fix: sober refund/cutoff copy shown ADDITIONALLY when the booking
+    // being cancelled was already Paid — refunds aren't automatic/online.
+    mb_confirm_cancel_paid_notice: "ការកក់នេះបានបង់ប្រាក់រួចហើយ។ ការសងប្រាក់វិញមិនមែនធ្វើដោយស្វ័យប្រវត្តិទេ សូមទំនាក់ទំនង ឬអញ្ជើញមកកាន់បញ្ជរដើម្បីសងប្រាក់វិញ បន្ទាប់ពីលុបចោលការកក់នេះ។",
     mb_keep: "រក្សាទុកការកក់",
     mb_confirm_cancel_yes: "បាទ/ចាស លុបចោល",
     m_title: "សមាជិកភាព",
@@ -3536,6 +3547,11 @@ const STRINGS = {
     retry: "ព្យាយាមម្តងទៀត",
     back: "ត្រឡប់",
     close: "បិទ",
+
+    // H1 fix: fail-closed boot screen when getConfig can't be reached
+    boot_fail_title: "មិនអាចភ្ជាប់ទៅប្រព័ន្ធកក់បានទេ",
+    boot_fail_sub: "យើងមិនអាចផ្ទុកព័ត៌មានតារាងថ្ងៃនេះបានទេ។ សូមពិនិត្យការតភ្ជាប់អ៊ីនធឺណិតរបស់អ្នក រួចព្យាយាមម្តងទៀត។",
+    boot_fail_retry: "ព្យាយាមម្តងទៀត",
   }
 };
 
@@ -3615,6 +3631,54 @@ async function api(action, params) {
 const TOKEN_KEY = "yard.token";
 const PHONE_KEY = "yard.phone";
 const LANG_KEY = "yard.lang";
+// M9 fix: last booking confirmation, persisted so a refresh on the
+// confirmation screen doesn't land on a dead/blank screen.
+const CONFIRMATION_KEY = "yard.lastConfirmation";
+function saveLastConfirmation(confirmation, quotedTotal, requestedCourts) {
+  try {
+    sessionStorage.setItem(CONFIRMATION_KEY, JSON.stringify({
+      confirmation: confirmation, quotedTotal: quotedTotal, requestedCourts: requestedCourts, savedAt: Date.now()
+    }));
+  } catch (e) {}
+}
+function loadLastConfirmation() {
+  try {
+    const raw = sessionStorage.getItem(CONFIRMATION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Only trust a recently-saved confirmation (within the last hour) — an
+    // old stale one from a previous session shouldn't resurface later.
+    if (!parsed || !parsed.confirmation || !parsed.savedAt || (Date.now() - parsed.savedAt) > 60 * 60 * 1000) return null;
+    return parsed;
+  } catch (e) { return null; }
+}
+function clearLastConfirmation() {
+  try { sessionStorage.removeItem(CONFIRMATION_KEY); } catch (e) {}
+}
+
+/* M10 fix: OTP send abuse guard, shared across ScreenPhone ("Continue") and
+ * ScreenOTP ("Resend") so a Phone→OTP→Back→Continue loop can't bypass the
+ * per-screen resend cooldown and fire unlimited SMS sends. Plain module-level
+ * state (not persisted) so it resets naturally on a full page reload, per
+ * the intended "until the page is reloaded" scope. */
+const OTP_SEND_COOLDOWN_MS = 60 * 1000;   // 60s between sends
+const OTP_SEND_MAX_PER_SESSION = 5;       // hard cap per page session
+let _otpSendState = { count: 0, lastSentAt: 0 };
+function otpSendGuardCheck() {
+  const now = Date.now();
+  if (_otpSendState.count >= OTP_SEND_MAX_PER_SESSION) {
+    return { allowed: false, reason: "max" };
+  }
+  const elapsed = now - _otpSendState.lastSentAt;
+  if (_otpSendState.lastSentAt && elapsed < OTP_SEND_COOLDOWN_MS) {
+    return { allowed: false, reason: "cooldown", remainingMs: OTP_SEND_COOLDOWN_MS - elapsed };
+  }
+  return { allowed: true };
+}
+function otpSendGuardRecord() {
+  _otpSendState.count += 1;
+  _otpSendState.lastSentAt = Date.now();
+}
 
 function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } }
 function setToken(t) { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch (e) {} }
@@ -3637,9 +3701,30 @@ function setLang(l) { try { localStorage.setItem(LANG_KEY, l); } catch (e) {} do
    ==================================================================== */
 
 function pad2(n) { return String(n).padStart(2, "0"); }
+
+/* H4 fix: "is this slot in the past" must be computed against Asia/Phnom_Penh
+ * wall-clock time, not the device's local clock — a traveler or a phone with
+ * the wrong timezone/date would otherwise see wrong slots (valid ones
+ * blocked, past ones offered). Uses Intl.DateTimeFormat with an explicit
+ * timeZone so it's correct regardless of the viewer's device settings,
+ * consistent with the +07:00 offset convention already used by parseOpening()
+ * and the .ics calendar generator elsewhere in this file.
+ * Returns { y, mo, d, h, mi, s, dateStr } — plain numbers, no Date-object
+ * timezone ambiguity.
+ */
+function nowInCambodia() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Phnom_Penh',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  }).formatToParts(new Date());
+  const g = t => (parts.find(p => p.type === t) || {}).value || '00';
+  const y = parseInt(g('year'), 10), mo = parseInt(g('month'), 10), d = parseInt(g('day'), 10);
+  const h = parseInt(g('hour'), 10), mi = parseInt(g('minute'), 10), s = parseInt(g('second'), 10);
+  return { y, mo, d, h, mi, s, dateStr: y + "-" + pad2(mo) + "-" + pad2(d) };
+}
 function todayISO() {
-  const d = new Date();
-  return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+  return nowInCambodia().dateStr;
 }
 function ymd(d) {
   return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
@@ -4213,11 +4298,16 @@ function Stepper({ value, onChange, min, max, unitLabel }) {
    Picking by spatial position beats a left→right scroll. Same props and
    toggle behaviour as before, so the caller is unchanged. The 8-court
    footprint is fixed, so the layout is intentionally hard-coded. */
-function CourtRail({ value, onChange, count = 8, unavailable = [], lang }) {
+function CourtRail({ value, onChange, count = 8, unavailable = [], pastClosing = false, lang }) {
   function toggle(num) {
     if (unavailable.includes(num)) {
-      showToast((lang === "km" ? "តារាង " : "Court ") + pad2(num) +
-        (lang === "km" ? " មិន​ទំនេរ​សម្រាប់​ពេល/រយៈពេល​នេះ" : " isn't free for this time/duration"), "info");
+      // L3 fix: if the chosen duration simply runs past closing time, say so
+      // instead of the generic "isn't free" message (which implies it's
+      // booked/taken, not that the facility is closed then).
+      const msg = pastClosing
+        ? (lang === "km" ? "រយៈពេលនេះលើសម៉ោងបិទ — សូមកាត់បន្ថយរយៈពេល ឬជ្រើសម៉ោងចាប់ផ្តើមមុន" : "That duration runs past closing — try a shorter duration or an earlier start time")
+        : (lang === "km" ? "តារាង " + pad2(num) + " មិន​ទំនេរ​សម្រាប់​ពេល/រយៈពេល​នេះ" : "Court " + pad2(num) + " isn't free for this time/duration");
+      showToast(msg, "info");
       return;
     }
     if (value.includes(num)) {
@@ -4337,11 +4427,24 @@ function ScreenPhone({ state, setState, go, lang }) {
 
   async function onContinue() {
     if (!valid || sending) return;
+    // M10 fix: shared OTP-send guard — blocks the Phone→OTP→Back→Continue
+    // loop from firing unlimited SMS sends (cooldown + hard per-session cap).
+    const guard = otpSendGuardCheck();
+    if (!guard.allowed) {
+      if (guard.reason === "max") {
+        showToast(lang === "km" ? "អ្នកបានស្នើសុំកូដច្រើនដងពេកសម្រាប់ការចូលមើលនេះ។ សូមផ្ទុកទំព័រម្ដងទៀត។" : "Too many code requests this visit. Please reload the page to try again.", "error");
+      } else {
+        const secs = Math.ceil(guard.remainingMs / 1000);
+        showToast(lang === "km" ? "សូមរង់ចាំ " + secs + " វិនាទីមុននឹងស្នើសុំកូដម្ដងទៀត" : "Please wait " + secs + "s before requesting another code", "error");
+      }
+      return;
+    }
     setSending(true);
     const norm = normalizePhone(phone);
     setStoredPhone(norm);
     const r = await api("sendOTP", { phone: norm });
     setSending(false);
+    if (r.ok && r.sent !== false) otpSendGuardRecord();
     if (!r.ok) {
       showToast(r.error || t("error", null, lang), "error");
       return;
@@ -4576,7 +4679,11 @@ function ScreenPhone({ state, setState, go, lang }) {
 /* ===================== SCREEN 2: OTP ===================== */
 function ScreenOTP({ state, setState, go, lang }) {
   const [code, setCode] = useState("");
-  const [resendIn, setResendIn] = useState(30);
+  // M10 fix: 60s cooldown (was 30s) between resends, shared with ScreenPhone's
+  // "Continue" via the module-level otpSendGuard so a Phone→OTP→Back→Continue
+  // loop can't dodge this cooldown.
+  const [resendIn, setResendIn] = useState(60);
+  const [resendMaxHit, setResendMaxHit] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState("");
 
@@ -4629,9 +4736,23 @@ function ScreenOTP({ state, setState, go, lang }) {
   }
 
   async function resend() {
-    if (resendIn > 0) return;
-    setResendIn(30);
+    if (resendIn > 0 || resendMaxHit) return;
+    // M10 fix: shared OTP-send guard — 60s cooldown + 5-sends-per-page-session
+    // hard cap, enforced across both ScreenPhone and ScreenOTP so no combination
+    // of Back/Continue/Resend taps can loop unlimited SMS sends.
+    const guard = otpSendGuardCheck();
+    if (!guard.allowed) {
+      if (guard.reason === "max") {
+        setResendMaxHit(true);
+        showToast(lang === "km" ? "អ្នកបានស្នើសុំកូដច្រើនដងពេកសម្រាប់ការចូលមើលនេះ។ សូមផ្ទុកទំព័រម្ដងទៀត។" : "Too many code requests this visit. Please reload the page to try again.", "error");
+      } else {
+        setResendIn(Math.ceil(guard.remainingMs / 1000));
+      }
+      return;
+    }
+    setResendIn(60);
     const r = await api("sendOTP", { phone: state.phone });
+    if (r.ok && r.sent !== false) otpSendGuardRecord();
     if (!r.ok) showToast(r.error || t("error", null, lang), "error");
     else showToast(lang === "km" ? "បាន​ផ្ញើ" : "Sent", "success");
   }
@@ -4695,9 +4816,13 @@ function ScreenOTP({ state, setState, go, lang }) {
 
       <div className="hint" style={{ marginTop: 18, display: "flex", justifyContent: "space-between" }}>
         <span>{t("o_remember", null, lang)}</span>
-        {resendIn > 0
-          ? <span className="mono" style={{ fontWeight: 500 }}>{t("o_resend_in", { s: resendIn }, lang)}</span>
-          : <button className="ulink" onClick={resend} style={{ fontSize: 12 }}>{t("o_resend", null, lang)}</button>}
+        {resendMaxHit
+          ? <span className="mono" style={{ fontWeight: 500, opacity: 0.6 }}>
+              {lang === "km" ? "ដល់ដែនកំណត់ហើយ — សូមផ្ទុកទំព័រម្ដងទៀត" : "Limit reached — reload the page"}
+            </span>
+          : resendIn > 0
+            ? <span className="mono" style={{ fontWeight: 500 }}>{t("o_resend_in", { s: resendIn }, lang)}</span>
+            : <button className="ulink" onClick={resend} disabled={resendMaxHit} style={{ fontSize: 12 }}>{t("o_resend", null, lang)}</button>}
       </div>
 
       {verifying ? <Loading message={t("o_verifying", null, lang)} /> : null}
@@ -4835,19 +4960,25 @@ function ScreenBooking({ state, setState, go, lang, config }) {
   const courtAvailability = useMemo(() => {
     // Find the slot index for `time`. If not found, no courts available.
     const startIdx = (availSlots || []).findIndex(s => s.time === time);
-    if (startIdx < 0) return { available: [], unavailable: [1, 2, 3, 4, 5, 6, 7, 8] };
+    if (startIdx < 0) return { available: [], unavailable: [1, 2, 3, 4, 5, 6, 7, 8], pastClosing: false };
     const unavailable = [];
     const available = [];
+    // L3 fix: distinguish "runs past closing" (no availability ROW exists for
+    // a later slot — the facility just isn't open then) from "booked/taken"
+    // (the row exists but that specific court is occupied), so the UI can
+    // show the right message instead of a generic "unavailable" for both.
+    let pastClosing = false;
     for (let c = 0; c < COURTS_COUNT; c++) {
       let ok = true;
       for (let s = 0; s < slots; s++) {
         const row = availSlots[startIdx + s];
-        if (!row || !row.courts || !row.courts[c]) { ok = false; break; }
+        if (!row) { ok = false; pastClosing = true; break; }
+        if (!row.courts || !row.courts[c]) { ok = false; break; }
       }
       if (ok) available.push(c + 1);
       else unavailable.push(c + 1);
     }
-    return { available, unavailable };
+    return { available, unavailable, pastClosing };
   }, [availSlots, time, slots]);
 
   /* If selected courts become unavailable for the chosen time+duration, prune
@@ -4909,16 +5040,17 @@ function ScreenBooking({ state, setState, go, lang, config }) {
   function ctaTone() {
     return bdayClaimed ? "coral" : "ink";
   }
-  // M11: when the selected date is today, the chosen start time must not be
-  // in the past. Compare the selected start against "now" (both local; the
-  // facility runs on the device's local clock = Asia/Phnom_Penh).
+  // M11/H4: when the selected date is today (in Cambodia), the chosen start
+  // time must not be in the past. Compared using Cambodia wall-clock time
+  // (nowInCambodia), NOT the device's local clock — so a traveler or a phone
+  // with the wrong timezone/date sees the same slots a Phnom Penh local would.
   const isPastStart = useMemo(() => {
-    if (date !== todayISO()) return false;
+    const cambodiaNow = nowInCambodia();
+    if (date !== cambodiaNow.dateStr) return false;
     const [hh, mi] = (time || "00:00").split(":").map(Number);
-    const now = new Date();
-    const start = new Date();
-    start.setHours(hh || 0, mi || 0, 0, 0);
-    return start.getTime() < now.getTime();
+    const startMin = (hh || 0) * 60 + (mi || 0);
+    const nowMin = cambodiaNow.h * 60 + cambodiaNow.mi + cambodiaNow.s / 60;
+    return startMin < nowMin;
   }, [date, time]);
 
   function ctaDisabled() {
@@ -4968,7 +5100,11 @@ function ScreenBooking({ state, setState, go, lang, config }) {
       // H3: stash the client quote so the confirm screen can reconcile it
       // against the server's settled total and flag any mismatch.
       const quotedTotal = pricing ? pricing.total : null;
-      setState(s => ({ ...s, confirmation: r.confirmation, quotedTotal: quotedTotal, requestedCourts: pickedCourts.join(",") }));
+      const requestedCourts = pickedCourts.join(",");
+      setState(s => ({ ...s, confirmation: r.confirmation, quotedTotal: quotedTotal, requestedCourts: requestedCourts }));
+      // M9 fix: persist so a refresh on the confirmation screen restores it
+      // instead of dying to a blank/dead screen.
+      saveLastConfirmation(r.confirmation, quotedTotal, requestedCourts);
       go("confirm");
     } finally {
       submittingRef.current = false;
@@ -5073,6 +5209,16 @@ function ScreenBooking({ state, setState, go, lang, config }) {
         <div className="hint" style={{ marginTop: 8 }}>
           {lockedDuration ? t("b_dur_lock_hint", null, lang) : t("b_duration_hint", null, lang)}
         </div>
+        {/* L3 fix: immediate, specific feedback when the chosen duration runs
+            past closing time (as opposed to a generic "unavailable" message
+            surfacing only after tapping a court). */}
+        {!lockedDuration && courtAvailability.pastClosing && (
+          <div className="hint" style={{ marginTop: 4, color: "var(--clay)", fontWeight: 600 }}>
+            {lang === "km"
+              ? "រយៈពេលនេះលើសម៉ោងបិទ — សូមកាត់បន្ថយរយៈពេល ឬជ្រើសម៉ោងចាប់ផ្តើមមុន"
+              : "That duration runs past closing — try a shorter duration or an earlier start time"}
+          </div>
+        )}
       </div>
 
       {/* COURTS */}
@@ -5085,6 +5231,7 @@ function ScreenBooking({ state, setState, go, lang, config }) {
           onChange={setPickedCourts}
           count={COURTS_COUNT}
           unavailable={courtAvailability.unavailable}
+          pastClosing={courtAvailability.pastClosing}
           lang={lang}
         />
         <div className="hint" style={{ marginTop: 8 }}>
@@ -5101,7 +5248,7 @@ function ScreenBooking({ state, setState, go, lang, config }) {
         <div className="promo" style={{ marginTop: 20 }}>
           <div className="head">
             <span>{t("pr_head", null, lang)}</span>
-            <span>{t("pr_seats", { n: foundingStatus ? foundingStatus.foundingRemaining : "·" }, lang)}</span>
+            <span>{t("pr_seats", { n: foundingStatus ? Math.max(0, foundingStatus.foundingRemaining) : "·" }, lang)}</span>
           </div>
           <div className="body">
             <h3>
@@ -5231,8 +5378,33 @@ function ScreenBooking({ state, setState, go, lang, config }) {
 function ScreenConfirm({ state, setState, go, lang }) {
   const c = state.confirmation;
   const [copied, setCopied] = useState(false);
+  // M9 fix: on mount, if React state has no confirmation (e.g. the page was
+  // refreshed while sitting on #confirm — React state is lost but the hash
+  // router still lands here), try to restore the last confirmation from
+  // sessionStorage. If there's nothing to restore, route to My Bookings
+  // instead of showing a dead/blank screen.
+  const [restoreChecked, setRestoreChecked] = useState(false);
+  useEffect(() => {
+    if (c) { setRestoreChecked(true); return; }
+    const restored = loadLastConfirmation();
+    if (restored) {
+      setState(s => ({
+        ...s,
+        confirmation: restored.confirmation,
+        quotedTotal: restored.quotedTotal,
+        requestedCourts: restored.requestedCourts
+      }));
+      setRestoreChecked(true);
+    } else {
+      go("myBookings");
+    }
+    // eslint-disable-next-line
+  }, []);
 
   if (!c) {
+    if (!restoreChecked) {
+      return <Loading message={t("loading", null, lang)} />;
+    }
     return (
       <div className="screen scr-pad-top">
         <p>{t("error", null, lang)}</p>
@@ -5366,9 +5538,14 @@ function ScreenConfirm({ state, setState, go, lang }) {
         )}
       </div>
 
-      <div className="hint" style={{ marginBottom: 16 }}>
-        📱 {t("c_sms", { p: maskPhone(c.phone) }, lang).replace("***", "")} · {t("c_reminder", null, lang)}
-      </div>
+      {/* L4 fix: only claim the SMS was sent when the backend actually
+          reports smsSent === true — previously this rendered unconditionally
+          even if the SMS delivery failed. */}
+      {c.smsSent === true && (
+        <div className="hint" style={{ marginBottom: 16 }}>
+          📱 {t("c_sms", { p: maskPhone(c.phone) }, lang).replace("***", "")} · {t("c_reminder", null, lang)}
+        </div>
+      )}
 
       {/* ACTION BUTTONS — Add to Calendar, Get Directions, Share Booking.
           Placed BEFORE the "Book another" CTA because these are the
@@ -5506,7 +5683,7 @@ function ScreenConfirm({ state, setState, go, lang }) {
       </div>
 
       <div style={{ marginTop: 18 }}>
-        <CTA tone="green" onClick={() => { setState(s => ({ ...s, confirmation: null })); go("booking"); }}>
+        <CTA tone="green" onClick={() => { clearLastConfirmation(); setState(s => ({ ...s, confirmation: null })); go("booking"); }}>
           {t("c_book_another", null, lang)}
         </CTA>
       </div>
@@ -5871,6 +6048,14 @@ function ScreenMyBookings({ state, setState, go, lang }) {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>{t("mb_confirm_cancel", null, lang)}</h3>
             <p>{t("mb_confirm_cancel_sub", null, lang)}</p>
+            {/* H7 fix: paid bookings get additional sober refund/cutoff copy —
+                the refund is handled at the counter, not automatic/online.
+                Unpaid/free bookings keep only the cheerful copy above. */}
+            {String(cancelTarget.paymentStatus || "").toLowerCase() === "paid" && (
+              <p style={{ color: "var(--clay)", fontWeight: 500 }}>
+                {t("mb_confirm_cancel_paid_notice", null, lang)}
+              </p>
+            )}
             <div className="actions">
               <button className="btn ghost" onClick={() => setCancelTarget(null)} disabled={cancelling}>
                 {t("mb_keep", null, lang)}
@@ -5957,7 +6142,7 @@ function ScreenMembership({ state, setState, go, lang }) {
           <li>$200/year renewal locked for life</li>
         </ul>
         {foundingStatus && (
-          <div className="seats">{t("m_seats_left", { n: foundingStatus.foundingRemaining, cap: FOUNDING_CAP }, lang)}</div>
+          <div className="seats">{t("m_seats_left", { n: Math.max(0, foundingStatus.foundingRemaining), cap: FOUNDING_CAP }, lang)}</div>
         )}
       </div>
 
@@ -6181,7 +6366,12 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
                   </div>
                   <div className="op-card-side">
                     <div className="op-card-price">
-                      {s.price > 0 ? "$" + s.price.toFixed(2) : "FREE"}
+                      {/* M8 fix: missing/NaN price must never render as "FREE" —
+                          show a neutral placeholder instead so no one assumes
+                          a free signup when pricing data is simply absent. */}
+                      {s.price === undefined || s.price === null || isNaN(s.price)
+                        ? "—"
+                        : (s.price > 0 ? "$" + s.price.toFixed(2) : "FREE")}
                     </div>
                     {myReg ? (
                       <div className="op-card-spots mine">✓ You're in</div>
@@ -6372,6 +6562,12 @@ function OpenPlaySessionModal({ session, myReg, profile, state, setState, go, la
   async function submitSignup() {
     if (inFlightRef.current) return;  // synchronous double-tap guard
     setError("");
+    // M8 fix: never allow a signup to proceed with a missing/NaN price — that
+    // silently becomes a free signup. Block with a friendly message instead.
+    if (session.price === undefined || session.price === null || isNaN(session.price)) {
+      setError("Pricing unavailable for this session — please contact the front desk to sign up.");
+      return;
+    }
     if (!name.trim()) { setError("Please enter your name"); return; }
     if (!phone.trim() || phone.replace(/\D/g, "").length < 8) {
       setError("Please enter a valid phone number");
@@ -7115,7 +7311,7 @@ function MembershipInfo({ lang, foundingStatus }) {
           <li>$200/year renewal locked for life</li>
         </ul>
         {foundingStatus && (
-          <div className="seats">{t("m_seats_left", { n: foundingStatus.foundingRemaining, cap: FOUNDING_CAP }, lang)}</div>
+          <div className="seats">{t("m_seats_left", { n: Math.max(0, foundingStatus.foundingRemaining), cap: FOUNDING_CAP }, lang)}</div>
         )}
       </div>
 
@@ -7263,6 +7459,13 @@ function App() {
   const [screen, setScreen] = useState("phone");
   const [bootLoading, setBootLoading] = useState(true);
   const [configLoaded, setConfigLoaded] = useState(false);
+  // H1 fix: fail-CLOSED if getConfig can't be reached. Previously a failed
+  // getConfig left `config` as null but still set configLoaded=true, so the
+  // app fell through to the normal booking flow with no prices and skipped
+  // the pre-launch landing gate entirely. Now a failure renders a dedicated
+  // blocked/retry screen instead of ever reaching the booking app.
+  const [configError, setConfigError] = useState(false);
+  const [configRetryTick, setConfigRetryTick] = useState(0);
 
   // On first load: validate existing token if any, and fetch config in parallel
   useEffect(() => {
@@ -7270,8 +7473,19 @@ function App() {
     const token = getToken();
 
     // Always fetch config — needed for client-side pricing
+    setConfigError(false);
     api("getConfig").then(r => {
-      if (r.ok) setConfig(r);
+      if (r && r.ok) {
+        setConfig(r);
+        setConfigError(false);
+      } else {
+        setConfig(null);
+        setConfigError(true);
+      }
+      setConfigLoaded(true);
+    }).catch(() => {
+      setConfig(null);
+      setConfigError(true);
       setConfigLoaded(true);
     });
 
@@ -7299,7 +7513,7 @@ function App() {
         setToken("");
       }
     });
-  }, []);
+  }, [configRetryTick]);
 
   function go(s) {
     // Only push a new history entry when the screen actually changes.
@@ -7367,6 +7581,7 @@ function App() {
   function logout() {
     setToken("");
     setStoredPhone("");
+    clearLastConfirmation();
     setState({ phone: "", token: "", isMember: false, member: null, guest: null, confirmation: null });
     go("phone");
   }
@@ -7375,6 +7590,34 @@ function App() {
 
   if (bootLoading || !configLoaded) {
     return <Loading message={t("loading", null, lang)} />;
+  }
+
+  // H1 fix: fail CLOSED, not open. If getConfig failed, we have no pricing,
+  // no landing-page config, and no way to know if launch has happened yet —
+  // rendering the normal app here would either show a bookable UI with no/
+  // blank prices, or skip the pre-launch "Opening Soon" gate entirely. Block
+  // with a branded retry screen instead of proceeding past this point.
+  if (configError) {
+    return (
+      <div className="loading-overlay" style={{ flexDirection: "column", gap: 16, textAlign: "center", padding: "0 24px" }}>
+        <div style={{ fontFamily: "var(--serif)", fontSize: 22, fontWeight: 700 }}>
+          {t("boot_fail_title", null, lang)}
+        </div>
+        <div style={{ fontFamily: "var(--mono)", fontSize: 13, opacity: 0.75, maxWidth: 360 }}>
+          {t("boot_fail_sub", null, lang)}
+        </div>
+        <button
+          className="btn"
+          onClick={() => {
+            setConfigLoaded(false);
+            setBootLoading(true);
+            setConfigRetryTick(n => n + 1);
+          }}
+        >
+          {t("boot_fail_retry", null, lang)}
+        </button>
+      </div>
+    );
   }
 
   // ── Coming-soon landing takeover (customers only; staff use admin.html).
