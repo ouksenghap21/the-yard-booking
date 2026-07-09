@@ -8673,6 +8673,8 @@ function BookingRow({ booking, onAction, onOpen }) {
   // sequential Cambodia->US round-trips (~4-5s) of staring at the old status.
   const [optimisticPaid, setOptimisticPaid] = useState(false);
   const [payAsk, setPayAsk] = useState(null);
+  // Receipt offer after collecting — print/text, same ReceiptModal as POS.
+  const [receiptItem, setReceiptItem] = useState(null);
   // Synchronous double-tap guard — setOptimisticPaid is async, so a fast
   // double-tap can fire the write twice before the disabled state lands.
   const actingRef = useRef(false);
@@ -8682,8 +8684,16 @@ function BookingRow({ booking, onAction, onOpen }) {
     try {
       setOptimisticPaid(true);
       const r = await api("adminMarkPaid", { bookingId: booking.bookingId, paymentMethod: mth });
-      if (r.ok) { showToast("Marked paid", "success"); onAction && onAction(); }
-      else { setOptimisticPaid(false); showToast(r.error || "Failed", "error"); }
+      if (r.ok) {
+        showToast("Marked paid", "success");
+        onAction && onAction();
+        setReceiptItem(bookingReceipt({
+          bookingId: booking.bookingId, id: booking.bookingId,
+          name: booking.name, phone: booking.phone,
+          courts: booking.courtNumbers, total: booking.total,
+          paymentMethod: mth
+        }));
+      } else { setOptimisticPaid(false); showToast(r.error || "Failed", "error"); }
     } finally {
       actingRef.current = false;
     }
@@ -8747,6 +8757,7 @@ function BookingRow({ booking, onAction, onOpen }) {
         )}
       </div>
       {payAsk && <PayMethodModal onPick={(mth) => { const fn = payAsk; setPayAsk(null); fn(mth); }} onClose={() => setPayAsk(null)} />}
+      {receiptItem && <ReceiptModal r={receiptItem} onClose={() => setReceiptItem(null)} />}
     </div>
   );
 }
@@ -8754,6 +8765,10 @@ function BookingRow({ booking, onAction, onOpen }) {
 function BookingDetailModal({ booking, onClose, onAction }) {
   const [acting, setActing] = useState(false);
   const [payAsk, setPayAsk] = useState(null);
+  // Standalone receipt modal (reprint/text) — null when closed. Offered right
+  // after Mark Paid, and always available from here for an already-paid
+  // booking (e.g. staff forgot to text/print at the time).
+  const [receiptItem, setReceiptItem] = useState(null);
 
   async function doAction(action, confirmMsg, payMethod) {
     // Cancel-booking uses UNDO pattern: act first, show undo toast.
@@ -8798,6 +8813,30 @@ function BookingDetailModal({ booking, onClose, onAction }) {
         if (!confirm(confirmMsg)) return;
       }
     }
+    // Mark Paid: stay open one extra beat so we can offer a receipt (print/
+    // text) right after collecting — reuses the same ReceiptModal as POS.
+    // Every other action keeps the existing optimistic close-immediately
+    // pattern (the modal holds no source-of-truth data, so closing early is
+    // safe there).
+    if (action === "adminMarkPaid") {
+      setActing(true);
+      const r = await api(action, { bookingId: booking.bookingId, paymentMethod: payMethod });
+      setActing(false);
+      if (r.ok) {
+        showToast("Marked paid", "success");
+        onAction && onAction();
+        setReceiptItem(bookingReceipt({
+          bookingId: booking.bookingId, id: booking.bookingId,
+          name: booking.name, phone: booking.phone,
+          courts: booking.courtNumbers, total: booking.total,
+          paymentMethod: payMethod
+        }));
+      } else {
+        showToast(r.error || "Didn't save — please retry", "error");
+      }
+      return;
+    }
+
     // Optimistic: close the modal and refresh the list immediately so the
     // action feels instant; the write runs in the background. The modal holds
     // no source-of-truth data, so closing early is safe. onAction() reconciles
@@ -8806,12 +8845,10 @@ function BookingDetailModal({ booking, onClose, onAction }) {
     onClose && onClose();
     onAction && onAction();
     const params = { bookingId: booking.bookingId };
-    if (action === "adminMarkPaid") params.paymentMethod = payMethod;
     const r = await api(action, params);
     if (r.ok) {
       showToast(
-        action === "adminMarkPaid" ? "Marked paid"
-        : action === "adminConfirmArrival" ? "Arrival confirmed"
+        action === "adminConfirmArrival" ? "Arrival confirmed"
         : action === "adminMarkRefunded" ? "Marked refunded"
         : "Done",
         "success"
@@ -8995,9 +9032,24 @@ function BookingDetailModal({ booking, onClose, onAction }) {
               disabled={acting}
             >Mark refunded</button>
           )}
+          {/* Already-paid booking — offer the receipt actions here too (staff
+              may have forgotten to text/print at collection time). */}
+          {d === "paid" && (
+            <button
+              className="btn"
+              disabled={acting}
+              onClick={() => setReceiptItem(bookingReceipt({
+                bookingId: booking.bookingId, id: booking.bookingId,
+                name: booking.name, phone: booking.phone,
+                courts: booking.courtNumbers, total: booking.total,
+                paymentMethod: booking.paymentMethod || "Cash"
+              }))}
+            >Receipt</button>
+          )}
           <button className="btn ghost" onClick={onClose} disabled={acting}>Close</button>
         </div>
         {payAsk && <PayMethodModal onPick={(mth) => { const fn = payAsk; setPayAsk(null); fn(mth); }} onClose={() => setPayAsk(null)} />}
+        {receiptItem && <ReceiptModal r={receiptItem} onClose={() => { setReceiptItem(null); onClose && onClose(); }} />}
       </div>
     </div>
   );
@@ -9892,12 +9944,24 @@ function CoachingInfoModal({ session, onClose }) {
           <span className="k">Lesson fee</span>
           <span className="v">${(session.lessonFee || 0).toFixed(2)}</span>
         </div>
+        {(session.courtFee || 0) > 0 && (
+          <div className="modal-detail-row">
+            <span className="k">Court fee{session.courtFeeMemberRate ? " · member rate" : ""}</span>
+            <span className="v">${(session.courtFee || 0).toFixed(2)}</span>
+          </div>
+        )}
+        {(session.courtFee || 0) > 0 && (
+          <div className="modal-detail-row total">
+            <span className="k">Total student pays</span>
+            <span className="v">${((session.lessonFee || 0) + (session.courtFee || 0)).toFixed(2)}</span>
+          </div>
+        )}
         <div className="modal-detail-row">
-          <span className="k">Facility earns</span>
+          <span className="k">Facility earns{(session.courtFee || 0) > 0 ? " (incl. court fee)" : ""}</span>
           <span className="v" style={{ color: "var(--wood)" }}>${(session.facilityEarns || 0).toFixed(2)}</span>
         </div>
         <div className="modal-detail-row">
-          <span className="k">Coach takes</span>
+          <span className="k">Coach takes · lesson only</span>
           <span className="v">${(session.coachTakes || 0).toFixed(2)}</span>
         </div>
         <div className="modal-detail-row">
@@ -11022,8 +11086,11 @@ function SessionsView({ coaches, sessions, loading, dateFrom, setDateFrom, dateT
                 <div className="coach-take">Court rental</div>
               ) : (
                 <>
-                  <div className="coach-take">Coach: ${s.coachTakes.toFixed(2)}</div>
-                  <div className="lesson">Lesson: ${s.lessonFee.toFixed(2)}</div>
+                  <div className="coach-take">Coach: ${s.coachTakes.toFixed(2)} · lesson only</div>
+                  <div className="lesson">Lesson: ${s.lessonFee.toFixed(2)}{(s.courtFee || 0) > 0 ? " + court $" + s.courtFee.toFixed(2) : ""}</div>
+                  {(s.courtFee || 0) > 0 && (
+                    <div className="lesson">Total: ${(s.totalStudentPays || (s.lessonFee + s.courtFee)).toFixed(2)}{s.courtFeeMemberRate ? " · member rate" : ""}</div>
+                  )}
                 </>
               )}
             </div>
@@ -11092,6 +11159,26 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
   });
   const [submitting, setSubmitting] = useState(false);
 
+  // Court fee preview (rev_share/hybrid only) — priced with the STUDENT's own
+  // member pricing, same client-side calc used by the booking modal. Guests
+  // (no phone, or phone not on file) pay rack rate.
+  const [config, setConfig] = useState(null);
+  const [studentMemberInfo, setStudentMemberInfo] = useState(session ? {
+    tier: session.courtFeeMemberRate ? "member" : ""  // best-effort hint on edit; refined below once phone is looked up
+  } : null);
+  useEffect(() => { getCachedConfig().then(setConfig); }, []);
+  useEffect(() => {
+    const phone = String(form.studentPhone || "").replace(/[^0-9]/g, "");
+    if (!phone || phone.length < 6) { setStudentMemberInfo(null); return; }
+    const id = setTimeout(() => {
+      api("lookupMember", { phone: phone }).then(r => {
+        if (r.ok && r.member) setStudentMemberInfo(r.member);
+        else setStudentMemberInfo(null);
+      });
+    }, 350);
+    return () => clearTimeout(id);
+  }, [form.studentPhone]);
+
   const selectedCoach = coaches.find(c => c.coachId === form.coachId);
 
   // Discount: form.lessonFee is the GROSS fee (coach's standard charge); a
@@ -11133,10 +11220,41 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
     return { facilityEarns: facility, coachTakes: coachTakes, formula: formula };
   }, [selectedCoach, netFee, form.durationHours]);
 
-  const facilityEarns = form.manualOverride ? parseFloat(form.facilityEarnsOverride) || 0 : auto.facilityEarns;
   const coachTakes = form.manualOverride ? parseFloat(form.coachTakesOverride) || 0 : auto.coachTakes;
 
   const isFlatRent = selectedCoach && selectedCoach.dealType === "flat_rent";
+  const isCourtFeeDeal = selectedCoach && (selectedCoach.dealType === "rev_share" || selectedCoach.dealType === "hybrid");
+
+  // Court fee: a SEPARATE component from the lesson fee, for rev_share/hybrid
+  // only. Priced exactly like a normal court booking — member-aware off the
+  // STUDENT's phone (not the coach's), rack rate for guests. 100% facility;
+  // never split with the coach. Uses the same client-side calc as the
+  // booking modal so the number matches what calculatePrice would return.
+  const courtFeePreview = useMemo(() => {
+    if (!config || !isCourtFeeDeal || !isNew) return { courtFee: 0, memberRateApplied: false, memberTier: "" };
+    const courts = form.courts.length || 1;
+    const slots = Math.round((parseFloat(form.durationHours) || 0) * 60 / (config.slotMinutes || 30));
+    if (slots <= 0) return { courtFee: 0, memberRateApplied: false, memberTier: "" };
+    const isMember = !!studentMemberInfo;
+    const tier = studentMemberInfo ? studentMemberInfo.tier : "";
+    const priced = calculatePriceClient({
+      config: config, isMember: isMember, tier: tier,
+      date: form.date, time: form.time, slots: slots, courts: courts
+    });
+    if (!priced) return { courtFee: 0, memberRateApplied: false, memberTier: "" };
+    return {
+      courtFee: priced.total,
+      memberRateApplied: isMember && (priced.discountPct || 0) > 0,
+      memberTier: tier
+    };
+  }, [config, isCourtFeeDeal, isNew, form.courts, form.durationHours, form.date, form.time, studentMemberInfo]);
+
+  const courtFee = isNew ? courtFeePreview.courtFee : (session ? (session.courtFee || 0) : 0);
+  const courtFeeMemberRate = isNew ? courtFeePreview.memberRateApplied : (session ? !!session.courtFeeMemberRate : false);
+
+  const facilityEarns = form.manualOverride
+    ? (parseFloat(form.facilityEarnsOverride) || 0)
+    : Math.round((auto.facilityEarns + (isCourtFeeDeal ? courtFee : 0)) * 100) / 100;
 
   // For a flat-rent coach, default the court-rental fee to their rate × hours
   // (editable for negotiation). Runs when the coach or duration changes on a
@@ -11186,6 +11304,8 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
         manualOverride: form.manualOverride ? "true" : "false",
         facilityEarns: facilityEarns,
         coachTakes: coachTakes,
+        courtFee: isCourtFeeDeal ? courtFee : 0,
+        courtFeeMemberRate: isCourtFeeDeal && courtFeeMemberRate ? "true" : "false",
         paymentStatus: form.paymentStatus,
         paymentMethod: form.paymentMethod,
         notes: notesOut
@@ -11467,16 +11587,34 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
                 <span className="k">{discountPct > 0 ? "Net lesson fee" : "Lesson fee"}</span>
                 <span className="v">${netFee.toFixed(2)}</span>
               </div>
+              {isCourtFeeDeal && isNew && (
+                <div className="row">
+                  <span className="k">
+                    Court fee
+                    {courtFeeMemberRate && <span style={{ color: "var(--green)", marginLeft: 6, fontSize: 10 }}>· member rate applied</span>}
+                  </span>
+                  <span className="v">${courtFee.toFixed(2)}</span>
+                </div>
+              )}
+              {isCourtFeeDeal && isNew && (
+                <div className="row total" style={{ borderTop: "1px dashed rgba(26,26,26,0.15)", paddingTop: 6 }}>
+                  <span className="k">Total student pays</span>
+                  <span className="v">${(netFee + courtFee).toFixed(2)}</span>
+                </div>
+              )}
               <div className="row total facility">
-                <span className="k">Facility earns</span>
+                <span className="k">Facility earns{isCourtFeeDeal && isNew ? " (incl. court fee)" : ""}</span>
                 <span className="v">${facilityEarns.toFixed(2)}</span>
               </div>
               <div className="row total coach">
-                <span className="k">Coach takes</span>
+                <span className="k">Coach takes · lesson only</span>
                 <span className="v">${coachTakes.toFixed(2)}</span>
               </div>
               {auto.formula && !form.manualOverride && (
                 <div className="formula">{auto.formula}</div>
+              )}
+              {isCourtFeeDeal && isNew && !form.studentPhone && (
+                <div className="formula">No student phone entered — court fee priced at guest rack rate. Add a member's phone to preview their discount.</div>
               )}
               <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
                 <input
@@ -11572,6 +11710,15 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
 }
 
 /* ----- Payments Due subview ----- */
+
+// Amount to collect from the student/coach for a pending coaching session:
+//  - flat_rent: the court rental (facility share) — coach is the payer.
+//  - rev_share/hybrid: lesson fee + court fee — ONE combined payment from
+//    the student (court fee is the member-aware, facility-only component).
+function sessionCollectAmount(s) {
+  if (s.dealTypeUsed === "flat_rent") return s.facilityEarns;
+  return (s.lessonFee || 0) + (s.courtFee || 0);
+}
 
 function PaymentsDueView({ data, loading, reload }) {
   const [expandedCoachId, setExpandedCoachId] = useState(null);
@@ -11702,7 +11849,7 @@ function PaymentsDueView({ data, loading, reload }) {
                     <>
                       <div className="pay-expand-head">
                         <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase", opacity: 0.7, fontWeight: 700 }}>
-                          {sessions.length} to collect · total ${sessions.reduce((s, x) => s + (x.dealTypeUsed === "flat_rent" ? x.facilityEarns : x.lessonFee), 0).toFixed(2)}
+                          {sessions.length} to collect · total ${sessions.reduce((s, x) => s + sessionCollectAmount(x), 0).toFixed(2)}
                         </div>
                         <button
                           className="btn primary"
@@ -11711,7 +11858,7 @@ function PaymentsDueView({ data, loading, reload }) {
                             openPaymentModal(c, sessions.map(s => s.sessionId));
                           }}
                         >
-                          Collect all · ${sessions.reduce((s, x) => s + (x.dealTypeUsed === "flat_rent" ? x.facilityEarns : x.lessonFee), 0).toFixed(2)}
+                          Collect all · ${sessions.reduce((s, x) => s + sessionCollectAmount(x), 0).toFixed(2)}
                         </button>
                       </div>
                       {sessions.map(s => (
@@ -11737,7 +11884,7 @@ function PaymentsDueView({ data, loading, reload }) {
           totalAmount={
             (coachSessions[paymentModal.coach.coachId] || [])
               .filter(s => paymentModal.sessionIds.indexOf(s.sessionId) >= 0)
-              .reduce((sum, s) => sum + (s.dealTypeUsed === "flat_rent" ? s.facilityEarns : s.lessonFee), 0)
+              .reduce((sum, s) => sum + sessionCollectAmount(s), 0)
           }
           onClose={() => setPaymentModal(null)}
           onConfirm={confirmPayment}
@@ -11769,10 +11916,17 @@ function PaymentSessionRow({ session, onMarkPaid }) {
           </>
         ) : (
           <>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--clay)" }}>${session.lessonFee.toFixed(2)}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--clay)" }}>${sessionCollectAmount(session).toFixed(2)}</div>
             <div style={{ fontSize: 9, opacity: 0.5, letterSpacing: "0.06em", marginTop: 2 }}>
-              You keep ${session.facilityEarns.toFixed(2)} · coach ${session.coachTakes.toFixed(2)}
+              {(session.courtFee || 0) > 0
+                ? "Lesson $" + session.lessonFee.toFixed(2) + " + court $" + session.courtFee.toFixed(2) + (session.courtFeeMemberRate ? " (member rate)" : "")
+                : "You keep $" + session.facilityEarns.toFixed(2) + " · coach $" + session.coachTakes.toFixed(2)}
             </div>
+            {(session.courtFee || 0) > 0 && (
+              <div style={{ fontSize: 9, opacity: 0.5, letterSpacing: "0.06em", marginTop: 1 }}>
+                You keep ${session.facilityEarns.toFixed(2)} · coach ${session.coachTakes.toFixed(2)} (lesson only)
+              </div>
+            )}
           </>
         )}
       </div>
@@ -14935,7 +15089,7 @@ function ReceiptModal({ r, onClose }) {
         </div>
         <div className="actions">
           <button className="btn" onClick={printYardReceipt}>Print receipt</button>
-          <button className="btn" onClick={() => sendReceiptSms(rr)}>Text receipt</button>
+          <button className="btn" onClick={() => sendReceiptSms(rr)} disabled={!rr.customerPhone} title={!rr.customerPhone ? "No phone on file" : ""}>Text receipt</button>
           <button className="btn primary" onClick={onClose}>Close</button>
         </div>
       </div>
