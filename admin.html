@@ -12586,8 +12586,10 @@ function ScreenPOS() {
           saleId: r.saleId,
           date: new Date(),
           cashier: "Staff",
-          customerName: customerName || "",
-          customerPhone: customerPhone || "",
+          // Prefer the backend's effective identity (adminSettleCombined falls
+          // back to an attached booking/walk-in player when staff typed none).
+          customerName: r.customerName || customerName || "",
+          customerPhone: r.customerPhone || customerPhone || "",
           memberTier: memberTier || "",
           items: cart.map(function (x) { return { name: x.name, qty: x.quantity, price: x.price, lineTotal: Math.round(x.price * x.quantity * 100) / 100 }; }),
           // Prefer the server's authoritative attached-line amounts (M7) when present.
@@ -13381,8 +13383,10 @@ function TabDetailModal({ tabId, products, onClose }) {
                   </span>
                 </span>
                 <span className="v" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  ${b.total.toFixed(2)}
-                  {isOpen && (
+                  <span style={String(b.paymentStatus).toLowerCase() === "paid" ? { textDecoration: "line-through", opacity: 0.5 } : {}}>${b.total.toFixed(2)}</span>
+                  {String(b.paymentStatus).toLowerCase() === "paid" ? (
+                    <span title="Already settled — not charged at close-out" style={{ fontFamily: "var(--mono)", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", background: "rgba(61,122,79,0.14)", color: "var(--green)", padding: "2px 6px", borderRadius: 3 }}>PAID</span>
+                  ) : isOpen && (
                     <button className="btn-sm" onClick={() => detachBooking(b.bookingId)} disabled={working}
                       style={{ color: "var(--clay)" }}>detach</button>
                   )}
@@ -13409,8 +13413,10 @@ function TabDetailModal({ tabId, products, onClose }) {
                     </span>
                   </span>
                   <span className="v" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    ${p.amount.toFixed(2)}
-                    {isOpen && (
+                    <span style={String(p.paymentStatus).toLowerCase() === "paid" ? { textDecoration: "line-through", opacity: 0.5 } : {}}>${p.amount.toFixed(2)}</span>
+                    {String(p.paymentStatus).toLowerCase() === "paid" ? (
+                      <span title="Already settled — not charged at close-out" style={{ fontFamily: "var(--mono)", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", background: "rgba(61,122,79,0.14)", color: "var(--green)", padding: "2px 6px", borderRadius: 3 }}>PAID</span>
+                    ) : isOpen && (
                       <button className="btn-sm" onClick={() => detachPlayer(p.playerId)} disabled={working}
                         style={{ color: "var(--clay)" }}>detach</button>
                     )}
@@ -13438,8 +13444,10 @@ function TabDetailModal({ tabId, products, onClose }) {
                     </span>
                   </span>
                   <span className="v" style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    ${p.amount.toFixed(2)}
-                    {isOpen && (
+                    <span style={String(p.paymentStatus).toLowerCase() === "paid" ? { textDecoration: "line-through", opacity: 0.5 } : {}}>${p.amount.toFixed(2)}</span>
+                    {String(p.paymentStatus).toLowerCase() === "paid" ? (
+                      <span title="Already settled — not charged at close-out" style={{ fontFamily: "var(--mono)", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", background: "rgba(61,122,79,0.14)", color: "var(--green)", padding: "2px 6px", borderRadius: 3 }}>PAID</span>
+                    ) : isOpen && (
                       <button className="btn-sm" onClick={() => detachOpenPlay(p.registrationId)} disabled={working}
                         style={{ color: "var(--clay)" }}>detach</button>
                     )}
@@ -13912,16 +13920,21 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
         showToast("Inventory note: " + r.stockWarnings.map(function (w) { return w.name + " (had " + w.available + ", sold " + w.requested + ")"; }).join(", ") + " — please reconcile stock.", "error");
       }
       const subtotalAll = Math.round(((itemTotal || 0) + (bookingTotal || 0) + (playerTotal || 0)) * 100) / 100;
+      // Already-Paid attached entries were NOT charged by this settle — keep
+      // them off the receipt so its lines match the sale exactly.
+      const _unsettled = function (x) { return String(x.paymentStatus || "").toLowerCase() !== "paid"; };
       setSettled({
         saleId: r.saleId,
         date: new Date(),
-        customerName: customerName || "",
-        customerPhone: customerPhone || "",
+        // Prefer the backend's effective identity (falls back to an attached
+        // player's phone when the tab was opened with just a name).
+        customerName: r.customerName || customerName || "",
+        customerPhone: r.customerPhone || customerPhone || "",
         memberTier: memberTier || "",
         items: (items || []).map(function (it) { return { name: it.name, qty: it.quantity, price: it.price, lineTotal: it.lineTotal }; }),
         attached: [].concat(
-          (bookings || []).map(function (b) { return { name: "Court · " + b.name, price: b.total }; }),
-          (walkInPlayers || []).map(function (p) { return { name: "Walk-in · " + p.name, price: p.amount }; })
+          (bookings || []).filter(_unsettled).map(function (b) { return { name: "Court · " + b.name, price: b.total }; }),
+          (walkInPlayers || []).filter(_unsettled).map(function (p) { return { name: "Walk-in · " + p.name, price: p.amount }; })
         ),
         subtotal: subtotalAll,
         memberDiscountAmount: memberDiscountAmount,
@@ -15050,10 +15063,15 @@ function membershipReceipt(m) {
 }
 
 function ReceiptModal({ r, onClose }) {
-  // Hook must run before any early return (React rules of hooks).
+  // Hooks must run before any early return (React rules of hooks).
   const [method, setMethod] = useState((r && r.paymentMethod) || "Cash");
+  // When the record has no phone (e.g. a tab opened with just a name), let
+  // staff type the payer's number instead of dead-ending the text receipt.
+  const [phoneInput, setPhoneInput] = useState("");
   if (!r) return null;
   function m(n) { return "$" + (Math.round((n || 0) * 100) / 100).toFixed(2); }
+  const phoneInputValid = /^[0-9]{8,12}$/.test(phoneInput);
+  const effectivePhone = r.customerPhone || (phoneInputValid ? phoneInput : "");
   // Receipt reflects the method the staff picks (Cash / ABA / Wing / Card).
   // Preserve the recorded tender + change when reprinting a past sale; only
   // synthesize them when the sale row didn't capture them.
@@ -15061,6 +15079,7 @@ function ReceiptModal({ r, onClose }) {
   const _hasChange = r.changeGiven !== undefined && r.changeGiven !== null && r.changeGiven !== "";
   const rr = Object.assign({}, r, {
     paymentMethod: method,
+    customerPhone: effectivePhone,
     cashReceived: _hasCash ? r.cashReceived : r.total,
     changeGiven: _hasChange ? r.changeGiven : 0
   });
@@ -15087,9 +15106,27 @@ function ReceiptModal({ r, onClose }) {
             <option value="Card">Card</option>
           </select>
         </div>
+        {!r.customerPhone && (
+          <div style={{ marginBottom: 12 }}>
+            <label className="field-label">Phone for text receipt</label>
+            <input
+              className="field-input"
+              type="tel"
+              inputMode="numeric"
+              placeholder="e.g. 012345678"
+              value={phoneInput}
+              onChange={(e) => setPhoneInput(e.target.value.replace(/[^0-9]/g, "").slice(0, 12))}
+            />
+            {phoneInput.length > 0 && !phoneInputValid && (
+              <div style={{ fontSize: 10, color: "var(--clay)", marginTop: 4, fontFamily: "var(--mono)" }}>
+                Enter 8–12 digits
+              </div>
+            )}
+          </div>
+        )}
         <div className="actions">
           <button className="btn" onClick={printYardReceipt}>Print receipt</button>
-          <button className="btn" onClick={() => sendReceiptSms(rr)} disabled={!rr.customerPhone} title={!rr.customerPhone ? "No phone on file" : ""}>Text receipt</button>
+          <button className="btn" onClick={() => sendReceiptSms(rr)} disabled={!rr.customerPhone} title={!rr.customerPhone ? (phoneInput ? "Phone must be 8–12 digits" : "No phone on file — type one above") : ""}>Text receipt</button>
           <button className="btn primary" onClick={onClose}>Close</button>
         </div>
       </div>
@@ -19623,34 +19660,71 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
                 >
                   {p.checkedIn ? "✓ Checked in" : "Check in"}
                 </button>
-                <button
-                  className="btn-sm"
-                  onClick={() => { if (p.paid) { togglePaid(p, ""); } else { setPayAsk(() => (mth) => togglePaid(p, mth)); } }}
-                  disabled={acting || isCancelled || s.price <= 0}
-                  style={{
-                    background: p.paid ? "var(--ink)" : "transparent",
-                    color: p.paid ? "var(--cream)" : "var(--ink)",
-                    border: "1px solid " + (p.paid ? "var(--ink)" : "var(--concrete)"),
-                    opacity: s.price <= 0 ? 0.4 : 1
-                  }}
-                >
-                  {s.price <= 0 ? "Free" : p.paid ? "✓ Paid" : "Mark paid"}
-                </button>
+                {p.posSaleId || (p.tabId && p.paid) ? (
+                  /* Settled through the POS (tab close / combined settle) —
+                     locked here; a refund must go through the POS sale. */
+                  <span
+                    title={p.paidLockReason || "Settled via POS/tab — refund through the POS sale"}
+                    style={{
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      background: "var(--ink)", color: "var(--cream)",
+                      border: "1px solid var(--ink)", borderRadius: 4,
+                      padding: "6px 4px", fontFamily: "var(--mono)", fontSize: 10,
+                      fontWeight: 700, letterSpacing: "0.04em", cursor: "default", whiteSpace: "nowrap"
+                    }}
+                  >
+                    ✓ PAID · POS
+                  </span>
+                ) : p.tabId ? (
+                  /* Riding an open tab — settles at the POS when the tab closes. */
+                  <span
+                    title={"On tab " + p.tabId + " — settle or detach at the POS"}
+                    style={{
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      background: "rgba(198,79,58,0.12)", color: "var(--clay)",
+                      border: "1px dashed var(--clay)", borderRadius: 4,
+                      padding: "6px 4px", fontFamily: "var(--mono)", fontSize: 10,
+                      fontWeight: 700, letterSpacing: "0.04em", cursor: "default", whiteSpace: "nowrap"
+                    }}
+                  >
+                    ON TAB
+                  </span>
+                ) : (
+                  <button
+                    className="btn-sm"
+                    onClick={() => { if (p.paid) { togglePaid(p, ""); } else { setPayAsk(() => (mth) => togglePaid(p, mth)); } }}
+                    disabled={acting || isCancelled || s.price <= 0}
+                    style={{
+                      background: p.paid ? "var(--ink)" : "transparent",
+                      color: p.paid ? "var(--cream)" : "var(--ink)",
+                      border: "1px solid " + (p.paid ? "var(--ink)" : "var(--concrete)"),
+                      opacity: s.price <= 0 ? 0.4 : 1
+                    }}
+                  >
+                    {s.price <= 0 ? "Free" : p.paid ? "✓ Paid" : "Mark paid"}
+                  </button>
+                )}
                 <div style={{ fontSize: 11, opacity: 0.6, fontFamily: "var(--mono)", textAlign: "right" }}>
                   <div>{p.amountPaid > 0 ? fmtMoney(p.amountPaid) : "—"}</div>
                   <button className="btn-sm" style={{ marginTop: 4, padding: "2px 6px", fontSize: 10 }} onClick={() => setReceiptItem(openPlayReceipt(s, p))}>Receipt</button>
                 </div>
-                <button
-                  onClick={() => removePlayer(p)}
-                  disabled={acting || isCancelled}
-                  title="Remove from session"
-                  style={{
-                    background: "transparent", border: "none", cursor: "pointer",
-                    color: "var(--clay)", fontSize: 16, padding: 4
-                  }}
-                >
-                  ×
-                </button>
+                {p.tabId || p.posSaleId ? (
+                  /* On a tab / POS-settled — removal is handled at the POS
+                     (detach or void), so no remove button for this row. */
+                  <span aria-hidden="true" />
+                ) : (
+                  <button
+                    onClick={() => removePlayer(p)}
+                    disabled={acting || isCancelled}
+                    title="Remove from session"
+                    style={{
+                      background: "transparent", border: "none", cursor: "pointer",
+                      color: "var(--clay)", fontSize: 16, padding: 4
+                    }}
+                  >
+                    ×
+                  </button>
+                )}
               </div>
             ))}
           </div>
