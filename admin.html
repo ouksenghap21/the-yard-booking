@@ -19281,7 +19281,9 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
     const name = (addForm.name || "").trim();
     const phone = (addForm.phone || "").replace(/[^0-9]/g, "");
     if (!name) return showToast("Name is required", "error");
-    if (phone.length < 8) return showToast("A valid phone number is required", "error");
+    // Phone is OPTIONAL for staff adds (backend allows anonymous counter
+    // walk-ins) — but if one is entered it must be a real 8-12 digit number.
+    if (phone && (phone.length < 8 || phone.length > 12)) return showToast("Phone, if entered, must be 8-12 digits", "error");
     setAdding(true);
     const r = await api("adminAddOpenPlayPlayer", { sessionId: sessionId, name: name, phone: phone, skillSelf: addForm.skill || "" });
     setAdding(false);
@@ -19534,7 +19536,7 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
                 onKeyDown={(e) => { if (e.key === "Enter") addPlayer(); }} />
             </div>
             <div style={{ flex: "1 1 120px" }}>
-              <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.6, marginBottom: 4 }}>Phone *</div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.6, marginBottom: 4 }}>Phone (optional)</div>
               <input type="tel" inputMode="numeric" value={addForm.phone} onChange={(e) => setAddForm({ ...addForm, phone: e.target.value.replace(/[^0-9]/g, "") })} placeholder="Phone number" style={{ width: "100%" }}
                 onKeyDown={(e) => { if (e.key === "Enter") addPlayer(); }} />
             </div>
