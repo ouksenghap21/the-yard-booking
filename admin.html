@@ -4648,7 +4648,7 @@ function cacheApi(action, params, data) {
 /* Actions that create/modify records get an idempotency key so a transport
    retry can't create a duplicate (server dedupes on clientRequestId). */
 var MUTATING_ACTIONS = new Set([
-  "adminCreateBooking","adminCancelBooking","adminUncancelBooking","adminExtendBooking","adminMarkPaid",
+  "adminCreateBooking","adminCancelBooking","adminUncancelBooking","adminExtendBooking","adminMoveBookingCourt","adminMarkPaid",
   "adminMarkRefunded","adminFlagNoShow","adminNoShowAndRelease","adminConfirmArrival",
   "adminCreateMember","adminUpdateMember","adminSetPricingRules","adminSetPromo",
   "adminSetPosSettings","adminSetGoals","adminSetLandingConfig",
@@ -4782,8 +4782,12 @@ function _invalidateForMutation(action) {
 
   // Categorize the mutation. Multiple categories can fire — e.g., creating a
   // booking affects dashboard + timeline + bookings list + availability.
+  // v62: adminSettleCombined + tabClose mark attached bookings Paid, so they are
+  // booking mutations too — without them here the dashboard/bookings caches were
+  // never wiped after a POS attach-settle and the UI kept showing "unpaid" even
+  // though the sheet said Paid (the owner's "POS doesn't mark paid" report).
   const isBookingMutation = (
-    /^(adminCreateBooking|createBooking|adminCancelBooking|cancelBooking|adminExtendBooking|adminMarkPaid|adminMarkRefunded|adminMarkNoShow|adminConfirmArrival|adminFlagNoShow|adminNoShowAndRelease|adminUndoCancellation|adminUpdateBooking|adminUpdateNotes)/.test(action)
+    /^(adminCreateBooking|createBooking|adminCancelBooking|cancelBooking|adminExtendBooking|adminMoveBookingCourt|adminMarkPaid|adminMarkRefunded|adminMarkNoShow|adminConfirmArrival|adminFlagNoShow|adminNoShowAndRelease|adminUndoCancellation|adminUpdateBooking|adminUpdateNotes|adminSettleCombined|tabClose)/.test(action)
   );
   const isWalkInMutation = (
     /^(adminCreateWalkInBlock|adminCloseWalkInBlock|adminAddWalkInPlayer|adminRemoveWalkInPlayer|adminMarkWalkInPlayerPaid|adminUpdateWalkInBlock)/.test(action)
@@ -4798,7 +4802,7 @@ function _invalidateForMutation(action) {
     /^(adminCreateTournament|adminCancelTournament|adminUpdateTournament|adminAddTournamentPlayer|adminRemoveTournamentPlayer|adminAddTournamentRevenue|adminAddTournamentExpense|registerForTournament|adminMarkTournamentPlayerPaid)/.test(action)
   );
   const isPosMutation = (
-    /^(posCreate|posVoid|posAdjust|posUpdate|posDelete)/.test(action)
+    /^(posCreate|posVoid|posAdjust|posUpdate|posDelete|adminSettleCombined)/.test(action)
   );
   const isTabMutation = (
     /^tab(Open|Close|Cancel|AddItem|RemoveItem|Attach|Detach|Update)/.test(action)
@@ -8809,6 +8813,36 @@ function BookingDetailModal({ booking, onClose, onAction }) {
     } catch (e) { return null; }
   }, [extendOpen, extendCfg, extendSlots, extendFits]);
 
+  // v61 — Move court: swap ONE court of the booking for another (works for
+  // single- and multi-court bookings; the court COUNT and price never
+  // change). The server (adminMoveBookingCourt) atomically verifies the
+  // target court is free for EVERY slot of the booking before touching
+  // anything — on conflict it refuses, names the blocker, and nothing
+  // changes. Payment state never blocks a move.
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moveTo, setMoveTo] = useState({});   // fromCourt -> chosen target court
+  const bookingCourtList = String(booking.courtNumbers || "")
+    .split(",").map(s => parseInt(s.trim())).filter(n => n >= 1);
+
+  async function doMoveCourt(fromCourt) {
+    const toCourt = parseInt(moveTo[fromCourt]);
+    if (acting || !toCourt) return;
+    setActing(true);
+    const r = await api("adminMoveBookingCourt", { bookingId: booking.bookingId, fromCourt: fromCourt, toCourt: toCourt });
+    setActing(false);
+    if (r.ok) {
+      showToast(
+        "Moved court " + r.fromCourt + " → " + r.toCourt +
+        (String(r.courtNumbers || "").indexOf(",") >= 0 ? " · now C·" + r.courtNumbers : ""),
+        "success"
+      );
+      onAction && onAction();
+      onClose && onClose();
+    } else {
+      showToast(r.error || "Court move failed", "error");
+    }
+  }
+
   async function doExtend() {
     setActing(true);
     const r = await api("adminExtendBooking", { bookingId: booking.bookingId, addSlots: extendSlots });
@@ -9089,6 +9123,43 @@ function BookingDetailModal({ booking, onClose, onAction }) {
           </div>
         )}
 
+        {/* v61 — Move court panel: one "C·N → move to…" row per current
+            court (mirrors the coaching court-move control). Server refuses
+            atomically on any conflict; price/payment never change. */}
+        {moveOpen && (
+          <div style={{
+            padding: "12px 14px", marginBottom: 12,
+            background: "rgba(26,26,26,0.03)", borderRadius: 4,
+            border: "1.5px solid var(--wood)"
+          }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", opacity: 0.7, marginBottom: 8 }}>
+              Move court · currently C·{booking.courtNumbers}
+            </div>
+            {bookingCourtList.map(fc => (
+              <div key={fc} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 12, minWidth: 58, flexShrink: 0 }}>C·{fc} →</div>
+                <select
+                  style={{ flex: 1 }}
+                  value={moveTo[fc] || ""}
+                  onChange={(e) => setMoveTo({ ...moveTo, [fc]: e.target.value })}
+                >
+                  <option value="">Move to court…</option>
+                  {[1, 2, 3, 4, 5, 6, 7, 8].filter(c => bookingCourtList.indexOf(c) < 0).map(c => (
+                    <option key={c} value={c}>C·{c}</option>
+                  ))}
+                </select>
+                <button className="btn ghost" onClick={() => doMoveCourt(fc)} disabled={acting || !moveTo[fc]}>
+                  {acting ? "…" : "Move"}
+                </button>
+              </div>
+            ))}
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, lineHeight: 1.4, marginBottom: 8 }}>
+              Moves only if the target court is free for the whole booking. Price and payment are unchanged.
+            </div>
+            <button className="btn ghost" onClick={() => setMoveOpen(false)} disabled={acting}>Back</button>
+          </div>
+        )}
+
         <div className="actions">
           {(d === "awaiting" || d === "at_risk" || d === "checked_in" || d === "completed" || d === "paid") && (
             <button
@@ -9096,6 +9167,13 @@ function BookingDetailModal({ booking, onClose, onAction }) {
               onClick={() => setExtendOpen(v => !v)}
               disabled={acting}
             >Extend</button>
+          )}
+          {(d === "awaiting" || d === "at_risk" || d === "checked_in" || d === "completed" || d === "paid") && (
+            <button
+              className="btn"
+              onClick={() => setMoveOpen(v => !v)}
+              disabled={acting}
+            >Move court</button>
           )}
           {/* "They're here" — most customers pay AFTER they play. This
               option lets staff mark the customer as physically present
@@ -16558,12 +16636,16 @@ function generateAccountingPdf(report) {
 
   // Mini revenue breakdown left col, txn counts right col
   const txnC = report.transactionCounts || {};
+  // v62 label FIX: walkinRev is the LEGACY Walk_In_Blocks stream; openPlayRev is
+  // the Open_Play_Registrations (session players) stream. The old labels
+  // ("Walk-in (open play)" for blocks, bare "Walk-in" for open play) read as the
+  // same thing twice with contradictory amounts. Both streams stay internally.
   const breakdownItems = [
     ["Court rental", fmtUsd(inc2.courtRev)],
-    ["Walk-in (open play)", fmtUsd(inc2.walkinRev)],
+    ["Walk-in blocks (legacy)", fmtUsd(inc2.walkinRev)],
     ["Coaching (facility share)", fmtUsd(inc2.coachingRev)],
     ["POS sales", fmtUsd(inc2.posRev)],
-    ["Walk-in", fmtUsd(inc2.openPlayRev || 0)],
+    ["Walk-in (session players)", fmtUsd(inc2.openPlayRev || 0)],
     ["Sponsorships", fmtUsd(inc2.sponsorshipRev)],
     ["Memberships sold", fmtUsd(inc2.membershipFeesThisMonth)]
   ];
@@ -16580,7 +16662,16 @@ function generateAccountingPdf(report) {
     ["Walk-in players paid", String(txnC.walkin || 0)],
     ["Coaching sessions paid", String(txnC.coaching || 0)],
     ["POS transactions", String(txnC.pos || 0)],
-    ["Outstanding receivables", String((report.outstanding && report.outstanding.totalCount) || 0) + " · " + fmtUsd((report.outstanding && report.outstanding.totalAmount) || 0)],
+    // v62 FIX: this line used to read report.outstanding.totalCount/.totalAmount —
+    // fields the backend NEVER returns (it returns outstandingReceivables) — so the
+    // Executive Summary always said "0 · $0.00" while the Aging section (which reads
+    // outstandingReceivables correctly) showed the real number. Read the SAME object
+    // the Aging section uses so the two can never disagree again.
+    ["Outstanding receivables", (function () {
+      const _ar = report.outstandingReceivables || {};
+      const _n = ((_ar.bookings || []).length + (_ar.walkIns || []).length + (_ar.coaching || []).length);
+      return String(_n) + " · " + fmtUsd(_ar.grandTotal || 0);
+    })()],
     ["Voided sales", String(txnC.voided || 0)]
   ];
   for (let i = 0; i < txnItems.length; i++) {
@@ -16641,10 +16732,10 @@ function generateAccountingPdf(report) {
   // OPERATIONAL section
   _ilLine("OPERATIONAL REVENUE", null, { bold: true, size: 9 });
   _ilLine("Court rental", fmtUsd(inc.courtRev), { indent: 10 });
-  _ilLine("Walk-in (open play)", fmtUsd(inc.walkinRev), { indent: 10 });
+  _ilLine("Walk-in blocks (legacy)", fmtUsd(inc.walkinRev), { indent: 10 });
   _ilLine("Coaching (facility share only)", fmtUsd(inc.coachingRev), { indent: 10 });
   _ilLine("POS / Retail", fmtUsd(inc.posRev), { indent: 10 });
-  _ilLine("Walk-in", fmtUsd(inc.openPlayRev || 0), { indent: 10 });
+  _ilLine("Walk-in (session players)", fmtUsd(inc.openPlayRev || 0), { indent: 10 });
   _ilDivider({ indent: 10 });
   _ilLine("Subtotal — operational", fmtUsd(inc.grossOperationalRevenue), { bold: true });
   _ilSpacer(8);
@@ -16810,7 +16901,7 @@ function generateAccountingPdf(report) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(...MUTED);
-  doc.text("Aged from scheduled end time to report generation. Total: " + fmtUsd(ar.grandTotal), M, y + 14);
+  doc.text("Aged from scheduled end time to report generation. Unfinished (future) bookings are excluded. Total: " + fmtUsd(ar.grandTotal), M, y + 14);
   doc.setTextColor(...INK);
   y += 26;
 
