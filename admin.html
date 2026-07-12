@@ -4648,7 +4648,7 @@ function cacheApi(action, params, data) {
 /* Actions that create/modify records get an idempotency key so a transport
    retry can't create a duplicate (server dedupes on clientRequestId). */
 var MUTATING_ACTIONS = new Set([
-  "adminCreateBooking","adminCancelBooking","adminUncancelBooking","adminMarkPaid",
+  "adminCreateBooking","adminCancelBooking","adminUncancelBooking","adminExtendBooking","adminMarkPaid",
   "adminMarkRefunded","adminFlagNoShow","adminNoShowAndRelease","adminConfirmArrival",
   "adminCreateMember","adminUpdateMember","adminSetPricingRules","adminSetPromo",
   "adminSetPosSettings","adminSetGoals","adminSetLandingConfig",
@@ -4783,7 +4783,7 @@ function _invalidateForMutation(action) {
   // Categorize the mutation. Multiple categories can fire — e.g., creating a
   // booking affects dashboard + timeline + bookings list + availability.
   const isBookingMutation = (
-    /^(adminCreateBooking|createBooking|adminCancelBooking|cancelBooking|adminMarkPaid|adminMarkRefunded|adminMarkNoShow|adminConfirmArrival|adminFlagNoShow|adminNoShowAndRelease|adminUndoCancellation|adminUpdateBooking|adminUpdateNotes)/.test(action)
+    /^(adminCreateBooking|createBooking|adminCancelBooking|cancelBooking|adminExtendBooking|adminMarkPaid|adminMarkRefunded|adminMarkNoShow|adminConfirmArrival|adminFlagNoShow|adminNoShowAndRelease|adminUndoCancellation|adminUpdateBooking|adminUpdateNotes)/.test(action)
   );
   const isWalkInMutation = (
     /^(adminCreateWalkInBlock|adminCloseWalkInBlock|adminAddWalkInPlayer|adminRemoveWalkInPlayer|adminMarkWalkInPlayerPaid|adminUpdateWalkInBlock)/.test(action)
@@ -8771,6 +8771,63 @@ function BookingDetailModal({ booking, onClose, onAction }) {
   // booking (e.g. staff forgot to text/print at the time).
   const [receiptItem, setReceiptItem] = useState(null);
 
+  // v60 — Extend booking: picker state + pricing config for the live preview.
+  // The preview reuses the same client-side pricing as BookingModal
+  // (calculatePriceClient); the server (adminExtendBooking) is authoritative
+  // and reprices with member/promo/corporate rules at the extension start.
+  const [extendOpen, setExtendOpen] = useState(false);
+  const [extendSlots, setExtendSlots] = useState(2);   // default +1h
+  const [extendCfg, setExtendCfg] = useState(null);
+  useEffect(() => {
+    if (extendOpen && !extendCfg) getCachedConfig().then(c => setExtendCfg(c)).catch(() => {});
+  }, [extendOpen]);
+
+  const CLOSE_MIN = 22 * 60;  // mirrors backend CLOSE_HOUR (22:00)
+  function timeToMin(t) {
+    const [h, m] = String(t || "").split(":").map(Number);
+    return (isNaN(h) ? 0 : h * 60) + (isNaN(m) ? 0 : m);
+  }
+  function minToTime(min) {
+    return String(Math.floor(min / 60)).padStart(2, "0") + ":" + String(min % 60).padStart(2, "0");
+  }
+  const extendCourtCount = String(booking.courtNumbers || "")
+    .split(",").filter(s => s.trim()).length || parseInt(booking.courts) || 1;
+  const extendEndMin = timeToMin(booking.timeEnd) + extendSlots * 30;
+  const extendFits = extendEndMin <= CLOSE_MIN;
+  const extendPreview = useMemo(() => {
+    if (!extendOpen || !extendCfg || !extendFits) return null;
+    try {
+      return calculatePriceClient({
+        config: extendCfg,
+        isMember: !!(booking.memberTier && booking.memberTier.length > 0),
+        tier: booking.memberTier || "",
+        date: booking.date,
+        time: booking.timeEnd,       // extension starts exactly at current end
+        slots: extendSlots,
+        courts: extendCourtCount
+      });
+    } catch (e) { return null; }
+  }, [extendOpen, extendCfg, extendSlots, extendFits]);
+
+  async function doExtend() {
+    setActing(true);
+    const r = await api("adminExtendBooking", { bookingId: booking.bookingId, addSlots: extendSlots });
+    setActing(false);
+    if (r.ok) {
+      const amt = r.extension ? (r.extension.total || 0) : 0;
+      showToast(
+        r.mode === "linked"
+          ? "Created linked booking " + r.linkedBookingId + " · " + r.timeStart + "–" + r.newEndTime + " · $" + amt.toFixed(2) + " due (original stays settled)"
+          : "Extended to " + r.newEndTime + " · +$" + amt.toFixed(2),
+        "success"
+      );
+      onAction && onAction();
+      onClose && onClose();
+    } else {
+      showToast(r.error || "Couldn't extend — please retry", "error");
+    }
+  }
+
   async function doAction(action, confirmMsg, payMethod) {
     // Cancel-booking uses UNDO pattern: act first, show undo toast.
     // Other destructive actions (release/no-show which send SMS to customer)
@@ -8984,7 +9041,62 @@ function BookingDetailModal({ booking, onClose, onAction }) {
           <span className="v">{booking.createdAt || ""}</span>
         </div>
 
+        {/* v60 — Extend panel: +30m/+1h/+1.5h/+2h with live price preview.
+            Unpaid bookings extend in place; settled bookings (paid / on a
+            tab / POS-settled) get a linked "Extension of …" booking so the
+            settled money is never touched — the toast explains which. */}
+        {extendOpen && (
+          <div style={{
+            padding: "12px 14px", marginBottom: 12,
+            background: "rgba(26,26,26,0.03)", borderRadius: 4,
+            border: "1.5px solid var(--wood)"
+          }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", opacity: 0.7, marginBottom: 8 }}>
+              Extend from {booking.timeEnd} · same court{extendCourtCount > 1 ? "s" : ""} ({booking.courtNumbers})
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+              {[[1, "+30m"], [2, "+1h"], [3, "+1.5h"], [4, "+2h"]].map(([n, label]) => {
+                const fits = timeToMin(booking.timeEnd) + n * 30 <= CLOSE_MIN;
+                return (
+                  <button
+                    key={n}
+                    className={"btn" + (extendSlots === n ? " primary" : "")}
+                    style={{ opacity: fits ? 1 : 0.35 }}
+                    disabled={!fits || acting}
+                    title={fits ? undefined : "Past closing (22:00)"}
+                    onClick={() => setExtendSlots(n)}
+                  >{label}</button>
+                );
+              })}
+            </div>
+            {extendFits ? (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 12, marginBottom: 10 }}>
+                New end <strong>{minToTime(extendEndMin)}</strong>
+                {extendPreview ? <span> · adds <strong>${(extendPreview.total || 0).toFixed(2)}</strong>{(extendPreview.discountPct || 0) > 0 ? " (after " + extendPreview.discountPct + "% off)" : ""}</span> : <span> · pricing…</span>}
+                {d === "paid" && <span style={{ opacity: 0.7 }}> · creates a linked booking (this one stays settled)</span>}
+              </div>
+            ) : (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 12, marginBottom: 10, color: "var(--clay)" }}>
+                That duration runs past closing (22:00).
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn primary" onClick={doExtend} disabled={acting || !extendFits}>
+                {acting ? "Extending…" : "Confirm extend"}
+              </button>
+              <button className="btn ghost" onClick={() => setExtendOpen(false)} disabled={acting}>Back</button>
+            </div>
+          </div>
+        )}
+
         <div className="actions">
+          {(d === "awaiting" || d === "at_risk" || d === "checked_in" || d === "completed" || d === "paid") && (
+            <button
+              className="btn"
+              onClick={() => setExtendOpen(v => !v)}
+              disabled={acting}
+            >Extend</button>
+          )}
           {/* "They're here" — most customers pay AFTER they play. This
               option lets staff mark the customer as physically present
               without recording a payment yet. Available for awaiting and
