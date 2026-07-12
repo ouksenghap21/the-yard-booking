@@ -4655,6 +4655,7 @@ var MUTATING_ACTIONS = new Set([
   "posCreateSale","adminSettleCombined","tabOpen","tabClose","tabAddItem","tabRemoveItem",
   "tabCancel","tabAttachBooking","tabAttachWalkInPlayer","tabDetachBooking","tabDetachWalkInPlayer",
   "tabAttachOpenPlayPlayer","tabDetachOpenPlayPlayer",
+  "tabAttachCoachingSession","tabDetachCoachingSession",
   "adminRenewMember",
   "adminSendReceiptSms",
   "adminMarkWalkInPlayerPaid","adminMarkCoachingSessionsPaid","adminPayCoach","adminRefundCoachingSession",
@@ -4788,7 +4789,7 @@ function _invalidateForMutation(action) {
     /^(adminCreateWalkInBlock|adminCloseWalkInBlock|adminAddWalkInPlayer|adminRemoveWalkInPlayer|adminMarkWalkInPlayerPaid|adminUpdateWalkInBlock)/.test(action)
   );
   const isCoachingMutation = (
-    /^(adminCreateCoachingSession|adminCancelCoachingSession|adminUpdateCoachingSession|adminMarkCoachingSessionsPaid|adminPayCoach|adminRefundCoachingSession|adminCreateCoach|adminUpdateCoach|adminDeleteCoach)/.test(action)
+    /^(adminCreateCoachingSession|adminCancelCoachingSession|adminUpdateCoachingSession|adminMarkCoachingSessionsPaid|adminPayCoach|adminRefundCoachingSession|adminCreateCoach|adminUpdateCoach|adminDeleteCoach|tabAttachCoachingSession|tabDetachCoachingSession|posVoidSale)/.test(action)
   );
   const isOpenPlayMutation = (
     /^(adminCreateOpenPlaySession|adminCancelOpenPlaySession|adminUpdateOpenPlaySession|adminAddOpenPlayPlayer|registerForOpenPlay|cancelMyOpenPlayRegistration|adminUpdateOpenPlayPlayer|adminRemoveOpenPlayPlayer)/.test(action)
@@ -11072,9 +11073,20 @@ function SessionsView({ coaches, sessions, loading, dateFrom, setDateFrom, dateT
               <div className="coach">
                 {s.coachName}
                 <span className={"deal-tag " + s.dealTypeUsed}>{s.dealTypeUsed.replace("_", " ")}</span>
-                <span className={"status-pill " + (s.paymentStatus.toLowerCase() === "paid" ? "paid" : s.paymentStatus.toLowerCase() === "waived" ? "cancelled" : "at_risk")}>
-                  {s.paymentStatus}
+                <span className={"status-pill " + (s.paymentStatus.toLowerCase() === "paid" ? "paid" : s.paymentStatus.toLowerCase() === "waived" ? "cancelled" : "at_risk")}
+                  title={s.posSaleId ? "Settled via POS sale " + s.posSaleId + " — refund by voiding that sale" : undefined}>
+                  {s.paymentStatus.toLowerCase() === "paid" && s.posSaleId ? "✓ Paid · POS" : s.paymentStatus}
                 </span>
+                {s.onOpenTab && (
+                  <span title={"On tab " + s.tabId + " — settles at the POS when the tab closes"}
+                    style={{
+                      marginLeft: 6, fontFamily: "var(--mono)", fontSize: 9, fontWeight: 700,
+                      letterSpacing: "0.06em", color: "var(--clay)",
+                      border: "1px dashed var(--clay)", borderRadius: 3, padding: "1px 5px"
+                    }}>
+                    ON TAB
+                  </span>
+                )}
               </div>
               <div className={"student-line" + (!s.studentName ? " empty" : "")}>
                 {s.studentName ? (s.studentName + (s.studentPhone ? " · " + s.studentPhone : "")) : "No student recorded"}
@@ -11661,8 +11673,12 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
             <div className="field-label">Payment status</div>
             {!isNew && String(session.paymentStatus).toLowerCase() === "paid" ? (
               <div style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 700, color: "var(--green)", padding: "8px 0" }}>
-                Paid · collected
-                <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.6, marginTop: 3 }}>To undo, cancel &amp; refund the session.</div>
+                {session.posSaleId ? "✓ Paid · POS" : "Paid · collected"}
+                <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.6, marginTop: 3 }}>
+                  {session.posSaleId
+                    ? "Settled via POS sale " + session.posSaleId + ". To undo, void that sale at the POS."
+                    : "To undo, cancel & refund the session."}
+                </div>
               </div>
             ) : (
               <>
@@ -11820,6 +11836,10 @@ function PaymentsDueView({ data, loading, reload }) {
         data.map(c => {
           const isExpanded = expandedCoachId === c.coachId;
           const sessions = coachSessions[c.coachId] || [];
+          // v57: a session riding an OPEN tab settles at the POS when the tab
+          // closes — it shows in the list (badged "ON TAB") but is NOT
+          // collectable here and stays out of "Collect all".
+          const collectable = sessions.filter(s => !s.onOpenTab);
           return (
             <div key={c.coachId} style={{ marginBottom: 10 }}>
               <div
@@ -11855,17 +11875,20 @@ function PaymentsDueView({ data, loading, reload }) {
                     <>
                       <div className="pay-expand-head">
                         <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase", opacity: 0.7, fontWeight: 700 }}>
-                          {sessions.length} to collect · total ${sessions.reduce((s, x) => s + sessionCollectAmount(x), 0).toFixed(2)}
+                          {collectable.length} to collect · total ${collectable.reduce((s, x) => s + sessionCollectAmount(x), 0).toFixed(2)}
+                          {sessions.length > collectable.length && <span style={{ color: "var(--clay)" }}> · {sessions.length - collectable.length} on tab</span>}
                         </div>
-                        <button
-                          className="btn primary"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openPaymentModal(c, sessions.map(s => s.sessionId));
-                          }}
-                        >
-                          Collect all · ${sessions.reduce((s, x) => s + sessionCollectAmount(x), 0).toFixed(2)}
-                        </button>
+                        {collectable.length > 0 && (
+                          <button
+                            className="btn primary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openPaymentModal(c, collectable.map(s => s.sessionId));
+                            }}
+                          >
+                            Collect all · ${collectable.reduce((s, x) => s + sessionCollectAmount(x), 0).toFixed(2)}
+                          </button>
+                        )}
                       </div>
                       {sessions.map(s => (
                         <PaymentSessionRow
@@ -11936,7 +11959,24 @@ function PaymentSessionRow({ session, onMarkPaid }) {
           </>
         )}
       </div>
-      <button className="btn-sm primary" onClick={onMarkPaid}>Collect</button>
+      {session.onOpenTab ? (
+        /* v57: riding an open POS tab — settles at the POS when the tab
+           closes. Collecting here too would double-charge the student. */
+        <span
+          title={"On tab " + session.tabId + " — settle or detach at the POS"}
+          style={{
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            background: "rgba(198,79,58,0.12)", color: "var(--clay)",
+            border: "1px dashed var(--clay)", borderRadius: 4,
+            padding: "6px 8px", fontFamily: "var(--mono)", fontSize: 10,
+            fontWeight: 700, letterSpacing: "0.04em", cursor: "default", whiteSpace: "nowrap"
+          }}
+        >
+          ON TAB
+        </span>
+      ) : (
+        <button className="btn-sm primary" onClick={onMarkPaid}>Collect</button>
+      )}
     </div>
   );
 }
@@ -12544,11 +12584,13 @@ function ScreenPOS() {
       const attachedBookings = attached.filter(a => a.kind === "booking").map(a => a.id);
       const attachedPlayers = attached.filter(a => a.kind === "walkin_player").map(a => a.id);
       const attachedOpenPlay = attached.filter(a => a.kind === "openplay_player").map(a => a.id);
+      const attachedCoaching = attached.filter(a => a.kind === "coaching_session").map(a => a.id);
       r = await api("adminSettleCombined", {
         items: JSON.stringify(cart.map(x => ({ sku: x.sku, quantity: x.quantity }))),
         attachedBookings: JSON.stringify(attachedBookings),
         attachedWalkInPlayers: JSON.stringify(attachedPlayers),
         attachedOpenPlayPlayers: JSON.stringify(attachedOpenPlay),
+        attachedCoachingSessions: JSON.stringify(attachedCoaching),
         discountPct: discountPct > 0 ? discountPct : 0,
         discountAmount: discountPct > 0 ? 0 : (parseFloat(discountAmount) || 0),  // staff portion only — backend re-derives the member discount itself (don't double it)
         paymentMethod: paymentMethod,
@@ -13081,11 +13123,13 @@ function OpenTabsModal({ onClose, onSelect, onChanged }) {
                   </div>
                   <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.7, marginTop: 6 }}>
                     {t.itemCount > 0 && <span>{t.itemCount} item{t.itemCount === 1 ? "" : "s"} ${t.itemTotal.toFixed(2)}</span>}
-                    {t.itemCount > 0 && (t.bookingCount > 0 || t.playerCount > 0) && " · "}
+                    {t.itemCount > 0 && (t.bookingCount > 0 || t.playerCount > 0 || (t.coachingCount || 0) > 0) && " · "}
                     {t.bookingCount > 0 && <span style={{ color: "var(--green)" }}>{t.bookingCount} booking{t.bookingCount === 1 ? "" : "s"} ${t.bookingTotal.toFixed(2)}</span>}
-                    {t.bookingCount > 0 && t.playerCount > 0 && " · "}
+                    {t.bookingCount > 0 && (t.playerCount > 0 || (t.coachingCount || 0) > 0) && " · "}
                     {t.playerCount > 0 && <span style={{ color: "var(--peach,#D9785C)" }}>{t.playerCount} walk-in{t.playerCount === 1 ? "" : "s"} ${t.playerTotal.toFixed(2)}</span>}
-                    {t.itemCount === 0 && t.bookingCount === 0 && t.playerCount === 0 && (
+                    {t.playerCount > 0 && (t.coachingCount || 0) > 0 && " · "}
+                    {(t.coachingCount || 0) > 0 && <span style={{ color: "var(--wood,#A8744A)" }}>{t.coachingCount} coaching ${(t.coachingTotal || 0).toFixed(2)}</span>}
+                    {t.itemCount === 0 && t.bookingCount === 0 && t.playerCount === 0 && (t.coachingCount || 0) === 0 && (
                       <span style={{ opacity: 0.5, fontStyle: "italic" }}>empty</span>
                     )}
                   </div>
@@ -13261,6 +13305,15 @@ function TabDetailModal({ tabId, products, onClose }) {
     else showToast(r.error || "Failed", "error");
   }
 
+  async function detachCoaching(sessionId) {
+    if (!confirm("Detach this coaching session from the tab?")) return;
+    setWorking(true);
+    const r = await api("tabDetachCoachingSession", { sessionId: sessionId });
+    setWorking(false);
+    if (r.ok) load();
+    else showToast(r.error || "Failed", "error");
+  }
+
   async function cancelTab() {
     if (!confirm("Cancel this tab? Items will be discarded. Attached bookings/walk-ins will revert to Pending (need separate payment).")) return;
     setWorking(true);
@@ -13329,9 +13382,9 @@ function TabDetailModal({ tabId, products, onClose }) {
             <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.5 }}>{data.bookings.length} booking{data.bookings.length === 1 ? "" : "s"}</div>
           </div>
           <div>
-            <div className="kicker">Walk-in</div>
-            <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 22, color: "var(--peach,#D9785C)" }}>${(data.playerTotal + (data.openPlayTotal || 0)).toFixed(2)}</div>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.5 }}>{data.walkInPlayers.length + (data.openPlayPlayers ? data.openPlayPlayers.length : 0)} player{(data.walkInPlayers.length + (data.openPlayPlayers ? data.openPlayPlayers.length : 0)) === 1 ? "" : "s"}</div>
+            <div className="kicker">Walk-in / Coaching</div>
+            <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 22, color: "var(--peach,#D9785C)" }}>${(data.playerTotal + (data.openPlayTotal || 0) + (data.coachingTotal || 0)).toFixed(2)}</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.5 }}>{data.walkInPlayers.length + (data.openPlayPlayers ? data.openPlayPlayers.length : 0) + (data.coachingSessions ? data.coachingSessions.length : 0)} entr{(data.walkInPlayers.length + (data.openPlayPlayers ? data.openPlayPlayers.length : 0) + (data.coachingSessions ? data.coachingSessions.length : 0)) === 1 ? "y" : "ies"}</div>
           </div>
           <div style={{ borderLeft: "1.5px solid var(--ink)", paddingLeft: 14 }}>
             <div className="kicker">Total</div>
@@ -13464,6 +13517,37 @@ function TabDetailModal({ tabId, products, onClose }) {
           </>
         )}
 
+        {/* Coaching sessions section (v57) — mirrors the walk-in sections */}
+        {data.coachingSessions && data.coachingSessions.length > 0 && (
+          <>
+            <div className="section-label">
+              <span><span className="num">05</span><span className="name" style={{ color: "var(--wood,#A8744A)" }}>Coaching Sessions</span></span>
+              <span className="right">{data.coachingSessions.length}</span>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              {data.coachingSessions.map(c => (
+                <div key={c.sessionId} className="modal-detail-row" style={{ padding: "8px 0" }}>
+                  <span className="k">
+                    <strong>{c.name}</strong>
+                    <span style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, marginLeft: 6 }}>
+                      Coach {c.coachName} · {c.date} {c.time}
+                    </span>
+                  </span>
+                  <span className="v" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <span style={String(c.paymentStatus).toLowerCase() === "paid" ? { textDecoration: "line-through", opacity: 0.5 } : {}}>${c.amount.toFixed(2)}</span>
+                    {String(c.paymentStatus).toLowerCase() === "paid" ? (
+                      <span title="Already settled — not charged at close-out" style={{ fontFamily: "var(--mono)", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", background: "rgba(61,122,79,0.14)", color: "var(--green)", padding: "2px 6px", borderRadius: 3 }}>PAID</span>
+                    ) : isOpen && (
+                      <button className="btn-sm" onClick={() => detachCoaching(c.sessionId)} disabled={working}
+                        style={{ color: "var(--clay)" }}>detach</button>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
         {/* Actions */}
         <div className="actions" style={{ borderTop: "1px solid rgba(26,26,26,0.1)", paddingTop: 14, marginTop: 14 }}>
           {isOpen ? (
@@ -13514,11 +13598,13 @@ function TabDetailModal({ tabId, products, onClose }) {
             eligibleItemTotal={data.eligibleItemTotal}
             bookingTotal={data.bookingTotal}
             playerTotal={data.playerTotal}
+            coachingTotal={data.coachingTotal || 0}
             customerPhone={tab.customerPhone}
             customerName={tab.customerName}
             items={data.items}
             bookings={data.bookings}
             walkInPlayers={data.walkInPlayers}
+            coachingSessions={data.coachingSessions || []}
             onClose={() => setShowClose(false)}
             onClosed={() => { setShowClose(false); onClose(); }}
           />
@@ -13707,6 +13793,18 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
             amount: e.total || e.amount || 0,
             sub: "WALK-IN"
           });
+        } else if (e.entryType === "coaching_session") {
+          flat.push({
+            kind: "coaching_session",
+            id: e.id,
+            label: e.label || "Coaching",
+            phone: String(e.customerPhone || e.phone || ""),
+            name: String(e.customerName || e.name || ""),
+            date: e.date || "",
+            time: e.time || "",
+            amount: e.total || e.amount || 0,
+            sub: "COACHING"
+          });
         }
       });
       setEntries(flat);
@@ -13722,6 +13820,8 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
       r = await api("tabAttachWalkInPlayer", { tabId: tabId, playerId: entry.id });
     } else if (entry.kind === "openplay_player") {
       r = await api("tabAttachOpenPlayPlayer", { tabId: tabId, registrationId: entry.id });
+    } else if (entry.kind === "coaching_session") {
+      r = await api("tabAttachCoachingSession", { tabId: tabId, sessionId: entry.id });
     } else {
       r = { ok: false, error: "Unknown entry type" };
     }
@@ -13761,7 +13861,7 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
       <div className="modal" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
-            <div className="kicker">Pick an unpaid booking or walk-in</div>
+            <div className="kicker">Pick an unpaid booking, walk-in or coaching session</div>
             <h2>Attach to Tab</h2>
           </div>
           <button className="x" onClick={onClose} aria-label="Close">×</button>
@@ -13787,7 +13887,7 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
         {entries === null ? (
           <div style={{ padding: 30, display: "flex", justifyContent: "center" }}><BouncingBall size="sm" /></div>
         ) : sorted.length === 0 ? (
-          <div className="empty">No unpaid bookings or walk-ins available to attach</div>
+          <div className="empty">No unpaid bookings, walk-ins or coaching sessions available to attach</div>
         ) : (
           <div style={{ maxHeight: 420, overflowY: "auto" }}>
             {sorted.map(e => {
@@ -13798,10 +13898,15 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
                 return s;
               }
               const matchPhone = customerPhone && normalize(e.phone) === normalize(customerPhone);
-              const kindColor = e.kind === "walkin_player" ? "var(--peach,#D9785C)" : "var(--green)";
-              const kindLabel = e.kind === "walkin_player" ? "◉ WALK-IN" : "COURT";
+              const kindColor = e.kind === "walkin_player" ? "var(--peach,#D9785C)"
+                : e.kind === "openplay_player" ? "var(--peach,#D9785C)"
+                : e.kind === "coaching_session" ? "var(--wood,#A8744A)"
+                : "var(--green)";
+              const kindLabel = e.kind === "walkin_player" || e.kind === "openplay_player" ? "◉ WALK-IN"
+                : e.kind === "coaching_session" ? "★ COACHING"
+                : "COURT";
               // Build the name+phone line — show both if available
-              const nameDisplay = e.name || (e.kind === "walkin_player" ? "Walk-in player" : "Guest");
+              const nameDisplay = e.name || (e.kind === "walkin_player" ? "Walk-in player" : e.kind === "coaching_session" ? "Student" : "Guest");
               const phoneDisplay = e.phone || "";
               return (
                 <div key={e.kind + "-" + e.id}
@@ -13855,7 +13960,7 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
   );
 }
 
-function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTotal, playerTotal, customerPhone, customerName, items, bookings, walkInPlayers, onClose, onClosed }) {
+function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTotal, playerTotal, coachingTotal, customerPhone, customerName, items, bookings, walkInPlayers, coachingSessions, onClose, onClosed }) {
   const [paymentMethod, setPaymentMethod] = useState("Cash");
   const [cashReceived, setCashReceived] = useState("");
   const [discountPct, setDiscountPct] = useState(0);
@@ -13925,7 +14030,7 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
       if (r.stockWarnings && r.stockWarnings.length) {
         showToast("Inventory note: " + r.stockWarnings.map(function (w) { return w.name + " (had " + w.available + ", sold " + w.requested + ")"; }).join(", ") + " — please reconcile stock.", "error");
       }
-      const subtotalAll = Math.round(((itemTotal || 0) + (bookingTotal || 0) + (playerTotal || 0)) * 100) / 100;
+      const subtotalAll = Math.round(((itemTotal || 0) + (bookingTotal || 0) + (playerTotal || 0) + (coachingTotal || 0)) * 100) / 100;
       // Already-Paid attached entries were NOT charged by this settle — keep
       // them off the receipt so its lines match the sale exactly.
       const _unsettled = function (x) { return String(x.paymentStatus || "").toLowerCase() !== "paid"; };
@@ -13940,7 +14045,8 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
         items: (items || []).map(function (it) { return { name: it.name, qty: it.quantity, price: it.price, lineTotal: it.lineTotal }; }),
         attached: [].concat(
           (bookings || []).filter(_unsettled).map(function (b) { return { name: "Court · " + b.name, price: b.total }; }),
-          (walkInPlayers || []).filter(_unsettled).map(function (p) { return { name: "Walk-in · " + p.name, price: p.amount }; })
+          (walkInPlayers || []).filter(_unsettled).map(function (p) { return { name: "Walk-in · " + p.name, price: p.amount }; }),
+          (coachingSessions || []).filter(_unsettled).map(function (c) { return { name: "Coaching · " + c.name, price: c.amount }; })
         ),
         subtotal: subtotalAll,
         memberDiscountAmount: memberDiscountAmount,
@@ -14022,7 +14128,7 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
         </div>
 
         <div style={{ background: "var(--ink)", color: "var(--cream)", padding: 14, borderRadius: 3, marginBottom: 14 }}>
-          {(itemTotal > 0 || bookingTotal > 0 || playerTotal > 0) && (
+          {(itemTotal > 0 || bookingTotal > 0 || playerTotal > 0 || (coachingTotal || 0) > 0) && (
             <>
               {itemTotal > 0 && (
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, fontSize: 11, opacity: 0.7 }}>
@@ -14040,6 +14146,12 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, fontSize: 11, opacity: 0.7 }}>
                   <span style={{ fontFamily: "var(--mono)" }}>Walk-in players</span>
                   <span style={{ fontFamily: "var(--mono)" }}>${playerTotal.toFixed(2)}</span>
+                </div>
+              )}
+              {(coachingTotal || 0) > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, fontSize: 11, opacity: 0.7 }}>
+                  <span style={{ fontFamily: "var(--mono)" }}>Coaching (lesson + court fee)</span>
+                  <span style={{ fontFamily: "var(--mono)" }}>${coachingTotal.toFixed(2)}</span>
                 </div>
               )}
               <div style={{ borderTop: "1px solid rgba(241,234,214,0.15)", margin: "6px 0" }} />
@@ -14517,6 +14629,22 @@ function AttachPickerModal({ alreadyAttached, onClose, onPick }) {
           label: "Walk-in · " + (e.customerName || e.name || "Player"),
           sub: e.label || ""
         });
+      } else if (e.entryType === "coaching_session") {
+        rows.push({
+          kind: "coaching_session",
+          id: e.id,
+          name: e.customerName || e.name || "Student",
+          phone: e.customerPhone || e.phone || "",
+          date: e.date || "",
+          time: e.time || "",
+          timeEnd: e.timeEnd || "",
+          courts: e.courtNumbers || "",
+          amount: e.total || e.amount || 0,
+          icon: "★",
+          tone: "var(--green)",
+          label: "Coaching · " + (e.customerName || e.name || "Student"),
+          sub: e.label || ""
+        });
       }
     }
     return rows;
@@ -14561,7 +14689,7 @@ function AttachPickerModal({ alreadyAttached, onClose, onPick }) {
         <div className="modal-head">
           <div>
             <div className="kicker">Combine with the POS sale</div>
-            <h2>Attach unpaid booking or walk-in</h2>
+            <h2>Attach unpaid booking, walk-in or coaching</h2>
           </div>
           <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
