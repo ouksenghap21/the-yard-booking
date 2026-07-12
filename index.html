@@ -3164,6 +3164,15 @@ const STRINGS = {
     p_phone_placeholder: "12 345 678",
     p_phone_hint: "We'll text you a 6-digit code. Standard SMS rates apply.",
     p_cta: "Send me a code",
+    // v63 — "Book here" clarity: hero CTA + explicit purpose on the phone step.
+    // (p_label_phone / p_phone_hint stay defined for backward compatibility.)
+    p_book_cta: "Book a Court",
+    p_book_label: "Book a court",
+    p_book_sub: "Enter your phone number to start — we'll text you a 6-digit code.",
+    // v63 — public walk-in roster on session cards
+    op_roster: "Who's playing",
+    op_roster_empty: "Be the first to join",
+    op_guest: "Guest",
     p_label_members: "Members of the dink line",
     p_members_right: "MEMBERSHIPS",
     p_standard: "STANDARD",
@@ -3378,6 +3387,14 @@ const STRINGS = {
     p_phone_placeholder: "12 345 678",
     p_phone_hint: "យើងនឹងផ្ញើលេខកូដ ៦ ខ្ទង់ទៅកាន់អ្នកតាម SMS។",
     p_cta: "ផ្ញើលេខកូដឱ្យខ្ញុំ",
+    // v63 — "Book here" clarity (KM)
+    p_book_cta: "កក់តារាង",
+    p_book_label: "កក់តារាង",
+    p_book_sub: "បញ្ចូលលេខទូរស័ព្ទរបស់អ្នកដើម្បីចាប់ផ្តើម — យើងនឹងផ្ញើលេខកូដ ៦ ខ្ទង់ទៅអ្នក។",
+    // v63 — public walk-in roster (KM)
+    op_roster: "អ្នកចុះឈ្មោះ",
+    op_roster_empty: "ក្លាយជាអ្នកដំបូងដែលចូលរួម",
+    op_guest: "ភ្ញៀវ",
     p_label_members: "សមាជិក Dink Line",
     p_members_right: "សមាជិកភាព",
     p_standard: "ស្តង់ដារ",
@@ -4417,6 +4434,28 @@ function ScreenPhone({ state, setState, go, lang }) {
   const [founding, setFounding] = useState(null);
   const [sending, setSending] = useState(false);
 
+  // v63 — "Book here" CTA: the hero button scrolls to the phone step and
+  // focuses the input, making it obvious that the phone field IS the
+  // booking entry point (customer feedback: "phone number can be many
+  // other things").
+  const bookStepRef = useRef(null);
+  const phoneInputRef = useRef(null);
+  function scrollToBook() {
+    try {
+      if (bookStepRef.current) {
+        bookStepRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      // Focus after the smooth scroll has (mostly) settled. preventScroll
+      // keeps the focus from fighting the smooth scroll animation.
+      setTimeout(() => {
+        if (phoneInputRef.current) {
+          try { phoneInputRef.current.focus({ preventScroll: true }); }
+          catch (e) { phoneInputRef.current.focus(); }
+        }
+      }, 450);
+    } catch (e) { /* non-fatal — worst case the button does nothing */ }
+  }
+
   const valid = normalizePhone(phone).length >= 8;
 
   useEffect(() => {
@@ -4485,10 +4524,19 @@ function ScreenPhone({ state, setState, go, lang }) {
           <div className="yard-ball" aria-hidden="true"></div>
         </div>
 
-        <p style={{ fontSize: 15, lineHeight: 1.45, margin: "14px 0 22px", maxWidth: "30ch" }}>
+        <p style={{ fontSize: 15, lineHeight: 1.45, margin: "14px 0 18px", maxWidth: "30ch" }}>
           {t("p_lede", null, lang)}{" "}
           <span style={{ fontFamily: "var(--serif)", fontStyle: "italic" }}>{t("p_lede_em", null, lang)}</span>
         </p>
+
+        {/* v63 — primary "Book a Court" CTA. Customers told us the phone
+            field alone doesn't read as "this is where you book" — this
+            button says it outright, then scrolls to + focuses the input. */}
+        <div style={{ margin: "0 0 24px" }}>
+          <CTA tone="ink" onClick={scrollToBook}>
+            {t("p_book_cta", null, lang)}
+          </CTA>
+        </div>
 
         {/* Cinema postcard — purely visual. CSS handles the cross-fading
             background images, Ken Burns motion, frame and caption. */}
@@ -4567,26 +4615,32 @@ function ScreenPhone({ state, setState, go, lang }) {
           ))}
         </div>
 
-        <SectionLabel n="01">{t("p_label_phone", null, lang)}</SectionLabel>
-        <div style={{ display: "flex", gap: 8 }}>
-          <div className="input" style={{
-            width: 88, flex: "0 0 88px",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            background: "var(--ink)", color: "var(--cream)",
-            fontWeight: 500, borderColor: "var(--ink)"
-          }}>
-            +855
+        {/* v63 — the phone step is retitled so its PURPOSE is explicit:
+            this is where you book. Label "Book a court", sub-copy explains
+            the phone number is just the first step. */}
+        <div ref={bookStepRef} style={{ scrollMarginTop: 18, marginBottom: 22 }}>
+          <SectionLabel n="01">{t("p_book_label", null, lang)}</SectionLabel>
+          <div className="hint" style={{ margin: "0 2px 12px" }}>
+            {t("p_book_sub", null, lang)}
           </div>
-          <input
-            className="input mono"
-            inputMode="numeric"
-            placeholder={t("p_phone_placeholder", null, lang)}
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-          />
-        </div>
-        <div className="hint" style={{ margin: "10px 2px 22px" }}>
-          {t("p_phone_hint", null, lang)}
+          <div style={{ display: "flex", gap: 8 }}>
+            <div className="input" style={{
+              width: 88, flex: "0 0 88px",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: "var(--ink)", color: "var(--cream)",
+              fontWeight: 500, borderColor: "var(--ink)"
+            }}>
+              +855
+            </div>
+            <input
+              ref={phoneInputRef}
+              className="input mono"
+              inputMode="numeric"
+              placeholder={t("p_phone_placeholder", null, lang)}
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+            />
+          </div>
         </div>
 
         <CTA onClick={onContinue} disabled={!valid || sending} tone="green">
@@ -6363,6 +6417,30 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
                       </div>
                     )}
                     {s.notes && <div className="op-card-notes">{s.notes}</div>}
+                    {/* v63 — public roster: names only (backend never sends
+                        phones). Blank names are anonymous counter walk-ins,
+                        shown as "Guest". Older backends without `players`
+                        simply don't render the block. */}
+                    {Array.isArray(s.players) && (
+                      <div className="op-card-roster">
+                        <div className="op-roster-label">
+                          {t("op_roster", null, lang)} · {s.registeredCount}
+                        </div>
+                        {s.players.length > 0 ? (
+                          <div className="op-roster-chips">
+                            {s.players.map((nm, ri) => (
+                              <span key={ri} className="op-roster-chip">
+                                {nm || t("op_guest", null, lang)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="op-roster-empty">
+                            {t("op_roster_empty", null, lang)}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="op-card-side">
                     <div className="op-card-price">
@@ -6476,6 +6554,13 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
         .op-card.full { opacity: 0.55; cursor: not-allowed; border-style: dashed; }
         .op-card.full:hover { transform: none; background: var(--paper); }
         .op-card.mine { border-color: var(--green); background: rgba(61,122,79,0.06); }
+
+        /* v63 — public roster on session cards */
+        .op-card-roster { margin-top: 9px; }
+        .op-roster-label { font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; opacity: 0.6; margin-bottom: 5px; }
+        .op-roster-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+        .op-roster-chip { font-family: var(--mono); font-size: 10px; line-height: 1.5; padding: 2px 9px; background: var(--paper); border: 1px solid var(--ink); border-radius: 999px; opacity: 0.85; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .op-roster-empty { font-family: var(--serif); font-style: italic; font-size: 12.5px; opacity: 0.55; }
 
         .op-card-date { font-family: var(--mono); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
         .op-card-time { font-family: var(--mono); font-size: 11px; opacity: 0.65; margin-top: 3px; }
