@@ -9105,7 +9105,10 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
     }
     const id = setTimeout(() => {
       api("lookupMember", { phone: form.phone }).then(r => {
-        if (r.ok && r.member) setMemberInfo(r.member);
+        // v56: gate on isMember (ACTIVE membership), not just a member row —
+        // an expired member must preview at rack rate, matching what the
+        // server will actually charge on create.
+        if (r.ok && r.isMember && r.member) setMemberInfo(r.member);
         else setMemberInfo(null);
       });
     }, 350);
@@ -11172,7 +11175,10 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
     if (!phone || phone.length < 6) { setStudentMemberInfo(null); return; }
     const id = setTimeout(() => {
       api("lookupMember", { phone: phone }).then(r => {
-        if (r.ok && r.member) setStudentMemberInfo(r.member);
+        // v56: gate on isMember (ACTIVE membership) so the court-fee preview
+        // mirrors the server's member-aware pricing exactly (expired members
+        // pay rack rate).
+        if (r.ok && r.isMember && r.member) setStudentMemberInfo(r.member);
         else setStudentMemberInfo(null);
       });
     }, 350);
