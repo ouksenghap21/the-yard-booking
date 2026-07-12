@@ -4789,7 +4789,7 @@ function _invalidateForMutation(action) {
     /^(adminCreateWalkInBlock|adminCloseWalkInBlock|adminAddWalkInPlayer|adminRemoveWalkInPlayer|adminMarkWalkInPlayerPaid|adminUpdateWalkInBlock)/.test(action)
   );
   const isCoachingMutation = (
-    /^(adminCreateCoachingSession|adminCancelCoachingSession|adminUpdateCoachingSession|adminMarkCoachingSessionsPaid|adminPayCoach|adminRefundCoachingSession|adminCreateCoach|adminUpdateCoach|adminDeleteCoach|tabAttachCoachingSession|tabDetachCoachingSession|posVoidSale)/.test(action)
+    /^(adminCreateCoachingSession|adminCancelCoachingSession|adminUpdateCoachingSession|adminMoveCoachingSessionCourt|adminMarkCoachingSessionsPaid|adminPayCoach|adminRefundCoachingSession|adminCreateCoach|adminUpdateCoach|adminDeleteCoach|tabAttachCoachingSession|tabDetachCoachingSession|posVoidSale)/.test(action)
   );
   const isOpenPlayMutation = (
     /^(adminCreateOpenPlaySession|adminCancelOpenPlaySession|adminUpdateOpenPlaySession|adminAddOpenPlayPlayer|registerForOpenPlay|cancelMyOpenPlayRegistration|adminUpdateOpenPlayPlayer|adminRemoveOpenPlayPlayer)/.test(action)
@@ -10831,7 +10831,11 @@ function CoachModal({ coach, onClose, onSaved }) {
     dealType: coach ? coach.dealType : "rev_share",
     courtRate: coach ? coach.courtRate : 8,
     revSharePct: coach ? coach.revSharePct : 30,
-    dealNotes: coach ? coach.dealNotes : ""
+    dealNotes: coach ? coach.dealNotes : "",
+    // v58 group pricing — kept as STRINGS so blank ("" = feature off) survives
+    // the round-trip; the server treats blank as "no group pricing".
+    baseFee: coach && coach.baseFee !== "" && coach.baseFee !== undefined && coach.baseFee !== null ? String(coach.baseFee) : "",
+    perExtraStudent: coach && coach.perExtraStudent !== "" && coach.perExtraStudent !== undefined && coach.perExtraStudent !== null ? String(coach.perExtraStudent) : ""
   });
   const [saving, setSaving] = useState(false);
 
@@ -10938,6 +10942,39 @@ function CoachModal({ coach, onClose, onSaved }) {
               value={form.revSharePct}
               onChange={(e) => setForm({ ...form, revSharePct: parseInt(e.target.value) || 0 })}
             />
+          </div>
+        )}
+
+        {form.dealType !== "flat_rent" && (
+          <div className="field" style={{ marginTop: 6 }}>
+            <div className="field-label" style={{ marginBottom: 8 }}>Group lesson pricing · optional</div>
+            <div className="field-row">
+              <div className="field">
+                <div className="field-label">Base fee · 1-on-1 · $</div>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={form.baseFee}
+                  placeholder="blank = off"
+                  onChange={(e) => setForm({ ...form, baseFee: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <div className="field-label">+ per extra student · $</div>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={form.perExtraStudent}
+                  placeholder="e.g. 5"
+                  onChange={(e) => setForm({ ...form, perExtraStudent: e.target.value })}
+                />
+              </div>
+            </div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.04em", opacity: 0.6, marginTop: 4, lineHeight: 1.5 }}>
+              Auto-fills the lesson fee when booking: <strong>base + per-extra × (students − 1)</strong>. E.g. $22 base + $5 extra → 1 pax $22 · 2 pax $27 · 3 pax $32. Staff can still type any fee. Leave base blank to turn this off.
+            </div>
           </div>
         )}
 
@@ -11173,6 +11210,8 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
     notes: session ? session.notes : ""
   });
   const [submitting, setSubmitting] = useState(false);
+  // v59 court move (edit mode): target court for the "Move court" control.
+  const [moveCourtTo, setMoveCourtTo] = useState("");
 
   // Court fee preview (rev_share/hybrid only) — priced with the STUDENT's own
   // member pricing, same client-side calc used by the booking modal. Guests
@@ -11283,6 +11322,27 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
       setForm(f => ({ ...f, lessonFee: rent }));
     }
   }, [form.coachId, form.durationHours, isFlatRent]);
+
+  // v58 GROUP PRICING autofill (controlled): when creating a NEW session and
+  // the selected coach has a Base_Fee configured (blank = feature off),
+  // lesson fee = base + perExtra × (groupSize − 1), recomputed whenever the
+  // coach or group size changes. The field stays fully EDITABLE — typing a
+  // custom value flips feeAuto off (stops the hint / marks it manual) until
+  // the coach or group size changes again, which re-runs the autofill.
+  // Disjoint from the flat-rent effect above (gated !isFlatRent) and skipped
+  // for coach-practice sessions (no student, no lesson fee).
+  const groupPricing = (selectedCoach && !isFlatRent
+    && selectedCoach.baseFee !== "" && selectedCoach.baseFee !== undefined && selectedCoach.baseFee !== null)
+    ? { base: parseFloat(selectedCoach.baseFee) || 0, per: parseFloat(selectedCoach.perExtraStudent) || 0 }
+    : null;
+  const [feeAuto, setFeeAuto] = useState(false);
+  useEffect(() => {
+    if (!isNew || !groupPricing || form.sessionType === "practice") return;
+    const extras = Math.max(0, (parseInt(form.groupSize) || 1) - 1);
+    const fee = Math.round((groupPricing.base + groupPricing.per * extras) * 100) / 100;
+    setForm(f => ({ ...f, lessonFee: fee }));
+    setFeeAuto(true);
+  }, [form.coachId, form.groupSize, form.sessionType, isFlatRent]);
 
   function toggleCourt(c) {
     setForm(f => {
@@ -11418,6 +11478,26 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
     onSaved && onSaved();
   }
 
+  // v59: switch this session to a different court. The server atomically
+  // verifies the target court is free for EVERY slot of the session before
+  // touching anything — on conflict it refuses and nothing changes. Payment
+  // state never blocks a move (money is unchanged by a court switch).
+  async function moveCourt() {
+    if (submitting || !moveCourtTo) return;
+    setSubmitting(true);
+    const r = await api("adminMoveCoachingSessionCourt", {
+      sessionId: session.sessionId,
+      newCourt: moveCourtTo
+    });
+    setSubmitting(false);
+    if (r.ok) {
+      showToast("Moved to court " + r.toCourt, "success");
+      onSaved && onSaved();
+    } else {
+      showToast(r.error || "Court move failed", "error");
+    }
+  }
+
   const timeOptions = useMemo(() => {
     const out = [];
     for (let h = OPEN_HOUR; h < CLOSE_HOUR; h++) {
@@ -11501,6 +11581,34 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
           </>
         )}
 
+        {!isNew && !session.cancelled && (
+          <div className="field">
+            <div className="field-label">Court · currently C·{session.courtNumbers}</div>
+            {String(session.courtNumbers || "").split(",").filter(x => x.trim()).length === 1 ? (
+              <>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <select style={{ flex: 1 }} value={moveCourtTo} onChange={(e) => setMoveCourtTo(e.target.value)}>
+                    <option value="">Move to court…</option>
+                    {[1, 2, 3, 4, 5, 6, 7, 8].filter(c => String(c) !== String(session.courtNumbers).trim()).map(c => (
+                      <option key={c} value={c}>C·{c}</option>
+                    ))}
+                  </select>
+                  <button className="btn ghost" onClick={moveCourt} disabled={submitting || !moveCourtTo}>
+                    {submitting ? "…" : "Move court"}
+                  </button>
+                </div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, marginTop: 4, lineHeight: 1.4 }}>
+                  Moves the session only if the target court is free for the whole slot. Payment and fees are unchanged.
+                </div>
+              </>
+            ) : (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6, padding: "6px 0" }}>
+                Multi-court session — to change courts, cancel and rebook.
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="field-row">
           <div className="field">
             <div className="field-label">Session type</div>
@@ -11547,9 +11655,14 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
               min="0"
               step="0.5"
               value={form.lessonFee}
-              onChange={(e) => setForm({ ...form, lessonFee: parseFloat(e.target.value) || 0 })}
+              onChange={(e) => { setFeeAuto(false); setForm({ ...form, lessonFee: parseFloat(e.target.value) || 0 }); }}
               placeholder={isFlatRent ? "What the coach pays you for the court" : "Coach's standard total fee"}
             />
+            {isNew && feeAuto && groupPricing && form.sessionType !== "practice" && (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", letterSpacing: "0.05em", marginTop: 3 }}>
+                Auto: ${groupPricing.base}{(parseInt(form.groupSize) || 1) > 1 ? " + " + ((parseInt(form.groupSize) || 1) - 1) + " × $" + groupPricing.per : ""} · edit to override
+              </div>
+            )}
           </div>
           <div className="field">
             <div className="field-label">Discount · %</div>
