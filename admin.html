@@ -6258,6 +6258,9 @@ function ScreenDashboard() {
   const [clock, setClock] = useState(fmtClock());
   // Today's takings split by tender (Cash vs ABA). Fetched once on load.
   const [payBreakdown, setPayBreakdown] = useState(null);
+  // v67: expandable per-type breakdown on the Takings card — answers
+  // "why is takings different from revenue" on-screen.
+  const [takingsOpen, setTakingsOpen] = useState(false);
 
   // Click-to-detail modals — same pattern as ScreenBookings
   const [detailBooking, setDetailBooking] = useState(null);
@@ -6596,7 +6599,14 @@ function ScreenDashboard() {
           {(() => {
             const court = data.bookings.revenuePaid || 0;
             const pos = data.pos.revenue || 0;
-            const coaching = (data.coaching && data.coaching.revenuePaid) || 0;
+            // v67 MONEY-CLARITY FIX: this tile is labeled "by session date",
+            // so coaching must use the session-date field (facility share of
+            // TODAY'S sessions that are paid) — revenuePaid is CASH-basis
+            // (collection date) and silently mixed two bases in one tile.
+            // Falls back to revenuePaid only for an old server build.
+            const coaching = (data.coaching && (data.coaching.revenuePaidSessionDate !== undefined
+              ? data.coaching.revenuePaidSessionDate
+              : data.coaching.revenuePaid)) || 0;
             const walkin = (data.walkIn && data.walkIn.revenuePaid) || 0;
             const openPlay = (data.openPlay && data.openPlay.revenuePaid) || 0;
             const mem = (data.members && data.members.revenueToday) || 0;
@@ -6736,6 +6746,69 @@ function ScreenDashboard() {
               <span style={{ fontWeight: 700 }}>{fmtMoney(payBreakdown.total || 0)}</span>
             </div>
           </div>
+          {/* v67: expandable per-type breakdown — answers "why doesn't takings
+              match the revenue tile" without leaving the dashboard. Same
+              ledger rows as the totals above, grouped by Type. */}
+          {payBreakdown.byType && Object.keys(payBreakdown.byType).length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <button
+                onClick={() => setTakingsOpen(o => !o)}
+                style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0,
+                         fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.08em",
+                         textTransform: "uppercase", opacity: 0.7 }}>
+                {takingsOpen ? "▾ hide breakdown" : "▸ what's in this number?"}
+              </button>
+              {takingsOpen && (() => {
+                // Friendly labels + the "why it differs from Revenue" hint per
+                // ledger type. Anything unmapped falls through as-is.
+                const TYPE_INFO = {
+                  "Court booking":         { label: "Court bookings",  hint: "incl. prepayments for other days" },
+                  "Combined settle":       { label: "Combined settle", hint: "POS items + attached court/coaching money, one payment" },
+                  "Tab":                   { label: "Tab close-outs",  hint: "POS items + attached entries settled from a tab" },
+                  "POS":                   { label: "POS sales",       hint: "products only" },
+                  "POS void":              { label: "POS voids",       hint: "reverses a voided sale" },
+                  "Walk-in":               { label: "Walk-in players", hint: "" },
+                  "Walk-in refund":        { label: "Walk-in refunds", hint: "" },
+                  "Open play":             { label: "Open play",       hint: "" },
+                  "Open play refund":      { label: "Open play refunds", hint: "" },
+                  "Coaching":              { label: "Coaching collected", hint: "full lesson money — includes the coach's cut, held until payout" },
+                  "Coach payout":          { label: "Coach payouts (cash)", hint: "cash paid out of the till; bank-transfer payouts never appear here" },
+                  "Coach payout reversal": { label: "Coach payout reversals", hint: "" },
+                  "Membership new":        { label: "New memberships", hint: "in takings, not in operational revenue" },
+                  "Membership renewal":    { label: "Membership renewals", hint: "in takings, not in operational revenue" },
+                  "Tournament":            { label: "Tournament fees", hint: "" },
+                  "Refund":                { label: "Refunds",         hint: "money returned to customers" }
+                };
+                return (
+                  <div style={{ marginTop: 6, borderTop: "1px dashed var(--concrete)", paddingTop: 8 }}>
+                    {Object.entries(payBreakdown.byType)
+                      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+                      .map(([type, amt]) => {
+                        const info = TYPE_INFO[type] || { label: type, hint: "" };
+                        const n = (payBreakdown.countByType && payBreakdown.countByType[type]) || 0;
+                        return (
+                          <div key={type} style={{ display: "flex", alignItems: "baseline", gap: 8,
+                                                   fontSize: 12, lineHeight: 1.9 }}>
+                            <span>{info.label}{n > 1 ? " × " + n : ""}</span>
+                            {info.hint && <span style={{ opacity: 0.55, fontSize: 11 }}>· {info.hint}</span>}
+                            <span style={{ marginLeft: "auto", fontFamily: "var(--mono)", fontWeight: 700,
+                                           color: amt < 0 ? "var(--clay)" : "inherit" }}>
+                              {amt < 0 ? "−" + fmtMoney(-amt) : fmtMoney(amt)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    <div style={{ marginTop: 6, fontSize: 11, opacity: 0.6, lineHeight: 1.5 }}>
+                      Takings = money through the till today (payment date). The Revenue tile counts
+                      today's <em>sessions</em> (session date) and excludes memberships and the coach's
+                      cut — so the two legitimately differ by prepayments, pay-laters, memberships,
+                      and coach money held for payout.
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
         </div>
       )}
 
@@ -24263,6 +24336,16 @@ function DataIntegrityCard() {
                       <li key={i}>
                         <code>{m.id}</code> ({m.sheet} row {m.row}) — {m.reason}
                         {m.guess ? <span style={{ opacity: 0.7 }}> · guess: {m.guess}</span> : null}
+                        {/* v67: show the raw cell + the row's court count so the
+                            owner knows exactly what to type into the sheet. */}
+                        {m.cell ? (
+                          <span style={{ display: "block", opacity: 0.65, fontSize: 11 }}>
+                            cell says: <code>{m.cell}</code>
+                            {m.courtCount != null && m.courtCount > 0
+                              ? <> · row expects <b>{m.courtCount}</b> court{m.courtCount === 1 ? "" : "s"} — type that many numbers, e.g. "3, 6, 8"</>
+                              : null}
+                          </span>
+                        ) : null}
                       </li>
                     ))}
                     {courtRepair.needsManual.length > 8 && (
