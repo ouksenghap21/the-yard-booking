@@ -3345,6 +3345,21 @@ const STRINGS = {
     mb_confirm_cancel_paid_notice: "This booking was already paid. Refunds are handled at the front counter, not automatically — please stop by or contact us after cancelling.",
     mb_keep: "Keep it",
     mb_confirm_cancel_yes: "Yes, cancel",
+    // v68 — customer self-edit (date / time / court count before play)
+    mb_edit: "Edit",
+    eb_title: "Edit booking",
+    eb_sub: "Change the date, time, duration or number of courts. The price updates automatically.",
+    eb_date: "Date",
+    eb_time: "Time",
+    eb_duration: "Duration",
+    eb_courts: "Courts",
+    eb_full: "full",
+    eb_new_total: "New total",
+    eb_was: "was",
+    eb_no_slots: "No free slots that day — try another date.",
+    eb_cutoff_note: "Changes close 2 hours before start. Courts are re-assigned automatically.",
+    eb_confirm: "Confirm changes",
+    eb_updated: "Booking updated — SMS on its way",
 
     // Membership
     m_title: "Membership",
@@ -3550,6 +3565,21 @@ const STRINGS = {
     mb_confirm_cancel_paid_notice: "ការកក់នេះបានបង់ប្រាក់រួចហើយ។ ការសងប្រាក់វិញមិនមែនធ្វើដោយស្វ័យប្រវត្តិទេ សូមទំនាក់ទំនង ឬអញ្ជើញមកកាន់បញ្ជរដើម្បីសងប្រាក់វិញ បន្ទាប់ពីលុបចោលការកក់នេះ។",
     mb_keep: "រក្សាទុកការកក់",
     mb_confirm_cancel_yes: "បាទ/ចាស លុបចោល",
+    // v68 — customer self-edit (KM)
+    mb_edit: "កែប្រែ",
+    eb_title: "កែប្រែការកក់",
+    eb_sub: "ប្តូរកាលបរិច្ឆេទ ម៉ោង រយៈពេល ឬចំនួនតារាង។ តម្លៃនឹងគណនាឡើងវិញដោយស្វ័យប្រវត្តិ។",
+    eb_date: "កាលបរិច្ឆេទ",
+    eb_time: "ម៉ោង",
+    eb_duration: "រយៈពេល",
+    eb_courts: "ចំនួនតារាង",
+    eb_full: "ពេញ",
+    eb_new_total: "តម្លៃថ្មី",
+    eb_was: "ពីមុន",
+    eb_no_slots: "គ្មានម៉ោងទំនេរនៅថ្ងៃនេះទេ — សូមជ្រើសថ្ងៃផ្សេង។",
+    eb_cutoff_note: "អាចកែប្រែបានរហូតដល់ ២ ម៉ោងមុនម៉ោងចាប់ផ្តើម។ ប្រព័ន្ធនឹងជ្រើសតារាងជូនដោយស្វ័យប្រវត្តិ។",
+    eb_confirm: "បញ្ជាក់ការកែប្រែ",
+    eb_updated: "បានកែប្រែការកក់ — ប្រព័ន្ធនឹងផ្ញើ SMS ជូន",
     m_title: "សមាជិកភាព",
     m_kicker: "ជម្រើស ២ កញ្ចប់ · គិតថ្លៃប្រចាំឆ្នាំ",
     m_lede: "សូមទាក់ទងមកយើងតាម Telegram ឬអញ្ជើញមកកាន់បញ្ជរផ្ទាល់ដើម្បីចុះឈ្មោះ។ នៅពេលចុះឈ្មោះរួចរាល់ ប្រព័ន្ធនឹងភ្ជាប់លេខទូរស័ព្ទរបស់អ្នកដើម្បីទទួលបានការបញ្ចុះតម្លៃដោយស្វ័យប្រវត្តិ។",
@@ -3598,7 +3628,7 @@ function t(key, vars, lang) {
    transport-level retry of the same request can't create a duplicate
    (the server dedupes on clientRequestId within a short window). */
 var MUTATING_ACTIONS = new Set([
-  "createBooking", "cancelBooking", "cancelMyOpenPlayRegistration",
+  "createBooking", "cancelBooking", "updateMyBooking", "cancelMyOpenPlayRegistration",
   "registerForOpenPlay", "registerForTournament",
   "tabOpen", "tabClose", "tabAddItem", "tabRemoveItem"
 ]);
@@ -5756,7 +5786,7 @@ function ScreenConfirm({ state, setState, go, lang }) {
 }
 
 /* ===================== SCREEN 5: MY BOOKINGS ===================== */
-function ScreenMyBookings({ state, setState, go, lang }) {
+function ScreenMyBookings({ state, setState, go, lang, config }) {
   const [data, setData] = useState(null);
   const [opRegs, setOpRegs] = useState(null);          // Walk-in registrations
   const [trnRegs, setTrnRegs] = useState(null);        // Tournament registrations
@@ -5764,6 +5794,8 @@ function ScreenMyBookings({ state, setState, go, lang }) {
   const [loading, setLoading] = useState(true);
   const [cancelTarget, setCancelTarget] = useState(null);
   const [cancelling, setCancelling] = useState(false);
+  // v68 — self-edit target (unpaid, pre-play bookings only)
+  const [editTarget, setEditTarget] = useState(null);
   // Universal cancellation target: { kind: "booking"|"openplay"|"tournament", ... }
   const [universalCancel, setUniversalCancel] = useState(null);
 
@@ -6006,10 +6038,21 @@ function ScreenMyBookings({ state, setState, go, lang }) {
                   <span className="mono" style={{ fontSize: 14, fontWeight: 500 }}>
                     {b.total === 0 ? "FREE" : "$" + Number(b.total).toFixed(2)}
                   </span>
-                  <button className="ulink" style={{ fontSize: 12, color: "var(--clay)", borderColor: "var(--clay)" }}
-                    onClick={() => setCancelTarget(b)}>
-                    {t("mb_cancel", null, lang)}
-                  </button>
+                  <span style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                    {/* v68 — self-edit: unpaid, non-birthday bookings only.
+                        Paid / birthday changes go through the counter (the
+                        server enforces this too — button is UX sugar). */}
+                    {String(b.paymentStatus || "").toLowerCase() !== "paid" && !b.isBirthdaySession && (
+                      <button className="ulink" style={{ fontSize: 12 }}
+                        onClick={() => setEditTarget(b)}>
+                        {t("mb_edit", null, lang)}
+                      </button>
+                    )}
+                    <button className="ulink" style={{ fontSize: 12, color: "var(--clay)", borderColor: "var(--clay)" }}
+                      onClick={() => setCancelTarget(b)}>
+                      {t("mb_cancel", null, lang)}
+                    </button>
+                  </span>
                 </div>
               </div>
             ))
@@ -6122,6 +6165,21 @@ function ScreenMyBookings({ state, setState, go, lang }) {
         </div>
       )}
 
+      {/* v68 — self-edit modal: date / time / duration / court count with a
+          live price preview. Server (updateMyBooking) revalidates everything
+          atomically and keeps the same booking ID. */}
+      {editTarget && (
+        <EditBookingModal
+          booking={editTarget}
+          state={state}
+          lang={lang}
+          config={config}
+          onClose={() => setEditTarget(null)}
+          onUpdated={() => { setEditTarget(null); load(); }}
+          onSessionExpired={() => handleSessionExpiry(setState, go, lang)}
+        />
+      )}
+
       {/* Universal cancel modal — used for Walk-in and Tournament cancellations.
           Identical UX to the regular booking cancel modal so users don't have
           to learn a new pattern; differs only in the API endpoint hit. */}
@@ -6149,6 +6207,236 @@ function ScreenMyBookings({ state, setState, go, lang }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ===================== v68: EDIT BOOKING MODAL =====================
+ * Customer self-edit for an UNPAID, pre-play booking: change date, time,
+ * duration or court COUNT (the system re-picks court numbers, exactly like
+ * createBooking's auto-assign). Reuses the booking screen's primitives:
+ * getAvailability for the day grid + calculatePriceClient for the instant
+ * price preview. The server (updateMyBooking) is the source of truth — it
+ * re-validates availability atomically, reprices fresh (member discount /
+ * promo), keeps the same booking ID and texts an "updated" SMS. */
+function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, onSessionExpired }) {
+  const [date, setDate] = useState(booking.date);
+  const [time, setTime] = useState(booking.time);
+  const [slots, setSlots] = useState(parseInt(booking.slots) || 2);
+  const [courtCount, setCourtCount] = useState(parseInt(booking.courts) || 1);
+  const [availSlots, setAvailSlots] = useState(null);   // null = loading
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+
+  // Date bounds: today … +30 days (mirrors BOOKING_WINDOW_DAYS)
+  const minDate = todayISO();
+  const maxDate = (() => {
+    const d = new Date(minDate + "T12:00:00");
+    d.setDate(d.getDate() + 30);
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+  })();
+
+  useEffect(() => {
+    let cancelled = false;
+    setAvailSlots(null);
+    api("getAvailability", { date: date }).then(r => {
+      if (cancelled) return;
+      setAvailSlots(r.ok ? (r.slots || []) : []);
+    });
+    return () => { cancelled = true; };
+  }, [date]);
+
+  // The booking's OWN cells count as free (the server applies the same
+  // rule), otherwise editing time/duration within your current window
+  // would look "full" in the picker.
+  const ownCourts = String(booking.courtNumbers || "")
+    .split(",").map(s => parseInt(s.trim())).filter(n => n >= 1);
+  const ownStart = (() => {
+    const [h, m] = String(booking.time || "00:00").split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  })();
+  const ownEnd = ownStart + (parseInt(booking.slots) || 0) * 30;
+  function isOwnCell(slotMin, courtNum) {
+    return date === booking.date && slotMin >= ownStart && slotMin < ownEnd && ownCourts.indexOf(courtNum) >= 0;
+  }
+
+  // For each candidate start time: how many courts stay free (or ours) for
+  // the WHOLE chosen duration? Same continuity logic as the booking screen.
+  const timeOptions = useMemo(() => {
+    if (!availSlots) return [];
+    return availSlots.map((s, idx) => {
+      let feasible = 0;
+      const [h, m] = s.time.split(":").map(Number);
+      const startMin = (h || 0) * 60 + (m || 0);
+      for (let c = 1; c <= COURTS_COUNT; c++) {
+        let ok = true;
+        for (let k = 0; k < slots; k++) {
+          const row = availSlots[idx + k];
+          if (!row) { ok = false; break; }   // past closing
+          if (!(row.courts && row.courts[c - 1]) && !isOwnCell(startMin + k * 30, c)) { ok = false; break; }
+        }
+        if (ok) feasible++;
+      }
+      return { time: s.time, feasible: feasible };
+    });
+  }, [availSlots, slots, date]);
+
+  const chosen = timeOptions.find(o => o.time === time);
+  const feasibleHere = chosen ? chosen.feasible : 0;
+  const anyFeasible = timeOptions.some(o => o.feasible >= courtCount);
+
+  // Instant client-side price preview (server reprices authoritatively).
+  const pricing = useMemo(() => {
+    if (!config) return null;
+    return calculatePriceClient({
+      config: config,
+      isMember: !!state.isMember,
+      tier: state.member ? state.member.tier : "",
+      isBirthdayEligible: false,
+      useBirthday: false,
+      date: date, time: time, slots: slots, courts: courtCount
+    });
+  }, [config, state.isMember, state.member, date, time, slots, courtCount]);
+
+  async function submit() {
+    if (savingRef.current || saving) return;
+    if (!chosen || feasibleHere < courtCount) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const r = await api("updateMyBooking", {
+        bookingId: booking.bookingId,
+        token: state.token || "",
+        phone: state.phone || "",
+        date: date, time: time, slots: slots, courts: courtCount
+      });
+      if (!r.ok) {
+        if (isSessionError(r.error)) { onSessionExpired && onSessionExpired(); return; }
+        showToast(r.error || t("error", null, lang), "error");
+        return;
+      }
+      showToast(t("eb_updated", null, lang), "success");
+      onUpdated && onUpdated();
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  }
+
+  const durationChoices = [2, 3, 4, 5, 6, 7, 8];   // 1h … 4h in 30-min steps
+
+  return (
+    <div className="modal-backdrop" onClick={() => !saving && onClose()}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>{t("eb_title", null, lang)} · {booking.bookingId}</h3>
+        <p style={{ fontSize: 13, opacity: 0.75 }}>{t("eb_sub", null, lang)}</p>
+
+        {/* Date */}
+        <label className="mono" style={{ display: "block", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.65, margin: "12px 0 4px" }}>
+          {t("eb_date", null, lang)}
+        </label>
+        <input
+          type="date"
+          value={date}
+          min={minDate}
+          max={maxDate}
+          onChange={(e) => setDate(e.target.value)}
+          disabled={saving}
+          style={{ width: "100%", padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 14, border: "1.5px solid var(--ink)", borderRadius: 4, background: "var(--paper)" }}
+        />
+
+        {/* Time */}
+        <label className="mono" style={{ display: "block", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.65, margin: "12px 0 4px" }}>
+          {t("eb_time", null, lang)}
+        </label>
+        {availSlots === null ? (
+          <div style={{ padding: 10 }}><BouncingBall size="sm" /></div>
+        ) : timeOptions.length === 0 || !anyFeasible ? (
+          <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--clay)", padding: "6px 0" }}>
+            {t("eb_no_slots", null, lang)}
+          </div>
+        ) : (
+          <select
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+            disabled={saving}
+            style={{ width: "100%", padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 14, border: "1.5px solid var(--ink)", borderRadius: 4, background: "var(--paper)" }}
+          >
+            {!chosen && <option value={time}>{time}</option>}
+            {timeOptions.map(o => (
+              <option key={o.time} value={o.time} disabled={o.feasible < courtCount}>
+                {o.time}{o.feasible < courtCount ? " · " + t("eb_full", null, lang) : ""}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {/* Duration + courts */}
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <label className="mono" style={{ display: "block", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.65, margin: "12px 0 4px" }}>
+              {t("eb_duration", null, lang)}
+            </label>
+            <select
+              value={slots}
+              onChange={(e) => setSlots(parseInt(e.target.value))}
+              disabled={saving}
+              style={{ width: "100%", padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 14, border: "1.5px solid var(--ink)", borderRadius: 4, background: "var(--paper)" }}
+            >
+              {durationChoices.map(n => (
+                <option key={n} value={n}>{lang === "km" ? formatDurationKm(n) : formatDuration(n)}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ flex: 1 }}>
+            <label className="mono" style={{ display: "block", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.65, margin: "12px 0 4px" }}>
+              {t("eb_courts", null, lang)}
+            </label>
+            <select
+              value={courtCount}
+              onChange={(e) => setCourtCount(parseInt(e.target.value))}
+              disabled={saving}
+              style={{ width: "100%", padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 14, border: "1.5px solid var(--ink)", borderRadius: 4, background: "var(--paper)" }}
+            >
+              {[1, 2, 3, 4].map(n => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Price preview */}
+        {pricing && (
+          <div style={{ marginTop: 14, padding: "10px 12px", background: "rgba(26,26,26,0.04)", borderRadius: 4, fontFamily: "var(--mono)", fontSize: 13, display: "flex", justifyContent: "space-between" }}>
+            <span style={{ opacity: 0.7 }}>{t("eb_new_total", null, lang)}</span>
+            <span>
+              <strong>{pricing.total === 0 ? "FREE" : "$" + pricing.total.toFixed(2)}</strong>
+              {Number(booking.total) !== pricing.total && (
+                <span style={{ opacity: 0.55, marginLeft: 8 }}>
+                  ({t("eb_was", null, lang)} ${Number(booking.total || 0).toFixed(2)})
+                </span>
+              )}
+            </span>
+          </div>
+        )}
+
+        <p style={{ fontSize: 11, opacity: 0.6, marginTop: 10, fontFamily: "var(--mono)" }}>
+          {t("eb_cutoff_note", null, lang)}
+        </p>
+
+        <div className="actions">
+          <button className="btn ghost" onClick={onClose} disabled={saving}>
+            {t("mb_keep", null, lang)}
+          </button>
+          <button
+            className="btn"
+            onClick={submit}
+            disabled={saving || availSlots === null || !chosen || feasibleHere < courtCount}
+          >
+            {saving ? t("loading", null, lang) : t("eb_confirm", null, lang)}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -7729,7 +8017,7 @@ function App() {
   else if (effectiveScreen === "otp") body = <ScreenOTP state={state} setState={setState} go={go} lang={lang} />;
   else if (effectiveScreen === "booking") body = <ScreenBooking state={state} setState={setState} go={go} lang={lang} config={config} />;
   else if (effectiveScreen === "confirm") body = <ScreenConfirm state={state} setState={setState} go={go} lang={lang} />;
-  else if (effectiveScreen === "myBookings") body = <ScreenMyBookings state={state} setState={setState} go={go} lang={lang} />;
+  else if (effectiveScreen === "myBookings") body = <ScreenMyBookings state={state} setState={setState} go={go} lang={lang} config={config} />;
   else if (effectiveScreen === "membership") body = <ScreenMembership state={state} setState={setState} go={go} lang={lang} />;
   else if (effectiveScreen === "openplay") body = <ScreenOpenPlay state={state} setState={setState} go={go} lang={lang} config={config} />;
   else if (effectiveScreen === "about") body = <ScreenAbout state={state} setState={setState} go={go} lang={lang} />;
