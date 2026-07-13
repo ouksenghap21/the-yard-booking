@@ -19,7 +19,7 @@
  */
 "use strict";
 
-const CACHE_VERSION = "yard-v67-money-clarity";
+const CACHE_VERSION = "yard-v68-partial-release-selfedit";
 const VENDOR_CACHE = "yard-vendor-v1";
 
 // Vendor URLs we know are immutable (include a version in the path)
