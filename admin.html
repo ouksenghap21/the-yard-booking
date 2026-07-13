@@ -764,7 +764,14 @@ button { font-family: inherit; cursor: pointer; }
 }
 .booking-block.state-no_show_freed .name { text-decoration: line-through; }
 
-/* NO-SHOW KEPT: light hash overlay */
+/* NO-SHOW KEPT: greyed-out block + light hash overlay + NO-SHOW chip.
+ * The court is still held (deliberately not released), so the block stays
+ * on the grid — but it must read as "nobody is playing here". */
+.booking-block.state-no_show_kept {
+  opacity: 0.55;
+  filter: grayscale(0.75);
+}
+.booking-block.state-no_show_kept .name { text-decoration: line-through; }
 .booking-block.state-no_show_kept::before {
   background-image: repeating-linear-gradient(
     45deg,
@@ -772,6 +779,23 @@ button { font-family: inherit; cursor: pointer; }
     rgba(255,255,255,0.25) 5px, rgba(255,255,255,0.25) 10px
   );
 }
+.booking-block .noshow-chip {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  color: var(--cream);
+  background: var(--clay);
+  border-radius: 2px;
+  padding: 1px 3px;
+}
+
+/* NO-SHOW FREED blocks are removed from the timeline grid entirely (the
+ * court is free again — see the Timeline render filter); this rule is kept
+ * as a safety net for any stale markup. */
 
 /* COMPLETED: gentle gray overlay to indicate past/settled */
 .booking-block.state-completed::before {
@@ -5946,7 +5970,11 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
     if (!bookings) return out;
     for (const b of bookings) {
       const derived = b.derivedStatus || "awaiting";
-      if (derived === "cancelled") continue;
+      // v65: a RELEASED no-show disappears from the grid — the court is free
+      // again and walk-ins can take it (the booking stays findable in the
+      // Bookings tab with its "No-show · released" badge). A KEPT no-show
+      // (court still held) stays on the grid greyed with a NO-SHOW chip.
+      if (derived === "cancelled" || derived === "no_show_freed") continue;
       const startIdx = timeToSlotIdx(b.time);
       const slots = parseInt(b.slots) || 2;
       const courtNums = String(b.courtNumbers || "")
@@ -6170,7 +6198,8 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
                     >
                       <span className="name">{b.name}</span>
                       <span className="time">{b.time}</span>
-                      {b.isMember && <span className="member-flag" title={b.memberTier || "Member"}>{b.memberTier === "founding" ? "★★" : "★"}</span>}
+                      {b.state === "no_show_kept" && <span className="noshow-chip">NO-SHOW</span>}
+                      {b.isMember && b.state !== "no_show_kept" && <span className="member-flag" title={b.memberTier || "Member"}>{b.memberTier === "founding" ? "★★" : "★"}</span>}
                     </div>
                   );
                 })}
@@ -6203,6 +6232,7 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
           <span className="swatch"><i className="sw-state-paid" /> Paid</span>
           <span className="swatch"><i className="sw-state-completed-distinct" /> Completed</span>
           <span className="swatch"><i className="sw-state-unpaid" /> Unpaid</span>
+          <span className="swatch"><i className="sw-state-no_show" /> No-show (court held)</span>
         </div>
         <div className="legend-group">
           <span className="legend-label">Member</span>
@@ -6719,7 +6749,7 @@ function ScreenDashboard() {
             const nowMins = now.getHours() * 60 + now.getMinutes();
             let upcoming = 0, inProgress = 0, completed = 0;
             for (const b of bookings) {
-              if (b.derivedStatus === "cancelled") continue;
+              if (b.derivedStatus === "cancelled" || b.derivedStatus === "no_show_freed") continue;
               const ts = String(b.time || "0:00").split(":").map(Number);
               const te = String(b.timeEnd || "0:00").split(":").map(Number);
               const startM = (ts[0] || 0) * 60 + (ts[1] || 0);
@@ -7724,7 +7754,7 @@ const STATUS_LABELS = {
   at_risk: "At-risk",
   checked_in: "Checked in",  // arrived, not yet paid — payment happens after play
   paid: "Paid",
-  no_show_freed: "Released",
+  no_show_freed: "No-show · released",
   no_show_kept: "No-show",
   completed: "Completed",
   cancelled: "Cancelled"
@@ -9163,7 +9193,7 @@ function BookingDetailModal({ booking, onClose, onAction }) {
               </div>
             ))}
             <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, lineHeight: 1.4, marginBottom: 8 }}>
-              Moves only if the target court is free for the whole booking. Price and payment are unchanged.
+              Upcoming bookings need the target court free for the whole booking; a booking that's mid-session only needs it free for the remaining time (played time stays on the old court). Price and payment are unchanged.
             </div>
             <button className="btn ghost" onClick={() => setMoveOpen(false)} disabled={acting}>Back</button>
           </div>
@@ -9290,9 +9320,12 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
 
   const selectedCorp = corpAccounts.find(a => a.accountId === form.corporateId) || null;
 
-  // Load availability for selected date
+  // Load availability for selected date. graceMin 60 (v65): staff may
+  // backdate a walk-in booking up to an hour — "they played at 4:00, it's
+  // 4:41 and I haven't added it yet". The server enforces the same 60-min
+  // staff window in createBooking; the public site keeps its strict rule.
   useEffect(() => {
-    api("getAvailability", { date: form.date, graceMin: 15 }).then(r => {
+    api("getAvailability", { date: form.date, graceMin: 60 }).then(r => {
       if (r.ok) setAvailSlots(r.slots || []);
     });
   }, [form.date]);
