@@ -9070,7 +9070,11 @@ function BookingDetailModal({ booking, onClose, onAction }) {
         </div>
         <div className="modal-detail-row">
           <span className="k">Courts</span>
-          <span className="v">{booking.courtNumbers}</span>
+          {/* v66: a date-coerced Court_Numbers cell arrives as "?" +
+              courtsCorrupt — point the operator at the repair tool. */}
+          <span className="v" style={booking.courtsCorrupt ? { color: "var(--clay)", fontWeight: 700 } : undefined}>
+            {booking.courtsCorrupt ? "⚠ needs repair (Settings → Court data)" : booking.courtNumbers}
+          </span>
         </div>
         <div className="modal-detail-row">
           <span className="k">Phone</span>
@@ -23926,6 +23930,23 @@ function DataIntegrityCard() {
   const [plannedActions, setPlannedActions] = useState([]);
   const [legacyDryRun, setLegacyDryRun] = useState(null);
   const [fixingLegacy, setFixingLegacy] = useState(false);
+  // v66: court-cells repair (Sheets date-coerced Court_Numbers like "3, 6, 8"
+  // → Tue Jun 03 2008). Owner-only server-side.
+  const [repairingCourts, setRepairingCourts] = useState(false);
+  const [courtRepair, setCourtRepair] = useState(null);
+
+  async function runCourtRepair() {
+    if (!confirm("Scan Bookings + Tournaments for court cells that Google Sheets turned into dates, and repair the ones that can be recovered safely? Ambiguous rows are reported, never guessed.")) return;
+    setRepairingCourts(true);
+    const r = await api("adminRepairCourtCells", {});
+    setRepairingCourts(false);
+    if (r.ok) {
+      setCourtRepair(r);
+      showToast(r.message || ("Repaired " + (r.fixed || []).length + " cell(s); " + (r.needsManual || []).length + " need manual review"), (r.needsManual || []).length > 0 ? "info" : "success");
+    } else {
+      showToast(r.error || "Repair failed", "error");
+    }
+  }
 
   async function planLegacyFix() {
     setFixingLegacy(true);
@@ -24196,6 +24217,68 @@ function DataIntegrityCard() {
                 {fixingLegacy ? "Fixing…" : "Fix " + legacyDryRun.totalCellsAffected + " cell(s)"}
               </button>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* v66 Court data repair. Sheets can auto-coerce a multi-court list
+          string like "3, 6, 8" into a real DATE cell (Tue Jun 03 2008) when
+          the row is appended. This button asks the backend to recover the
+          original list from the date's parts, validated against the row's
+          court count — ambiguous rows are reported, never guessed. */}
+      <div style={{
+        marginTop: 18,
+        paddingTop: 18,
+        borderTop: "1px dashed var(--concrete)"
+      }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>Court data</div>
+        <div className="desc" style={{ marginBottom: 12 }}>
+          If a booking ever shows "Court ?" or a court that looks like a date
+          (e.g. "Tue Jun 03 2008"), Sheets turned its court list into a date.
+          This repairs the cells it can recover safely and lists the rest for
+          manual review. Owner PIN required. Safe to re-run.
+        </div>
+        <div className="settings-row" style={{ alignItems: "flex-start" }}>
+          <div style={{ flex: 1, fontSize: 12 }}>
+            {courtRepair ? (
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: 6, color: (courtRepair.needsManual || []).length > 0 ? "var(--clay)" : "var(--green)" }}>
+                  {courtRepair.corruptFound === 0
+                    ? "✓ No corrupted court cells found"
+                    : ("Repaired " + (courtRepair.fixed || []).length + " cell(s) · " + (courtRepair.needsManual || []).length + " need manual review")}
+                </div>
+                {(courtRepair.fixed || []).length > 0 && (
+                  <ul style={{ margin: "0 0 6px", paddingLeft: 18, lineHeight: 1.5, opacity: 0.85 }}>
+                    {courtRepair.fixed.slice(0, 8).map((f, i) => (
+                      <li key={i}><code>{f.id}</code> → courts {f.courts} ({f.sheet} row {f.row})</li>
+                    ))}
+                    {courtRepair.fixed.length > 8 && (
+                      <li style={{ opacity: 0.6 }}>… and {courtRepair.fixed.length - 8} more</li>
+                    )}
+                  </ul>
+                )}
+                {(courtRepair.needsManual || []).length > 0 && (
+                  <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.5, color: "var(--clay)" }}>
+                    {courtRepair.needsManual.slice(0, 8).map((m, i) => (
+                      <li key={i}>
+                        <code>{m.id}</code> ({m.sheet} row {m.row}) — {m.reason}
+                        {m.guess ? <span style={{ opacity: 0.7 }}> · guess: {m.guess}</span> : null}
+                      </li>
+                    ))}
+                    {courtRepair.needsManual.length > 8 && (
+                      <li style={{ opacity: 0.6 }}>… and {courtRepair.needsManual.length - 8} more</li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            ) : (
+              <div style={{ opacity: 0.7 }}>Click "Repair court data" to scan Bookings + Tournaments.</div>
+            )}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <button className="btn" disabled={repairingCourts} onClick={runCourtRepair}>
+              {repairingCourts ? "Repairing…" : "Repair court data"}
+            </button>
           </div>
         </div>
       </div>
