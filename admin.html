@@ -685,6 +685,17 @@ button { font-family: inherit; cursor: pointer; }
   flex-shrink: 1;          /* time is the first thing to clip if space is tight */
   line-height: 1.15;
 }
+/* v68 — overlap sub-lanes: when two blocks legitimately share a court row
+ * (kept no-show + new booking on the freed remainder, etc) each gets a
+ * half-height lane. Compact type so the name stays readable at ~16px tall;
+ * the time line is dropped (it's in the hover tooltip). */
+.booking-block.sub-lane {
+  padding: 1px 5px;
+  justify-content: center;
+}
+.booking-block.sub-lane .name { font-size: 9.5px; line-height: 1.1; }
+.booking-block.sub-lane .time { display: none; }
+.booking-block.sub-lane .noshow-chip { font-size: 7px; padding: 0 3px; }
 /* ============================================================
    TIMELINE BLOCK COLOR SYSTEM — two axes:
      TYPE  → color (booking=green, coaching=wood, walkin=peach)
@@ -4672,7 +4683,7 @@ function cacheApi(action, params, data) {
 /* Actions that create/modify records get an idempotency key so a transport
    retry can't create a duplicate (server dedupes on clientRequestId). */
 var MUTATING_ACTIONS = new Set([
-  "adminCreateBooking","adminCancelBooking","adminUncancelBooking","adminExtendBooking","adminMoveBookingCourt","adminMarkPaid",
+  "adminCreateBooking","adminCancelBooking","adminUncancelBooking","adminExtendBooking","adminMoveBookingCourt","adminReleaseBookingCourts","adminMarkPaid",
   "adminMarkRefunded","adminFlagNoShow","adminNoShowAndRelease","adminConfirmArrival",
   "adminCreateMember","adminUpdateMember","adminSetPricingRules","adminSetPromo",
   "adminSetPosSettings","adminSetGoals","adminSetLandingConfig",
@@ -4811,7 +4822,7 @@ function _invalidateForMutation(action) {
   // never wiped after a POS attach-settle and the UI kept showing "unpaid" even
   // though the sheet said Paid (the owner's "POS doesn't mark paid" report).
   const isBookingMutation = (
-    /^(adminCreateBooking|createBooking|adminCancelBooking|cancelBooking|adminExtendBooking|adminMoveBookingCourt|adminMarkPaid|adminMarkRefunded|adminMarkNoShow|adminConfirmArrival|adminFlagNoShow|adminNoShowAndRelease|adminUndoCancellation|adminUpdateBooking|adminUpdateNotes|adminSettleCombined|tabClose)/.test(action)
+    /^(adminCreateBooking|createBooking|adminCancelBooking|cancelBooking|adminExtendBooking|adminMoveBookingCourt|adminReleaseBookingCourts|adminMarkPaid|adminMarkRefunded|adminMarkNoShow|adminConfirmArrival|adminFlagNoShow|adminNoShowAndRelease|adminUndoCancellation|adminUpdateBooking|adminUpdateNotes|adminSettleCombined|tabClose)/.test(action)
   );
   const isWalkInMutation = (
     /^(adminCreateWalkInBlock|adminCloseWalkInBlock|adminAddWalkInPlayer|adminRemoveWalkInPlayer|adminMarkWalkInPlayerPaid|adminUpdateWalkInBlock)/.test(action)
@@ -6063,6 +6074,58 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
     return out;
   }, [bookings]);
 
+  // v68 — OVERLAP SUB-LANES: legitimate data states can put two blocks on
+  // the same court at overlapping times (a KEPT no-show still holding the
+  // court + a new booking on the freed remainder; back-to-back rows after a
+  // mid-session move; a walk-in session sharing an edge slot). The old
+  // renderer painted them on top of each other — text collided and one
+  // block hid the other. Standard calendar lane algorithm per court row:
+  // sort by start (longer first on ties), greedy lane assignment, and every
+  // block in an overlapping CLUSTER shares that cluster's lane count so all
+  // overlapping blocks render in stacked half-height sub-lanes — both stay
+  // readable and clickable. Non-overlapping blocks keep full height.
+  // Nothing is hidden; styling/tooltip/click are unchanged.
+  const laidOutByCourt = useMemo(() => {
+    const byCourt = {};
+    for (const b of blocks) {
+      (byCourt[b.court] = byCourt[b.court] || []).push(b);
+    }
+    const out = {};
+    for (const court in byCourt) {
+      const list = byCourt[court].slice().sort((a, b) =>
+        (a.startIdx - b.startIdx) || (b.slots - a.slots));
+      const placed = [];
+      let laneEnds = [];        // per-lane end (slot idx) within current cluster
+      let clusterId = -1;
+      let clusterEnd = -Infinity;
+      const clusterLanes = {};  // clusterId -> lane count
+      for (const b of list) {
+        const bStart = b.startIdx;
+        const bEnd = b.startIdx + b.slots;
+        if (bStart >= clusterEnd) {   // gap → new overlap cluster
+          clusterId++;
+          clusterEnd = bEnd;
+          laneEnds = [];
+        } else if (bEnd > clusterEnd) {
+          clusterEnd = bEnd;
+        }
+        let lane = -1;
+        for (let l = 0; l < laneEnds.length; l++) {
+          if (laneEnds[l] <= bStart) { lane = l; break; }
+        }
+        if (lane === -1) { lane = laneEnds.length; laneEnds.push(0); }
+        laneEnds[lane] = bEnd;
+        placed.push({ b: b, lane: lane, clusterId: clusterId });
+        clusterLanes[clusterId] = Math.max(clusterLanes[clusterId] || 1, lane + 1);
+      }
+      out[court] = placed.map(p => Object.assign({}, p.b, {
+        lane: p.lane,
+        laneCount: clusterLanes[p.clusterId] || 1
+      }));
+    }
+    return out;
+  }, [blocks]);
+
   // "Now" indicator x position. Returns -1 if outside the visible window
   // (before open or after close). Note: pastness of blocks does NOT depend
   // on this — it's computed independently below from real wall-clock time.
@@ -6160,9 +6223,16 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
                 className="timeline-row"
                 style={{ height: COURT_H + "px", background: rowTint }}
               >
-                {blocks.filter(b => b.court === c).map((b, idx) => {
+                {(laidOutByCourt[c] || []).map((b, idx) => {
                   const left = b.startIdx * slotW;
                   const width = b.slots * slotW - 2;
+                  // v68 sub-lanes: blocks inside an overlap cluster split the
+                  // row height; solo blocks keep the CSS top/bottom defaults.
+                  const laneCount = b.laneCount || 1;
+                  const laneH = (COURT_H - 4) / laneCount;
+                  const laneStyle = laneCount > 1
+                    ? { top: (2 + b.lane * laneH) + "px", height: (laneH - 1) + "px", bottom: "auto" }
+                    : {};
                   const endSlotIdx = b.startIdx + b.slots;
                   const slotEndMins = endSlotIdx * 30;
                   // "Past" rules:
@@ -6190,9 +6260,10 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
                         (b.isMember ? " member" : "") +
                         tierClass +
                         (isPast ? " past" : "") +
+                        (laneCount > 1 ? " sub-lane" : "") +
                         (onBlockClick ? " clickable" : "")
                       }
-                      style={{ left: left + "px", width: width + "px" }}
+                      style={Object.assign({ left: left + "px", width: width + "px" }, laneStyle)}
                       title={b.name + " · " + b.time + " · $" + b.total + (b.isMember ? " · " + (b.memberTier || "Member") : "") + (isPast ? " · COMPLETED" : "") + (onBlockClick ? " · click to open" : "")}
                       onClick={onBlockClick ? (e) => { e.stopPropagation(); onBlockClick(b.sourceEntry); } : undefined}
                     >
@@ -7377,8 +7448,8 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
       <div className="section-group">
         <div className="head">
           <span>
-            Overdue · &gt;24h
-            <InfoTip text="Customers who played but never paid · 24h+ since their booking ended · chase by phone" />
+            Overdue · &gt;24h or no-show
+            <InfoTip text="Customers who left without paying · unpaid 24h+ after the booking ended, or flagged NO-SHOW (those land here immediately) · chase by phone" />
             {coachingShareOwed > 0 && (
               <span className="meta" style={{ marginLeft: 8, fontSize: 11, opacity: 0.7 }}>
                 · {fmtMoney(coachingShareOwed)} from coaches
@@ -7408,6 +7479,8 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
                     <div className="title">
                       <span style={{ opacity: 0.6, marginRight: 6 }}>{typeIcon}</span>
                       {o.name || "(no name)"}
+                      {/* v68: unpaid no-shows land here (they left without paying) */}
+                      {o.noShow && <span style={{ marginLeft: 6, fontFamily: "var(--mono)", fontSize: 8, fontWeight: 800, letterSpacing: "0.12em", color: "var(--cream)", background: "var(--clay)", padding: "1px 5px", borderRadius: 2, verticalAlign: "middle" }}>NO-SHOW</span>}
                     </div>
                     <div className="meta">
                       {o.date} · {o.time}
@@ -7417,7 +7490,7 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
                     </div>
                   </div>
                   <button className="btn-sm" onClick={() => setReceiptItem(bookingReceipt({ bookingId: o.bookingId, id: overdueKey(o), name: o.name, phone: o.phone, courts: o.courts, total: o.amount }))}>Receipt</button>
-                  <button className="btn-sm primary" onClick={() => setPayAsk(() => (mth) => markOverduePaid(o, mth))}>Mark paid</button>
+                  <button className="btn-sm primary" onClick={() => setPayAsk(() => (mth) => markOverduePaid(o, mth))}>{o.noShow ? "Collect no-show" : "Mark paid"}</button>
                 </div>
               );
             })}
@@ -8936,6 +9009,42 @@ function BookingDetailModal({ booking, onClose, onAction }) {
   const bookingCourtList = String(booking.courtNumbers || "")
     .split(",").map(s => parseInt(s.trim())).filter(n => n >= 1);
 
+  // v68 — Release courts…: free a SUBSET of a multi-court UNPAID booking's
+  // courts (partial no-show: 2 courts booked, 1 group shows up). Server
+  // (adminReleaseBookingCourts) reprices the remaining courts with the same
+  // rate/member/corporate logic; paid bookings refuse (refund flows handle
+  // paid changes). Client preview scales linearly (price is per-court linear
+  // for rack, member %, promo and corporate rates), server total is final.
+  const [releaseOpen, setReleaseOpen] = useState(false);
+  const [releaseSel, setReleaseSel] = useState({});   // court -> true (release it)
+  const releaseChosen = bookingCourtList.filter(c => releaseSel[c]);
+  const releaseRemaining = bookingCourtList.filter(c => !releaseSel[c]);
+  const releaseEstTotal = bookingCourtList.length > 0
+    ? Math.round((booking.total || 0) * releaseRemaining.length / bookingCourtList.length * 100) / 100
+    : 0;
+
+  async function doReleaseCourts() {
+    if (acting || releaseChosen.length === 0 || releaseRemaining.length === 0) return;
+    const ok = await confirmAction({
+      title: "Release court" + (releaseChosen.length > 1 ? "s" : "") + " " + releaseChosen.join(", ") + "?",
+      message: booking.name + " · keeps C·" + releaseRemaining.join(", ") + " · " + booking.date + " " + booking.time,
+      consequence: "The released court" + (releaseChosen.length > 1 ? "s become" : " becomes") + " available for walk-ins. The booking is repriced for the remaining court" + (releaseRemaining.length > 1 ? "s" : "") + " — about " + fmtMoney(releaseEstTotal) + " (exact total is recalculated on confirm).",
+      confirmLabel: "Yes, release",
+      destructive: true
+    });
+    if (!ok) return;
+    setActing(true);
+    const r = await api("adminReleaseBookingCourts", { bookingId: booking.bookingId, courts: releaseChosen.join(",") });
+    setActing(false);
+    if (r.ok) {
+      showToast("Released C·" + r.releasedCourts + " · keeps C·" + r.remainingCourts + " · new total " + fmtMoney(r.totals ? r.totals.total : 0), "success");
+      onAction && onAction();
+      onClose && onClose();
+    } else {
+      showToast(r.error || "Release failed", "error");
+    }
+  }
+
   async function doMoveCourt(fromCourt) {
     const toCourt = parseInt(moveTo[fromCourt]);
     if (acting || !toCourt) return;
@@ -9276,6 +9385,57 @@ function BookingDetailModal({ booking, onClose, onAction }) {
           </div>
         )}
 
+        {/* v68 — Release courts panel: tick the courts to free; at least one
+            must stay. Unpaid multi-court bookings only. */}
+        {releaseOpen && (
+          <div style={{
+            padding: "12px 14px", marginBottom: 12,
+            background: "rgba(26,26,26,0.03)", borderRadius: 4,
+            border: "1.5px solid var(--clay)"
+          }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", opacity: 0.7, marginBottom: 8 }}>
+              Release courts · currently C·{booking.courtNumbers}
+            </div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+              {bookingCourtList.map(c => (
+                <label key={c} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--mono)", fontSize: 12, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={!!releaseSel[c]}
+                    onChange={(e) => setReleaseSel({ ...releaseSel, [c]: e.target.checked })}
+                    disabled={acting}
+                  />
+                  C·{c}
+                </label>
+              ))}
+            </div>
+            {releaseChosen.length === 0 ? (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 12, marginBottom: 10, opacity: 0.6 }}>
+                Tick the court{bookingCourtList.length > 1 ? "s" : ""} to release.
+              </div>
+            ) : releaseRemaining.length === 0 ? (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 12, marginBottom: 10, color: "var(--clay)" }}>
+                At least one court must stay — for a full release use No-show or Cancel.
+              </div>
+            ) : (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 12, marginBottom: 10 }}>
+                Releases C·{releaseChosen.join(", ")} · keeps C·{releaseRemaining.join(", ")} ·
+                new price ≈ <strong>{fmtMoney(releaseEstTotal)}</strong>
+                <span style={{ opacity: 0.6 }}> (was {fmtMoney(booking.total || 0)} — exact total recalculated on confirm)</span>
+              </div>
+            )}
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, lineHeight: 1.4, marginBottom: 8 }}>
+              Mid-session: only the remaining time is freed — played half-hours stay recorded. Unpaid bookings only; paid changes go through refund flows.
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn danger" onClick={doReleaseCourts} disabled={acting || releaseChosen.length === 0 || releaseRemaining.length === 0}>
+                {acting ? "Releasing…" : "Confirm release"}
+              </button>
+              <button className="btn ghost" onClick={() => setReleaseOpen(false)} disabled={acting}>Back</button>
+            </div>
+          </div>
+        )}
+
         <div className="actions">
           {(d === "awaiting" || d === "at_risk" || d === "checked_in" || d === "completed" || d === "paid") && (
             <button
@@ -9290,6 +9450,16 @@ function BookingDetailModal({ booking, onClose, onAction }) {
               onClick={() => setMoveOpen(v => !v)}
               disabled={acting}
             >Move court</button>
+          )}
+          {/* v68 — partial release: unpaid multi-court bookings only (paid →
+              refund flows; single court → No-show / Cancel handles it). */}
+          {bookingCourtList.length > 1 && (d === "awaiting" || d === "at_risk" || d === "checked_in" || d === "completed" || d === "no_show_kept") && (
+            <button
+              className="btn"
+              style={{ color: "var(--clay)" }}
+              onClick={() => setReleaseOpen(v => !v)}
+              disabled={acting}
+            >Release courts…</button>
           )}
           {/* "They're here" — most customers pay AFTER they play. This
               option lets staff mark the customer as physically present
@@ -14772,10 +14942,11 @@ function SaleHistoryModal({ onClose }) {
         {/* Headline stats — show "—" placeholders during fetch so the
             previous range's values don't visibly persist while loading. */}
         <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginBottom: 14 }}>
-          <div className="stat-card accent-green">
+          <div className="stat-card accent-green"
+            title="Gross of each receipt — a combined sale includes its attached court/walk-in/coaching lines here. The Finances tab's POS component is PRODUCTS ONLY (attached lines subtracted) so nothing is counted twice there.">
             <div className="label">Revenue</div>
             <div className="value">{sales === null ? "…" : "$" + aggregate.revenue.toFixed(2)}</div>
-            <div className="sub">in selected range</div>
+            <div className="sub">in selected range · receipt gross (incl. attached lines)</div>
           </div>
           <div className="stat-card">
             <div className="label">Sales</div>
@@ -18056,10 +18227,11 @@ function FinancesRangeView({ data, granularity, opOnly }) {
           <div className="value">{fmtMoneyWhole(h.courtRev)}</div>
           <div className="sub">{fmtPct(pct(h.courtRev), 0)} · {fmtInt(data.summary.paidBookings)} paid bookings</div>
         </div>
-        <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}>
-          <div className="label">◉ Walk-in</div>
+        <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}
+          title={"Walk-in blocks (legacy stream): " + fmtMoney(h.walkinRev) + ". Today's walk-in session players are the 'Walk-in (session players)' line in the equation below (" + fmtMoney(h.openPlayRev || 0) + ")."}>
+          <div className="label">◉ Walk-in blocks (legacy)</div>
           <div className="value" style={{ color: "var(--peach,#D9785C)" }}>{fmtMoneyWhole(h.walkinRev)}</div>
-          <div className="sub">{fmtPct(pct(h.walkinRev), 0)} · {fmtInt(data.summary.paidWalkInPlayers)} players</div>
+          <div className="sub">{fmtPct(pct(h.walkinRev), 0)} · {fmtInt(data.summary.paidWalkInPlayers)} players · sessions: {fmtMoneyWhole(h.openPlayRev || 0)}</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
           <div className="label">★ Coaching</div>
@@ -18142,10 +18314,15 @@ function FinancesRangeView({ data, granularity, opOnly }) {
         <b>{fmtMoney(displayedTotal)}</b>
         {" = "}
         {fmtMoney(h.courtRev)} <span style={{ opacity: 0.5 }}>court</span>
-        {" + "}{fmtMoney(h.walkinRev)} <span style={{ opacity: 0.5 }}>walk-in</span>
+        {/* v68 label fix (v62 convention): h.walkinRev is the LEGACY
+            Walk_In_Blocks stream (almost always $0 now); h.openPlayRev is
+            the real walk-in session players. The old row read
+            "$0.00 walk-in … $55.00 open play" — the owner's paid walk-ins
+            looked like zero. Legacy line is dropped entirely when $0. */}
+        {(h.walkinRev || 0) > 0 && <>{" + "}{fmtMoney(h.walkinRev)} <span style={{ opacity: 0.5 }}>walk-in blocks (legacy)</span></>}
         {" + "}{fmtMoney(h.coachingRev)} <span style={{ opacity: 0.5 }}>coaching</span>
-        {" + "}{fmtMoney(h.posRev)} <span style={{ opacity: 0.5 }}>POS</span>
-        {(h.openPlayRev || 0) > 0 && <>{" + "}{fmtMoney(h.openPlayRev)} <span style={{ opacity: 0.5 }}>open play</span></>}
+        {" + "}{fmtMoney(h.posRev)} <span style={{ opacity: 0.5 }}>POS (products only)</span>
+        {(h.openPlayRev || 0) > 0 && <>{" + "}{fmtMoney(h.openPlayRev)} <span style={{ opacity: 0.5 }}>walk-in (session players)</span></>}
         {!opOnly && (
           <>
             {" + "}{fmtMoney(h.sponsorshipRev || 0)} <span style={{ opacity: 0.5 }}>sponsorship</span>
@@ -18266,9 +18443,9 @@ function FinancesView({ data, onChanged, opOnly }) {
           <div className="sub">{fmtPct(pct(h.courtRev), 0)} · {fmtInt(data.summary.paidBookings)} paid bookings</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}>
-          <div className="label">◉ Walk-in</div>
-          <div className="value" title={"Walk-in revenue: " + fmtMoney(h.walkinRev) + " from " + fmtInt(data.summary.paidWalkInPlayers) + " players"} style={Object.assign({ color: "var(--peach,#D9785C)" }, valueFitStyle(h.walkinRev))}>{fmtMoneyWhole(h.walkinRev)}</div>
-          <div className="sub">{fmtPct(pct(h.walkinRev), 0)} · {fmtInt(data.summary.paidWalkInPlayers)} players</div>
+          <div className="label">◉ Walk-in blocks (legacy)</div>
+          <div className="value" title={"Walk-in blocks (legacy stream): " + fmtMoney(h.walkinRev) + " from " + fmtInt(data.summary.paidWalkInPlayers) + " players. Walk-in SESSION players are the 'Walk-in (session players)' line in the equation below (" + fmtMoney(h.openPlayRev || 0) + ")."} style={Object.assign({ color: "var(--peach,#D9785C)" }, valueFitStyle(h.walkinRev))}>{fmtMoneyWhole(h.walkinRev)}</div>
+          <div className="sub">{fmtPct(pct(h.walkinRev), 0)} · {fmtInt(data.summary.paidWalkInPlayers)} players · sessions: {fmtMoneyWhole(h.openPlayRev || 0)}</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
           <div className="label">★ Coaching</div>
@@ -18351,10 +18528,12 @@ function FinancesView({ data, onChanged, opOnly }) {
         <b>{fmtMoney(displayedTotal)}</b>
         {" = "}
         {fmtMoney(h.courtRev)} <span style={{ opacity: 0.5 }}>court</span>
-        {" + "}{fmtMoney(h.walkinRev)} <span style={{ opacity: 0.5 }}>walk-in</span>
+        {/* v68 label fix (v62 convention): legacy blocks stream vs real
+            walk-in session players — see FinancesRangeView note. */}
+        {(h.walkinRev || 0) > 0 && <>{" + "}{fmtMoney(h.walkinRev)} <span style={{ opacity: 0.5 }}>walk-in blocks (legacy)</span></>}
         {" + "}{fmtMoney(h.coachingRev)} <span style={{ opacity: 0.5 }}>coaching</span>
-        {" + "}{fmtMoney(h.posRev)} <span style={{ opacity: 0.5 }}>POS</span>
-        {(h.openPlayRev || 0) > 0 && <>{" + "}{fmtMoney(h.openPlayRev)} <span style={{ opacity: 0.5 }}>open play</span></>}
+        {" + "}{fmtMoney(h.posRev)} <span style={{ opacity: 0.5 }}>POS (products only)</span>
+        {(h.openPlayRev || 0) > 0 && <>{" + "}{fmtMoney(h.openPlayRev)} <span style={{ opacity: 0.5 }}>walk-in (session players)</span></>}
         {!opOnly && (
           <>
             {" + "}{fmtMoney(h.sponsorshipRev || 0)} <span style={{ opacity: 0.5 }}>sponsorship</span>
@@ -18688,6 +18867,9 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
           />
           <span style={{ opacity: 0.7 }}>{icon}</span>
           <strong>{item.name || "(no name)"}</strong>
+          {/* v68: unpaid no-shows are tagged and always live in the overdue
+              list — never "settles at counter" (they already left). */}
+          {item.noShow && <span style={{ fontFamily: "var(--mono)", fontSize: 8, fontWeight: 800, letterSpacing: "0.12em", color: "var(--cream)", background: "var(--clay)", padding: "1px 5px", borderRadius: 2 }}>NO-SHOW</span>}
           {item.courtNumbers && <span style={{ marginLeft: 4, fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>C·{item.courtNumbers}</span>}
           <span style={{ marginLeft: 4, fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55 }}>{item.date} · {item.time}</span>
           <span style={{
@@ -18697,7 +18879,7 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
         </span>
         <span className="v" style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <span style={{ color: isOverdue ? "var(--clay)" : "var(--ink)" }}>{fmtMoney(item.amount)}</span>
-          <button className="btn-sm primary" onClick={() => setPayAsk(() => (mth) => markPaid(item, mth))}>Mark paid</button>
+          <button className="btn-sm primary" onClick={() => setPayAsk(() => (mth) => markPaid(item, mth))}>{item.noShow ? "Collect no-show" : "Mark paid"}</button>
         </span>
       </div>
     );
@@ -18708,7 +18890,7 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
       {/* Outstanding stat cards — concise */}
       <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr", marginBottom: 22 }}>
         <div className="stat-card" style={{ borderColor: headline.overdueTotal > 0 ? "var(--clay)" : "var(--ink)" }}>
-          <div className="label">Overdue · &gt;24h</div>
+          <div className="label">Overdue · &gt;24h or no-show</div>
           <div className="value" style={Object.assign({ color: headline.overdueTotal > 0 ? "var(--clay)" : "var(--ink)" }, valueFitStyle(headline.overdueTotal))}>${headline.overdueTotal.toFixed(2)}</div>
           <div className="sub">{headline.overdueCount} item{headline.overdueCount === 1 ? "" : "s"} · needs chasing</div>
         </div>
@@ -18725,7 +18907,10 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
         <div className="stat-card">
           <div className="label">Court + Walk-in overdue</div>
           <div className="value" style={valueFitStyle(headline.overdueBookings + headline.overdueWalkin)}>${(headline.overdueBookings + headline.overdueWalkin).toFixed(2)}</div>
-          <div className="sub">customers who left without paying</div>
+          <div className="sub">
+            customers who left without paying
+            {(headline.noShowCount || 0) > 0 && <> · incl. {headline.noShowCount} no-show (${(headline.noShowTotal || 0).toFixed(2)})</>}
+          </div>
         </div>
       </div>
 
