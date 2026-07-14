@@ -7259,6 +7259,10 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
   const payments = aq.paymentsToCollect || [];
   const overdue = aq.overdue || [];
   const overdueTotal = aq.overdueTotal || 0;
+  // v69: informational write-off list — no-shows are NOT receivables and are
+  // never summed into overdueTotal. No collect button anywhere.
+  const noShows = aq.noShows || [];
+  const noShowsTotal = aq.noShowsTotal || 0;
   const coachingShareOwed = aq.coachingShareOwed || 0;
   const atRisk = aq.atRisk || [];
   const lowStock = aq.lowStock || [];
@@ -7444,12 +7448,14 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
       </div>
 
       {/* Overdue · >24h — receivables across bookings, walk-ins, coaching.
-          Mirrors the Finance "Overdue" list. These are real losses if not chased. */}
+          Mirrors the Finance "Overdue" list. These are real losses if not
+          chased. v69: no-shows are NOT here — they are write-offs (own info
+          section below), not receivables. */}
       <div className="section-group">
         <div className="head">
           <span>
-            Overdue · &gt;24h or no-show
-            <InfoTip text="Customers who left without paying · unpaid 24h+ after the booking ended, or flagged NO-SHOW (those land here immediately) · chase by phone" />
+            Overdue · &gt;24h
+            <InfoTip text="Unpaid 24h+ after the session ended · a real receivable — chase by phone. No-shows are NOT counted here (written off below)." />
             {coachingShareOwed > 0 && (
               <span className="meta" style={{ marginLeft: 8, fontSize: 11, opacity: 0.7 }}>
                 · {fmtMoney(coachingShareOwed)} from coaches
@@ -7479,8 +7485,6 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
                     <div className="title">
                       <span style={{ opacity: 0.6, marginRight: 6 }}>{typeIcon}</span>
                       {o.name || "(no name)"}
-                      {/* v68: unpaid no-shows land here (they left without paying) */}
-                      {o.noShow && <span style={{ marginLeft: 6, fontFamily: "var(--mono)", fontSize: 8, fontWeight: 800, letterSpacing: "0.12em", color: "var(--cream)", background: "var(--clay)", padding: "1px 5px", borderRadius: 2, verticalAlign: "middle" }}>NO-SHOW</span>}
                     </div>
                     <div className="meta">
                       {o.date} · {o.time}
@@ -7490,7 +7494,7 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
                     </div>
                   </div>
                   <button className="btn-sm" onClick={() => setReceiptItem(bookingReceipt({ bookingId: o.bookingId, id: overdueKey(o), name: o.name, phone: o.phone, courts: o.courts, total: o.amount }))}>Receipt</button>
-                  <button className="btn-sm primary" onClick={() => setPayAsk(() => (mth) => markOverduePaid(o, mth))}>{o.noShow ? "Collect no-show" : "Mark paid"}</button>
+                  <button className="btn-sm primary" onClick={() => setPayAsk(() => (mth) => markOverduePaid(o, mth))}>Mark paid</button>
                 </div>
               );
             })}
@@ -7700,6 +7704,50 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
           </>
         )}
       </div>
+
+      {/* v69 — No-shows · written off. INFORMATIONAL ONLY: the owner's rule
+          is "we don't collect no-show — we can't do anything about it." The
+          money is written off and the fault recorded on the customer, so
+          there is NO collect button and no money-owed styling here. If a
+          no-show customer genuinely returns to pay, staff use Mark Paid on
+          the booking's detail in the Bookings tab (click a row to open it).
+          Not counted in the "Needs Attention" total — nothing to act on. */}
+      {noShows.length > 0 && (
+        <div className="section-group">
+          <div className="head">
+            <span>
+              No-shows · written off
+              <InfoTip text="Customers who didn't show up · revenue written off, fault recorded on the customer · nothing to collect. If one returns to pay, open the booking and use Mark Paid." />
+            </span>
+            <span className="count zero">
+              {noShows.length + " · " + fmtMoney(noShowsTotal) + " written off"}
+            </span>
+          </div>
+          {noShows.slice(0, 5).map(n => (
+            <div className="action-item" key={"noshow:" + n.id} style={{ opacity: 0.75 }}>
+              <span className="badge info">{n.date}</span>
+              <div
+                className="body"
+                onClick={() => onOpenBooking && onOpenBooking(n.id)}
+                style={{ cursor: onOpenBooking ? "pointer" : "default" }}
+                title={onOpenBooking ? "Open booking" : undefined}
+              >
+                <div className="title">{n.name || "(no name)"}</div>
+                <div className="meta">
+                  {n.id} · {n.time}
+                  {n.phone ? " · " + n.phone : ""}
+                  {" · "}{fmtMoney(n.amount)} written off
+                </div>
+              </div>
+            </div>
+          ))}
+          {noShows.length > 5 && (
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, marginTop: 6 }}>
+              + {noShows.length - 5} more in Finances
+            </div>
+          )}
+        </div>
+      )}
       {receiptItem && <ReceiptModal r={receiptItem} onClose={() => setReceiptItem(null)} />}
       {payAsk && <PayMethodModal onPick={(mth) => { const fn = payAsk; setPayAsk(null); fn(mth); }} onClose={() => setPayAsk(null)} />}
     </div>
@@ -9473,7 +9521,11 @@ function BookingDetailModal({ booking, onClose, onAction }) {
               disabled={acting}
             >They're here</button>
           )}
-          {(d === "awaiting" || d === "at_risk" || d === "checked_in" || d === "completed") && (
+          {/* v69: no_show_kept / no_show_freed included — a no-show is a
+              WRITE-OFF (never chased, no collect nagging anywhere), but if
+              the customer genuinely returns to pay, THIS is the one place
+              staff record it. Flips to Paid; the write-off stat drops it. */}
+          {(d === "awaiting" || d === "at_risk" || d === "checked_in" || d === "completed" || d === "no_show_kept" || d === "no_show_freed") && (
             <button
               className="btn primary"
               onClick={() => setPayAsk(() => (mth) => doAction("adminMarkPaid", undefined, mth))}
@@ -16477,6 +16529,13 @@ function ScreenCustomers() {
                     {c.totalWalkInVisits > 0 && <span style={{ color: "var(--peach,#D9785C)" }}>{c.totalWalkInVisits} walk-in{c.totalWalkInVisits === 1 ? "" : "s"}</span>}
                     {c.totalWalkInVisits > 0 && c.totalCoachingSessions > 0 && " · "}
                     {c.totalCoachingSessions > 0 && <span style={{ color: "var(--wood)" }}>{c.totalCoachingSessions} coaching</span>}
+                    {/* v69: no-show fault count — repeat-offender tracking */}
+                    {(c.noShowCount || 0) > 0 && (
+                      <>
+                        {" · "}
+                        <span style={{ color: "var(--clay)", fontWeight: 700 }}>No-shows: {c.noShowCount}</span>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="cust-stats">
@@ -16562,10 +16621,17 @@ function CustomerHistoryModal({ customer, onClose }) {
           <div style={{ padding: 30, display: "flex", justifyContent: "center" }}><BouncingBall size="sm" /></div>
         ) : (
           <>
-            <div className="stat-grid" style={{ marginBottom: 18, gridTemplateColumns: "repeat(5, 1fr)" }}>
+            <div className="stat-grid" style={{ marginBottom: 18, gridTemplateColumns: "repeat(6, 1fr)" }}>
               <div className="stat-card accent-ink">
                 <div className="label">Bookings</div>
                 <div className="value">{data.totalBookings}</div>
+              </div>
+              {/* v69: no-show fault count (all time, incl. later-paid ones) —
+                  informational: the money is written off, never chased. */}
+              <div className="stat-card" style={{ borderColor: (data.noShowCount || 0) > 0 ? "var(--clay)" : "var(--ink)" }}>
+                <div className="label">No-shows</div>
+                <div className="value" style={{ color: (data.noShowCount || 0) > 0 ? "var(--clay)" : "var(--ink)" }}>{data.noShowCount || 0}</div>
+                {(data.noShowCount || 0) > 0 && <div className="sub">written off</div>}
               </div>
               <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}>
                 <div className="label">Walk-ins</div>
@@ -18557,6 +18623,17 @@ function FinancesView({ data, onChanged, opOnly }) {
         )}
       </div>
 
+      {/* v69 — write-off memo. No-shows are NOT receivables: the money is
+          written off (fault recorded on the customer), so it appears here as
+          a memo, never inside the outstanding/overdue math. */}
+      {(h.noShowWriteOff && h.noShowWriteOff.count > 0) && (
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.8, marginTop: 6, marginBottom: 4 }}>
+          No-shows written off this month: <strong style={{ color: "var(--clay)" }}>{fmtMoney(h.noShowWriteOff.total)}</strong>
+          {" · "}{h.noShowWriteOff.count} booking{h.noShowWriteOff.count === 1 ? "" : "s"}
+          <span style={{ opacity: 0.6 }}> — not collectable, excluded from receivables</span>
+        </div>
+      )}
+
       {/* Outstanding — split by AGE: pending (informational) vs overdue (real receivables) */}
       <OutstandingPanel outstanding={data.outstanding} headline={h} onChanged={onChanged} />
 
@@ -18867,9 +18944,8 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
           />
           <span style={{ opacity: 0.7 }}>{icon}</span>
           <strong>{item.name || "(no name)"}</strong>
-          {/* v68: unpaid no-shows are tagged and always live in the overdue
-              list — never "settles at counter" (they already left). */}
-          {item.noShow && <span style={{ fontFamily: "var(--mono)", fontSize: 8, fontWeight: 800, letterSpacing: "0.12em", color: "var(--cream)", background: "var(--clay)", padding: "1px 5px", borderRadius: 2 }}>NO-SHOW</span>}
+          {/* v69: no-shows never appear in these lists — they are write-offs
+              (see the "No-shows · written off" card), not receivables. */}
           {item.courtNumbers && <span style={{ marginLeft: 4, fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>C·{item.courtNumbers}</span>}
           <span style={{ marginLeft: 4, fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55 }}>{item.date} · {item.time}</span>
           <span style={{
@@ -18879,7 +18955,7 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
         </span>
         <span className="v" style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <span style={{ color: isOverdue ? "var(--clay)" : "var(--ink)" }}>{fmtMoney(item.amount)}</span>
-          <button className="btn-sm primary" onClick={() => setPayAsk(() => (mth) => markPaid(item, mth))}>{item.noShow ? "Collect no-show" : "Mark paid"}</button>
+          <button className="btn-sm primary" onClick={() => setPayAsk(() => (mth) => markPaid(item, mth))}>Mark paid</button>
         </span>
       </div>
     );
@@ -18887,10 +18963,12 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
 
   return (
     <>
-      {/* Outstanding stat cards — concise */}
+      {/* Outstanding stat cards — concise. v69: overdue is RECEIVABLE-ONLY
+          again (no-shows are a write-off, shown on their own card with no
+          money-to-chase styling and no collect anything). */}
       <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr", marginBottom: 22 }}>
         <div className="stat-card" style={{ borderColor: headline.overdueTotal > 0 ? "var(--clay)" : "var(--ink)" }}>
-          <div className="label">Overdue · &gt;24h or no-show</div>
+          <div className="label">Overdue · &gt;24h</div>
           <div className="value" style={Object.assign({ color: headline.overdueTotal > 0 ? "var(--clay)" : "var(--ink)" }, valueFitStyle(headline.overdueTotal))}>${headline.overdueTotal.toFixed(2)}</div>
           <div className="sub">{headline.overdueCount} item{headline.overdueCount === 1 ? "" : "s"} · needs chasing</div>
         </div>
@@ -18905,11 +18983,10 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
           <div className="sub">facility share unpaid by coaches</div>
         </div>
         <div className="stat-card">
-          <div className="label">Court + Walk-in overdue</div>
-          <div className="value" style={valueFitStyle(headline.overdueBookings + headline.overdueWalkin)}>${(headline.overdueBookings + headline.overdueWalkin).toFixed(2)}</div>
+          <div className="label">No-shows · written off</div>
+          <div className="value" style={valueFitStyle((headline.noShowWriteOff || {}).total || 0)}>${(((headline.noShowWriteOff || {}).total) || 0).toFixed(2)}</div>
           <div className="sub">
-            customers who left without paying
-            {(headline.noShowCount || 0) > 0 && <> · incl. {headline.noShowCount} no-show (${(headline.noShowTotal || 0).toFixed(2)})</>}
+            {((headline.noShowWriteOff || {}).count || 0)} no-show{((headline.noShowWriteOff || {}).count || 0) === 1 ? "" : "s"} · written off, not collectable
           </div>
         </div>
       </div>
