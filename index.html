@@ -3357,9 +3357,14 @@ const STRINGS = {
     eb_new_total: "New total",
     eb_was: "was",
     eb_no_slots: "No free slots that day — try another date.",
-    eb_cutoff_note: "Changes close 2 hours before start. Courts are re-assigned automatically.",
+    eb_cutoff_note: "Changes close 30 minutes before start. We keep your same court when it's free.",
     eb_confirm: "Confirm changes",
     eb_updated: "Booking updated — SMS on its way",
+    eb_courts_taken: "Your court is taken at that time — pick another",
+    eb_pick_courts: "Pick from the free courts",
+    eb_court: "Court",
+    eb_no_courts: "No courts are available for that time. Try a different time, or contact us.",
+    eb_ok: "OK",
 
     // Membership
     m_title: "Membership",
@@ -3577,9 +3582,14 @@ const STRINGS = {
     eb_new_total: "តម្លៃថ្មី",
     eb_was: "ពីមុន",
     eb_no_slots: "គ្មានម៉ោងទំនេរនៅថ្ងៃនេះទេ — សូមជ្រើសថ្ងៃផ្សេង។",
-    eb_cutoff_note: "អាចកែប្រែបានរហូតដល់ ២ ម៉ោងមុនម៉ោងចាប់ផ្តើម។ ប្រព័ន្ធនឹងជ្រើសតារាងជូនដោយស្វ័យប្រវត្តិ។",
+    eb_cutoff_note: "អាចកែប្រែបានរហូតដល់ ៣០ នាទីមុនម៉ោងចាប់ផ្តើម។ បើតារាងរបស់អ្នកនៅទំនេរ ប្រព័ន្ធនឹងរក្សាតារាងដដែលជូន។",
     eb_confirm: "បញ្ជាក់ការកែប្រែ",
     eb_updated: "បានកែប្រែការកក់ — ប្រព័ន្ធនឹងផ្ញើ SMS ជូន",
+    eb_courts_taken: "តារាងរបស់អ្នកមិនទំនេរនៅម៉ោងនោះទេ — សូមជ្រើសតារាងផ្សេង",
+    eb_pick_courts: "ជ្រើសពីតារាងទំនេរ",
+    eb_court: "តារាង",
+    eb_no_courts: "គ្មានតារាងទំនេរនៅម៉ោងនោះទេ។ សូមសាកល្បងម៉ោងផ្សេង ឬទាក់ទងមកយើង។",
+    eb_ok: "យល់ព្រម",
     m_title: "សមាជិកភាព",
     m_kicker: "ជម្រើស ២ កញ្ចប់ · គិតថ្លៃប្រចាំឆ្នាំ",
     m_lede: "សូមទាក់ទងមកយើងតាម Telegram ឬអញ្ជើញមកកាន់បញ្ជរផ្ទាល់ដើម្បីចុះឈ្មោះ។ នៅពេលចុះឈ្មោះរួចរាល់ ប្រព័ន្ធនឹងភ្ជាប់លេខទូរស័ព្ទរបស់អ្នកដើម្បីទទួលបានការបញ្ចុះតម្លៃដោយស្វ័យប្រវត្តិ។",
@@ -6211,14 +6221,18 @@ function ScreenMyBookings({ state, setState, go, lang, config }) {
   );
 }
 
-/* ===================== v68: EDIT BOOKING MODAL =====================
+/* ===================== v68/v69: EDIT BOOKING MODAL =====================
  * Customer self-edit for an UNPAID, pre-play booking: change date, time,
- * duration or court COUNT (the system re-picks court numbers, exactly like
- * createBooking's auto-assign). Reuses the booking screen's primitives:
- * getAvailability for the day grid + calculatePriceClient for the instant
- * price preview. The server (updateMyBooking) is the source of truth — it
- * re-validates availability atomically, reprices fresh (member discount /
- * promo), keeps the same booking ID and texts an "updated" SMS. */
+ * duration or court COUNT. v69 court model: the server KEEPS the customer's
+ * same court number(s) when free at the new window; when taken it answers
+ * code "courts_taken" + the live availableCourts and this modal shows a
+ * court re-selection step (explicit choice resubmitted via courtNumbers);
+ * code "no_courts" opens a clear popup. Cutoff is 30 minutes before start.
+ * Reuses the booking screen's primitives: getAvailability for the day grid
+ * + calculatePriceClient for the instant price preview. The server
+ * (updateMyBooking) is the source of truth — it re-validates availability
+ * atomically, reprices fresh (member discount / promo), keeps the same
+ * booking ID and texts an "updated" SMS. */
 function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, onSessionExpired }) {
   const [date, setDate] = useState(booking.date);
   const [time, setTime] = useState(booking.time);
@@ -6227,6 +6241,16 @@ function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, on
   const [availSlots, setAvailSlots] = useState(null);   // null = loading
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  // v69 — court re-selection step. The server keeps the customer's SAME
+  // court(s) automatically when free; when it answers code "courts_taken"
+  // it sends the courts that ARE free ({ available, needed }) and we let
+  // the customer pick, then resubmit an explicit `courtNumbers` choice
+  // (validated atomically server-side — a race returns courts_taken again).
+  const [courtPick, setCourtPick] = useState(null);      // { available: [n…], needed: n } | null
+  const [chosenCourts, setChosenCourts] = useState([]);
+  const [noCourtsOpen, setNoCourtsOpen] = useState(false); // "no_courts" popup
+  // Any input change invalidates a pending court choice.
+  useEffect(() => { setCourtPick(null); setChosenCourts([]); }, [date, time, slots, courtCount]);
 
   // Date bounds: today … +30 days (mirrors BOOKING_WINDOW_DAYS)
   const minDate = todayISO();
@@ -6298,20 +6322,39 @@ function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, on
     });
   }, [config, state.isMember, state.member, date, time, slots, courtCount]);
 
-  async function submit() {
+  async function submit(explicitCourts) {
     if (savingRef.current || saving) return;
-    if (!chosen || feasibleHere < courtCount) return;
+    // With a server-provided court list we trust IT over the (possibly
+    // stale) client grid; otherwise the picker gate applies as before.
+    if (!explicitCourts && (!chosen || feasibleHere < courtCount)) return;
     savingRef.current = true;
     setSaving(true);
     try {
-      const r = await api("updateMyBooking", {
+      const params = {
         bookingId: booking.bookingId,
         token: state.token || "",
         phone: state.phone || "",
         date: date, time: time, slots: slots, courts: courtCount
-      });
+      };
+      if (explicitCourts && explicitCourts.length) {
+        params.courtNumbers = explicitCourts.join(",");   // explicit choice from the re-selection step
+      }
+      const r = await api("updateMyBooking", params);
       if (!r.ok) {
         if (isSessionError(r.error)) { onSessionExpired && onSessionExpired(); return; }
+        if (r.code === "courts_taken") {
+          // Their court is taken (or the picked one was grabbed in a race) —
+          // show/refresh the court re-selection step with the live free list.
+          setCourtPick({ available: r.availableCourts || [], needed: r.courtsNeeded || courtCount });
+          setChosenCourts([]);
+          return;
+        }
+        if (r.code === "no_courts") {
+          setCourtPick(null);
+          setChosenCourts([]);
+          setNoCourtsOpen(true);
+          return;
+        }
         showToast(r.error || t("error", null, lang), "error");
         return;
       }
@@ -6420,6 +6463,44 @@ function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, on
           </div>
         )}
 
+        {/* v69 — court re-selection step: shown when the server said
+            "courts_taken" (the customer's court isn't free at the new
+            window). They pick exactly `needed` courts from the live free
+            list; Confirm resubmits with the explicit courtNumbers choice. */}
+        {courtPick && (
+          <div style={{ marginTop: 14, padding: 12, border: "1.5px solid var(--clay)", borderRadius: 4, background: "rgba(198,79,58,0.06)" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--clay)", marginBottom: 6 }}>
+              {t("eb_courts_taken", null, lang)}
+            </div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.7, marginBottom: 8 }}>
+              {t("eb_pick_courts", null, lang)} · {chosenCourts.length}/{courtPick.needed}
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {courtPick.available.map(c => {
+                const on = chosenCourts.indexOf(c) >= 0;
+                return (
+                  <button
+                    key={c}
+                    disabled={saving}
+                    onClick={() => setChosenCourts(prev =>
+                      on ? prev.filter(x => x !== c)
+                         : (prev.length >= courtPick.needed ? prev : prev.concat([c])))}
+                    style={{
+                      padding: "8px 14px", fontFamily: "var(--mono)", fontSize: 13,
+                      borderRadius: 4, cursor: "pointer",
+                      border: "1.5px solid " + (on ? "var(--green)" : "var(--ink)"),
+                      background: on ? "var(--green)" : "var(--paper)",
+                      color: on ? "var(--cream)" : "var(--ink)"
+                    }}
+                  >
+                    {t("eb_court", null, lang)} {c}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <p style={{ fontSize: 11, opacity: 0.6, marginTop: 10, fontFamily: "var(--mono)" }}>
           {t("eb_cutoff_note", null, lang)}
         </p>
@@ -6430,12 +6511,31 @@ function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, on
           </button>
           <button
             className="btn"
-            onClick={submit}
-            disabled={saving || availSlots === null || !chosen || feasibleHere < courtCount}
+            onClick={() => submit(courtPick ? chosenCourts : null)}
+            disabled={
+              saving || availSlots === null ||
+              (!courtPick && (!chosen || feasibleHere < courtCount)) ||
+              (courtPick && chosenCourts.length !== courtPick.needed)
+            }
           >
             {saving ? t("loading", null, lang) : t("eb_confirm", null, lang)}
           </button>
         </div>
+
+        {/* v69 — "no_courts": nothing free at that window for the count they
+            need. Clear popup; they can try a different time or contact us. */}
+        {noCourtsOpen && (
+          <div className="modal-backdrop" onClick={() => setNoCourtsOpen(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <p style={{ fontSize: 15, fontWeight: 600 }}>{t("eb_no_courts", null, lang)}</p>
+              <div className="actions">
+                <button className="btn" onClick={() => setNoCourtsOpen(false)}>
+                  {t("eb_ok", null, lang)}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
