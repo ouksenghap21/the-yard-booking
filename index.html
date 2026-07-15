@@ -3173,6 +3173,18 @@ const STRINGS = {
     op_roster: "Who's playing",
     op_roster_empty: "Be the first to join",
     op_guest: "Guest",
+    // v70 — walk-in tab: bilingual section labels + empty/error states.
+    // (The empty state existed but was EN-only; a fetch failure also used
+    // to masquerade as "no sessions" — now it gets its own retry state.)
+    op_sect_yours: "Your walk-ins",
+    op_sect_more: "More sessions",
+    op_sect_avail: "Available sessions",
+    op_empty_title: "No walk-in sessions scheduled yet",
+    op_empty_hint: "Check back soon, or book a regular court instead.",
+    op_empty_cta: "Book a court instead →",
+    op_error_title: "Couldn't load sessions",
+    op_error_hint: "Check your connection and try again.",
+    op_retry: "Try again",
     p_label_members: "Members of the dink line",
     p_members_right: "MEMBERSHIPS",
     p_standard: "STANDARD",
@@ -3415,6 +3427,16 @@ const STRINGS = {
     op_roster: "អ្នកចុះឈ្មោះ",
     op_roster_empty: "ក្លាយជាអ្នកដំបូងដែលចូលរួម",
     op_guest: "ភ្ញៀវ",
+    // v70 — walk-in tab: bilingual section labels + empty/error states (KM)
+    op_sect_yours: "វគ្គរបស់អ្នក",
+    op_sect_more: "វគ្គបន្ថែម",
+    op_sect_avail: "វគ្គដែលអាចចូលរួមបាន",
+    op_empty_title: "មិនទាន់មានវគ្គ Walk-in ត្រូវបានកំណត់នៅឡើយទេ",
+    op_empty_hint: "សូមពិនិត្យម្តងទៀតនៅពេលក្រោយ ឬកក់តារាងធម្មតាជំនួសវិញ។",
+    op_empty_cta: "កក់តារាងជំនួសវិញ →",
+    op_error_title: "មិនអាចទាញយកវគ្គបានទេ",
+    op_error_hint: "សូមពិនិត្យការតភ្ជាប់អ៊ីនធឺណិត ហើយព្យាយាមម្តងទៀត។",
+    op_retry: "ព្យាយាមម្តងទៀត",
     p_label_members: "សមាជិក Dink Line",
     p_members_right: "សមាជិកភាព",
     p_standard: "ស្តង់ដារ",
@@ -3672,11 +3694,21 @@ async function api(action, params) {
   }
 
   try {
-    const resp = await fetch(url.toString(), { method: "GET" });
+    // v70: abort if the request hangs longer than 25s (mirrors admin.html).
+    // Apps Script cold starts can stall a connection indefinitely on flaky
+    // mobile networks — without this, loading skeletons (e.g. the walk-in
+    // tab's session list) could sit forever with no empty/error state.
+    const ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+    const timeoutId = ctrl ? setTimeout(() => ctrl.abort(), 25000) : null;
+    const resp = await fetch(url.toString(), { method: "GET", signal: ctrl ? ctrl.signal : undefined });
+    if (timeoutId) clearTimeout(timeoutId);
     if (!resp.ok) return { ok: false, error: "HTTP " + resp.status };
     const data = await resp.json();
     return data;
   } catch (err) {
+    if (err && err.name === "AbortError") {
+      return { ok: false, error: "Request timed out. Please check your connection and retry." };
+    }
     return { ok: false, error: err.message || "Network error" };
   }
 }
@@ -6645,6 +6677,10 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
   const [myRegs, setMyRegs] = useState(null);
   const [activeSession, setActiveSession] = useState(null);  // session modal
   const [refreshNonce, setRefreshNonce] = useState(0);
+  // v70: track a sessions-fetch failure separately — a network error used to
+  // render the same "no sessions scheduled" card as a genuinely empty list,
+  // which reads as "the venue has nothing on" when it's really "you're offline".
+  const [loadErr, setLoadErr] = useState(null);
   const [profile] = useState(() => getOpProfile(state.phone) || {});
 
   // Phone is the lookup key for "my registrations". Prefer the OP profile
@@ -6662,6 +6698,7 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
     ]);
     setSessions(sRes.ok ? (sRes.sessions || []) : []);
     setMyRegs(mRes.ok ? (mRes.registrations || []) : []);
+    setLoadErr(sRes.ok ? null : (sRes.error || "load_failed"));
   }
   useEffect(() => { loadAll(); }, [refreshNonce, myPhone]);
 
@@ -6714,7 +6751,7 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
         {/* User's existing registrations (upcoming) */}
         {activeRegs.length > 0 && (
           <div className="op-my-section">
-            <div className="op-section-label">YOUR WALK-INS</div>
+            <div className="op-section-label">{t("op_sect_yours", null, lang)}</div>
             {activeRegs.map(r => (
               <div
                 key={r.registrationId}
@@ -6741,7 +6778,7 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
 
         {/* Section header for the available sessions list */}
         <div className="op-section-label" style={{ marginTop: activeRegs.length > 0 ? 24 : 0 }}>
-          {activeRegs.length > 0 ? "MORE SESSIONS" : "AVAILABLE SESSIONS"}
+          {activeRegs.length > 0 ? t("op_sect_more", null, lang) : t("op_sect_avail", null, lang)}
         </div>
 
         {/* Loading skeleton */}
@@ -6757,16 +6794,27 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
           </div>
         )}
 
-        {/* Empty */}
-        {!isLoading && upcoming.length === 0 && (
+        {/* v70 — fetch failed: say so and offer a retry, don't pretend the
+            calendar is empty. */}
+        {!isLoading && upcoming.length === 0 && loadErr && (
+          <div className="op-empty">
+            <div className="op-empty-icon">⚠</div>
+            <div className="op-empty-title">{t("op_error_title", null, lang)}</div>
+            <div className="op-empty-hint">{t("op_error_hint", null, lang)}</div>
+            <button className="op-empty-cta" onClick={refresh}>
+              {t("op_retry", null, lang)}
+            </button>
+          </div>
+        )}
+
+        {/* Empty — genuinely zero upcoming sessions (v70: bilingual) */}
+        {!isLoading && upcoming.length === 0 && !loadErr && (
           <div className="op-empty">
             <div className="op-empty-icon">◎</div>
-            <div className="op-empty-title">No walk-in sessions scheduled</div>
-            <div className="op-empty-hint">
-              Check back soon, or book a regular court instead.
-            </div>
+            <div className="op-empty-title">{t("op_empty_title", null, lang)}</div>
+            <div className="op-empty-hint">{t("op_empty_hint", null, lang)}</div>
             <button className="op-empty-cta" onClick={() => go("booking")}>
-              Book a court instead →
+              {t("op_empty_cta", null, lang)}
             </button>
           </div>
         )}
