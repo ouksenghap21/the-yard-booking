@@ -4544,6 +4544,58 @@ const API_CACHE_TTL = {
 const _apiCache = new Map();
 const _inflightFetches = new Map();
 
+// v70 — LEAK GUARD: a tab left open for days accumulates cache entries
+// forever. Keys include params (dates, month/period offsets, searches), so
+// each new day / each browsed period mints NEW keys while the old ones are
+// never evicted — the in-memory Map and the persisted localStorage copies
+// both grow without bound. Cap both; evict oldest-by-fetch-time first.
+const _API_CACHE_MAX_ENTRIES = 150;
+function _enforceApiCacheCap() {
+  try {
+    if (_apiCache.size <= _API_CACHE_MAX_ENTRIES) return;
+    const entries = [..._apiCache.entries()]
+      .sort((a, b) => ((a[1] && a[1].time) || 0) - ((b[1] && b[1].time) || 0));
+    const excess = _apiCache.size - _API_CACHE_MAX_ENTRIES;
+    for (let i = 0; i < excess; i++) _apiCache.delete(entries[i][0]);
+  } catch (e) { /* never let cache bookkeeping break a fetch */ }
+}
+
+const _LS_CACHE_MAX_KEYS = 60;
+const _LS_SWEEP_INTERVAL_MS = 5 * 60 * 1000;  // sweeping localStorage isn't free — throttle
+let _lastLsSweepAt = 0;
+function _sweepPersistedCache(force) {
+  const now = Date.now();
+  if (!force && (now - _lastLsSweepAt) < _LS_SWEEP_INTERVAL_MS) return;
+  _lastLsSweepAt = now;
+  try {
+    const entries = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || k.indexOf(_LS_CACHE_PREFIX) !== 0) continue;
+      let time = 0;
+      try {
+        const parsed = JSON.parse(localStorage.getItem(k) || "{}");
+        time = (parsed && typeof parsed.time === "number") ? parsed.time : 0;
+      } catch (e) { /* unparseable — treat as ancient so it gets removed */ }
+      entries.push({ k: k, time: time });
+    }
+    // 1) purge anything older than the max age (previously only done at
+    //    page load — a long-lived tab never re-ran the purge)
+    const cutoff = now - _LS_MAX_AGE_MS;
+    const live = [];
+    for (const e of entries) {
+      if (e.time < cutoff) { try { localStorage.removeItem(e.k); } catch (er) {} }
+      else live.push(e);
+    }
+    // 2) cap total persisted keys, oldest first
+    if (live.length > _LS_CACHE_MAX_KEYS) {
+      live.sort((a, b) => a.time - b.time);
+      const excess = live.length - _LS_CACHE_MAX_KEYS;
+      for (let i = 0; i < excess; i++) { try { localStorage.removeItem(live[i].k); } catch (er) {} }
+    }
+  } catch (e) { /* localStorage unavailable — nothing to sweep */ }
+}
+
 // Endpoints whose responses are safe to persist across page reloads.
 // Keep this conservative: only read-only endpoints with non-sensitive data.
 // Persisted entries are used for instant initial render after refresh; the
@@ -4587,6 +4639,7 @@ function _persistCacheEntry(key, data, time) {
   } catch (e) {
     // Quota exceeded or localStorage disabled — ignore silently
   }
+  _sweepPersistedCache();  // v70 — throttled eviction (age + key-count cap)
 }
 
 function _hydrateCacheFromLocalStorage() {
@@ -4610,6 +4663,7 @@ function _hydrateCacheFromLocalStorage() {
         try { localStorage.removeItem(k); } catch (e2) {}
       }
     }
+    _enforceApiCacheCap();  // v70 — don't hydrate past the in-memory cap
   } catch (e) {
     // No localStorage access — fine, in-memory cache only
   }
@@ -4673,6 +4727,7 @@ function cacheApi(action, params, data) {
   const key = _apiCacheKey(action, params);
   const entry = { data: data, time: Date.now() };
   _apiCache.set(key, entry);
+  _enforceApiCacheCap();  // v70 — leak guard
   if (_PERSIST_ENDPOINTS && _PERSIST_ENDPOINTS.has(action)) {
     try {
       localStorage.setItem(_LS_CACHE_PREFIX + key, JSON.stringify(entry));  // FINAL-QA fix: match hydrator prefix
@@ -4973,6 +5028,7 @@ async function api(action, params = {}, options = {}) {
           if (fresh && fresh.ok !== false) {
             const t = Date.now();
             _apiCache.set(key, { data: fresh, time: t });
+            _enforceApiCacheCap();  // v70 — leak guard
             _persistCacheEntry(key, fresh, t);
             if (options.onUpdate) {
               try { options.onUpdate(fresh); } catch (e) {}
@@ -4994,6 +5050,7 @@ async function api(action, params = {}, options = {}) {
     if (fresh && fresh.ok !== false) {
       const t = Date.now();
       _apiCache.set(key, { data: fresh, time: t });
+      _enforceApiCacheCap();  // v70 — leak guard
       _persistCacheEntry(key, fresh, t);
     }
     return fresh;
@@ -24921,6 +24978,7 @@ function App() {
           if (!payload) return;
           const key = cacheKey(action, {});
           _apiCache.set(key, { data: payload, time: t });
+          _enforceApiCacheCap();  // v70 — leak guard
           try { _persistCacheEntry(key, payload, t); } catch (e) {}
         };
         if (sections.dashboard && sections.dashboard.ok) hydrate("adminDashboard", sections.dashboard.data);
