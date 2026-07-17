@@ -3299,6 +3299,12 @@ const STRINGS = {
     b_peak_pip_hint: "Prime = peak rate. Weekday after 5pm and all weekend.",
     b_no_slots: "No more open slots today. Try tomorrow.",
 
+    // v71 — member fair-use policy (shown only while the policy is active)
+    b_fairuse_disc: "Member discount (first {n} courts/day)",
+    b_fairuse_premium: "Premium court +${x}/hr (C{list})",
+    b_fairuse_used: "{u} of {n} discounted courts used today",
+    b_fairuse_rack: "{r} court(s) at standard rate (daily cap)",
+
     // Birthday gift card
     g_kicker: "BIRTHDAY WEEK",
     g_h_unclaimed: "Your gift, on us.",
@@ -3388,6 +3394,14 @@ const STRINGS = {
     m_founding_price: "$200 / year (life-locked)",
     m_seats_left: "{n} of {cap} Founding seats left",
     m_visit: "Visit us in Toul Kork to sign up.",
+
+    // v71 — fair-use policy expandable (shown only while the policy is active)
+    m_fairuse_h: "Fair use",
+    m_fairuse_sub: "How member pricing stays fair for everyone",
+    m_fairuse_1: "Member discounts apply to standard recreational court bookings only — tournaments, corporate events and coaching are priced separately.",
+    m_fairuse_2: "The discount covers up to {n} courts per member per day; additional courts are charged at the standard rate.",
+    m_fairuse_3: "Premium courts (C{list}) add ${x} per hour on top of the discounted member rate.",
+    m_fairuse_4: "Please cancel at least 2 hours before your session, the member must be one of the players, and memberships are personal — they can't be shared.",
 
     // Generic
     loading: "Loading…",
@@ -3540,6 +3554,12 @@ const STRINGS = {
     b_mixed: "តម្លៃចម្រុះ",
     b_peak_pip_hint: "ម៉ោងមមាញឹក (Peak)៖ ថ្ងៃធ្វើការចាប់ពីម៉ោង ៥ ល្ងាច និងពេញមួយចុងសប្តាហ៍។",
     b_no_slots: "មិនមានម៉ោងទំនេរសម្រាប់ថ្ងៃនេះទេ។ សូមព្យាយាមម្តងទៀតនៅថ្ងៃស្អែក។",
+
+    // v71 — គោលការណ៍ប្រើប្រាស់សមរម្យ (member fair use)
+    b_fairuse_disc: "បញ្ចុះតម្លៃសមាជិក ({n} តារាងដំបូងក្នុងមួយថ្ងៃ)",
+    b_fairuse_premium: "តារាងពិសេស +${x}/ម៉ោង (C{list})",
+    b_fairuse_used: "ថ្ងៃនេះបានប្រើ {u} ក្នុងចំណោម {n} តារាងបញ្ចុះតម្លៃ",
+    b_fairuse_rack: "{r} តារាង គិតតាមតម្លៃធម្មតា (លើសកំណត់ប្រចាំថ្ងៃ)",
     g_kicker: "សប្តាហ៍ខួបកំណើត",
     g_h_unclaimed: "កាដូពិសេសជូនអ្នក!",
     g_h_claimed: "ទទួលបានកាដូរួចរាល់",
@@ -3621,6 +3641,14 @@ const STRINGS = {
     m_founding_price: "$200 / ឆ្នាំ (រក្សាតម្លៃនេះមួយជីវិត)",
     m_seats_left: "កញ្ចប់ស្ថាបនិក នៅសល់តែ {n} នាក់ ក្នុងចំណោម {cap} នាក់ប៉ុណ្ណោះ",
     m_visit: "សូមអញ្ជើញមកកាន់ទីលានទួលគោកដើម្បីចុះឈ្មោះលេង។",
+
+    // v71 — គោលការណ៍ប្រើប្រាស់សមរម្យ
+    m_fairuse_h: "គោលការណ៍ប្រើប្រាស់សមរម្យ",
+    m_fairuse_sub: "របៀបរក្សាតម្លៃសមាជិកឱ្យយុត្តិធម៌សម្រាប់គ្រប់គ្នា",
+    m_fairuse_1: "ការបញ្ចុះតម្លៃសមាជិក អនុវត្តតែចំពោះការកក់តារាងលេងកម្សាន្តធម្មតាប៉ុណ្ណោះ — ការប្រកួត កម្មវិធីក្រុមហ៊ុន និងវគ្គបង្រៀន មានតម្លៃដាច់ដោយឡែក។",
+    m_fairuse_2: "ការបញ្ចុះតម្លៃ គ្របដណ្តប់រហូតដល់ {n} តារាង ក្នុងមួយសមាជិក ក្នុងមួយថ្ងៃ។ តារាងបន្ថែមទៀត គិតតាមតម្លៃធម្មតា។",
+    m_fairuse_3: "តារាងពិសេស (C{list}) គិតបន្ថែម ${x} ក្នុងមួយម៉ោង លើតម្លៃសមាជិកដែលបានបញ្ចុះរួច។",
+    m_fairuse_4: "សូមបោះបង់ការកក់យ៉ាងហោចណាស់ ២ ម៉ោងមុនម៉ោងលេង។ សមាជិកត្រូវតែជាអ្នកលេងម្នាក់ក្នុងក្រុម ហើយសមាជិកភាពជារបស់ផ្ទាល់ខ្លួន មិនអាចចែករំលែកបានទេ។",
     loading: "កំពុងផ្ទុក…",
     error: "មានបញ្ហាអ្វីមួយមិនប្រក្រតី",
     retry: "ព្យាយាមម្តងទៀត",
@@ -5065,6 +5093,48 @@ function ScreenBooking({ state, setState, go, lang, config }) {
     });
   }, [config, isMember, member, bdayEligible, bdayClaimed, date, time, slots, pickedCourts.length]);
 
+  /* v71 FAIR-USE server quote. When the policy is active (config.fairUse
+     exists only then) and a member is booking, the client estimate can't
+     know how much of today's discounted-court cap is already used, nor
+     which courts the server will assign for the premium surcharge — so ask
+     the SERVER (the same calculatePrice createBooking charges with, using
+     the same requestedCourts resolution) for the authoritative quote,
+     debounced. The instant client estimate shows first, then upgrades.
+     Policy OFF (or guest / birthday booking) → this does nothing: zero UI
+     change. */
+  const [fairQuote, setFairQuote] = useState(null);
+  useEffect(() => {
+    setFairQuote(null);
+    if (!config || !config.fairUse || !isMember || bdayClaimed) return;
+    let cancelled = false;
+    const tmr = setTimeout(() => {
+      api("calculatePrice", {
+        date: date, time: time, slots: slots,
+        courts: pickedCourts.length,
+        requestedCourts: pickedCourts.join(","),
+        phone: state.phone || ""
+      }).then(r => {
+        if (!cancelled && r && r.ok) setFairQuote(r);
+      }).catch(() => {});
+    }, 350);
+    return () => { cancelled = true; clearTimeout(tmr); };
+  }, [config, isMember, bdayClaimed, date, time, slots, pickedCourts.join(","), state.phone]);
+
+  /* The price shown/quoted: server fair-use quote when available, else the
+     instant client estimate. The bucket breakdown stays client-side (same
+     base math on both sides); the money fields come from the server. */
+  const pricingShown = useMemo(() => {
+    if (!fairQuote || !pricing) return pricing;
+    return {
+      ...pricing,
+      subtotal: fairQuote.subtotal,
+      discountPct: fairQuote.discountPct,
+      discountAmount: fairQuote.discountAmount,
+      total: fairQuote.total,
+      fairUse: fairQuote.fairUse || null
+    };
+  }, [pricing, fairQuote]);
+
   /* Convert backend slots → wheel format */
   const wheelSlots = useMemo(() => {
     return (availSlots || [])
@@ -5225,7 +5295,9 @@ function ScreenBooking({ state, setState, go, lang, config }) {
       }
       // H3: stash the client quote so the confirm screen can reconcile it
       // against the server's settled total and flag any mismatch.
-      const quotedTotal = pricing ? pricing.total : null;
+      // v71: quote from the fair-use-aware shown price so an honest cap /
+      // premium adjustment is never flagged as a mismatch.
+      const quotedTotal = pricingShown ? pricingShown.total : (pricing ? pricing.total : null);
       const requestedCourts = pickedCourts.join(",");
       setState(s => ({ ...s, confirmation: r.confirmation, quotedTotal: quotedTotal, requestedCourts: requestedCourts }));
       // M9 fix: persist so a refresh on the confirmation screen restores it
@@ -5405,11 +5477,14 @@ function ScreenBooking({ state, setState, go, lang, config }) {
           <span>{t("b_label_summary", null, lang)}</span>
         </div>
         <div className="priceblock">
-          {pricing ? (
+          {pricingShown ? (
             <>
-              {pricing.isMixed ? (
+              {/* v71: with a fair-use premium surcharge the server folds it
+                  INTO subtotal — itemize base courts + surcharge so the
+                  lines still add up. fairUse is absent while the policy is OFF. */}
+              {pricingShown.isMixed ? (
                 // Mixed-rate: itemize each bucket
-                pricing.breakdown.map(b => (
+                pricingShown.breakdown.map(b => (
                   <div className="price-row" key={b.bucket}>
                     <span className="k">
                       {b.bucket === "offpeak"
@@ -5423,40 +5498,66 @@ function ScreenBooking({ state, setState, go, lang, config }) {
                   </div>
                 ))
               ) : (
-                // Single-rate booking
+                // Single-rate booking (base courts, before any premium surcharge)
                 <div className="price-row">
                   <span className="k">
                     {formatDuration(slots)} × {pickedCourts.length} {pickedCourts.length > 1 ? t("c_courts", null, lang).toLowerCase() : t("c_court", null, lang).toLowerCase()} · {peakLabel.toLowerCase()}
                   </span>
-                  <span className="v" key={"v-sub-" + pricing.subtotal}>${pricing.subtotal.toFixed(2)}</span>
+                  <span className="v" key={"v-sub-" + pricingShown.subtotal}>
+                    ${(pricingShown.fairUse ? Math.round((pricingShown.subtotal - pricingShown.fairUse.premiumSurcharge) * 100) / 100 : pricingShown.subtotal).toFixed(2)}
+                  </span>
                 </div>
               )}
 
-              {pricing.isMixed && (
+              {pricingShown.fairUse && pricingShown.fairUse.premiumSurcharge > 0 && (
+                <div className="price-row">
+                  <span className="k">
+                    {t("b_fairuse_premium", { x: pricingShown.fairUse.premiumPerHour, list: pricingShown.fairUse.premiumCourts.join(", C") }, lang)}
+                  </span>
+                  <span className="v" key={"v-fuprem-" + pricingShown.fairUse.premiumSurcharge}>${pricingShown.fairUse.premiumSurcharge.toFixed(2)}</span>
+                </div>
+              )}
+
+              {(pricingShown.isMixed || (pricingShown.fairUse && pricingShown.fairUse.premiumSurcharge > 0)) && (
                 <div className="price-row subtotal-row" style={{ paddingTop: 8, borderTop: "1px dashed rgba(26,26,26,0.18)", marginTop: 2 }}>
                   <span className="k" style={{ fontWeight: 700 }}>{t("b_subtotal", null, lang)}</span>
-                  <span className="v" key={"v-mixsub-" + pricing.subtotal}>${pricing.subtotal.toFixed(2)}</span>
+                  <span className="v" key={"v-mixsub-" + pricingShown.subtotal}>${pricingShown.subtotal.toFixed(2)}</span>
                 </div>
               )}
 
-              {pricing.discountPct > 0 && pricing.discountPct < 100 && (
+              {pricingShown.discountPct > 0 && pricingShown.discountPct < 100 && (
                 <div className="price-row discount">
                   <span className="k">
-                    {isFounding ? t("b_founding_disc", null, lang) : t("b_member_disc", null, lang)}
+                    {pricingShown.fairUse && pricingShown.fairUse.maxCourtsPerDay > 0
+                      ? t("b_fairuse_disc", { n: pricingShown.fairUse.maxCourtsPerDay }, lang)
+                      : (isFounding ? t("b_founding_disc", null, lang) : t("b_member_disc", null, lang))}
                   </span>
-                  <span className="v" key={"v-disc-" + pricing.discountAmount}>${pricing.discountAmount.toFixed(2)}</span>
+                  <span className="v" key={"v-disc-" + pricingShown.discountAmount}>${pricingShown.discountAmount.toFixed(2)}</span>
                 </div>
               )}
 
-              {pricing.discountPct === 100 && (
+              {pricingShown.fairUse && pricingShown.fairUse.rackCourts > 0 && (
+                <div className="price-row">
+                  <span className="k" style={{ opacity: 0.75 }}>{t("b_fairuse_rack", { r: pricingShown.fairUse.rackCourts }, lang)}</span>
+                  <span className="v" />
+                </div>
+              )}
+
+              {pricingShown.fairUse && pricingShown.fairUse.maxCourtsPerDay > 0 && pricingShown.fairUse.alreadyUsed > 0 && (
+                <div className="hint" style={{ margin: "2px 0 4px" }}>
+                  ({t("b_fairuse_used", { u: pricingShown.fairUse.alreadyUsed, n: pricingShown.fairUse.maxCourtsPerDay }, lang)})
+                </div>
+              )}
+
+              {pricingShown.discountPct === 100 && (
                 <>
                   <div className="price-row strike">
                     <span className="k">{t("b_standard_rate", null, lang)}</span>
-                    <span className="v" key={"v-strike-" + pricing.subtotal}>${pricing.subtotal.toFixed(2)}</span>
+                    <span className="v" key={"v-strike-" + pricingShown.subtotal}>${pricingShown.subtotal.toFixed(2)}</span>
                   </div>
                   <div className="price-row discount" style={{ color: "var(--green-2)" }}>
                     <span className="k">{t("b_birthday_gift", null, lang)}</span>
-                    <span className="v" key={"v-bday-" + pricing.subtotal}>${pricing.subtotal.toFixed(2)}</span>
+                    <span className="v" key={"v-bday-" + pricingShown.subtotal}>${pricingShown.subtotal.toFixed(2)}</span>
                   </div>
                 </>
               )}
@@ -5465,7 +5566,7 @@ function ScreenBooking({ state, setState, go, lang, config }) {
 
               <div className="price-row total">
                 <span className="k">{t("b_total", null, lang)}</span>
-                <span className="v" key={"v-total-" + pricing.total}>${pricing.total.toFixed(2)}</span>
+                <span className="v" key={"v-total-" + pricingShown.total}>${pricingShown.total.toFixed(2)}</span>
               </div>
               <div className="hint" style={{ margin: "4px 0 10px", display: "flex", alignItems: "center", gap: 6 }}>
                 <span className="mono" style={{
@@ -6342,7 +6443,7 @@ function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, on
   const anyFeasible = timeOptions.some(o => o.feasible >= courtCount);
 
   // Instant client-side price preview (server reprices authoritatively).
-  const pricing = useMemo(() => {
+  const clientPricing = useMemo(() => {
     if (!config) return null;
     return calculatePriceClient({
       config: config,
@@ -6353,6 +6454,38 @@ function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, on
       date: date, time: time, slots: slots, courts: courtCount
     });
   }, [config, state.isMember, state.member, date, time, slots, courtCount]);
+
+  // v71 FAIR-USE server quote (policy active + member only — config.fairUse
+  // exists only while active). excludeBookingId: repricing THIS booking must
+  // not count itself against the daily cap — same param updateMyBooking
+  // passes on the actual charge. Policy OFF → effect no-ops, UI unchanged.
+  const [fairQuote, setFairQuote] = useState(null);
+  useEffect(() => {
+    setFairQuote(null);
+    if (!config || !config.fairUse || !state.isMember) return;
+    let cancelled = false;
+    const tmr = setTimeout(() => {
+      api("calculatePrice", {
+        date: date, time: time, slots: slots, courts: courtCount,
+        requestedCourts: (chosenCourts.length ? chosenCourts.join(",") : String(booking.courtNumbers || "")),
+        excludeBookingId: booking.bookingId,
+        phone: state.phone || ""
+      }).then(r => { if (!cancelled && r && r.ok) setFairQuote(r); }).catch(() => {});
+    }, 350);
+    return () => { cancelled = true; clearTimeout(tmr); };
+  }, [config, state.isMember, date, time, slots, courtCount, chosenCourts.join(","), state.phone]);
+
+  const pricing = useMemo(() => {
+    if (!fairQuote || !clientPricing) return clientPricing;
+    return {
+      ...clientPricing,
+      subtotal: fairQuote.subtotal,
+      discountPct: fairQuote.discountPct,
+      discountAmount: fairQuote.discountAmount,
+      total: fairQuote.total,
+      fairUse: fairQuote.fairUse || null
+    };
+  }, [clientPricing, fairQuote]);
 
   async function submit(explicitCourts) {
     if (savingRef.current || saving) return;
@@ -6494,6 +6627,17 @@ function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, on
             </span>
           </div>
         )}
+        {/* v71 — fair-use detail under the total when the policy shaped it */}
+        {pricing && pricing.fairUse && (pricing.fairUse.rackCourts > 0 || pricing.fairUse.premiumSurcharge > 0) && (
+          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
+            {pricing.fairUse.rackCourts > 0 && (
+              <div>· {t("b_fairuse_rack", { r: pricing.fairUse.rackCourts }, lang)} — {t("b_fairuse_used", { u: pricing.fairUse.alreadyUsed, n: pricing.fairUse.maxCourtsPerDay }, lang)}</div>
+            )}
+            {pricing.fairUse.premiumSurcharge > 0 && (
+              <div>· {t("b_fairuse_premium", { x: pricing.fairUse.premiumPerHour, list: pricing.fairUse.premiumCourts.join(", C") }, lang)}: ${pricing.fairUse.premiumSurcharge.toFixed(2)}</div>
+            )}
+          </div>
+        )}
 
         {/* v69 — court re-selection step: shown when the server said
             "courts_taken" (the customer's court isn't free at the new
@@ -6574,11 +6718,15 @@ function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, on
 }
 
 /* ===================== SCREEN 6: MEMBERSHIP INFO ===================== */
-function ScreenMembership({ state, setState, go, lang }) {
+function ScreenMembership({ state, setState, go, lang, config }) {
   const [foundingStatus, setFoundingStatus] = useState(null);
   useEffect(() => {
     api("getFoundingStatus").then(r => { if (r.ok) setFoundingStatus(r); });
   }, []);
+  // v71 — fair-use policy expandable. config.fairUse exists ONLY while the
+  // owner has the policy switched on; when OFF this renders nothing at all.
+  const fairUse = config && config.fairUse ? config.fairUse : null;
+  const [fairOpen, setFairOpen] = useState(false);
 
   return (
     <div className="screen scr-pad-top">
@@ -6636,6 +6784,39 @@ function ScreenMembership({ state, setState, go, lang }) {
           <li>Free entry to member tournaments</li>
         </ul>
       </div>
+
+      {/* v71 — condensed bilingual fair-use policy (active-policy only) */}
+      {fairUse && (
+        <div style={{ marginTop: 18, border: "1.5px solid rgba(26,26,26,0.25)", borderRadius: 6 }}>
+          <button
+            onClick={() => setFairOpen(o => !o)}
+            style={{
+              width: "100%", background: "transparent", border: "none", cursor: "pointer",
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "12px 14px", fontFamily: "var(--mono)", fontWeight: 600,
+              fontSize: 12, letterSpacing: "0.12em", textTransform: "uppercase"
+            }}
+          >
+            <span>{t("m_fairuse_h", null, lang)}</span>
+            <span aria-hidden="true">{fairOpen ? "−" : "+"}</span>
+          </button>
+          {fairOpen && (
+            <div style={{ padding: "0 14px 12px" }}>
+              <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 8 }}>{t("m_fairuse_sub", null, lang)}</div>
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.6 }}>
+                <li>{t("m_fairuse_1", null, lang)}</li>
+                {fairUse.maxCourtsPerDay > 0 && (
+                  <li>{t("m_fairuse_2", { n: fairUse.maxCourtsPerDay }, lang)}</li>
+                )}
+                {fairUse.premiumCourts && fairUse.premiumCourts.length > 0 && fairUse.premiumPerHour > 0 && (
+                  <li>{t("m_fairuse_3", { list: fairUse.premiumCourts.join(", C"), x: fairUse.premiumPerHour }, lang)}</li>
+                )}
+                <li>{t("m_fairuse_4", null, lang)}</li>
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="footer-note" style={{ marginTop: 18 }}>
         {t("m_visit", null, lang)}
@@ -8166,7 +8347,7 @@ function App() {
   else if (effectiveScreen === "booking") body = <ScreenBooking state={state} setState={setState} go={go} lang={lang} config={config} />;
   else if (effectiveScreen === "confirm") body = <ScreenConfirm state={state} setState={setState} go={go} lang={lang} />;
   else if (effectiveScreen === "myBookings") body = <ScreenMyBookings state={state} setState={setState} go={go} lang={lang} config={config} />;
-  else if (effectiveScreen === "membership") body = <ScreenMembership state={state} setState={setState} go={go} lang={lang} />;
+  else if (effectiveScreen === "membership") body = <ScreenMembership state={state} setState={setState} go={go} lang={lang} config={config} />;
   else if (effectiveScreen === "openplay") body = <ScreenOpenPlay state={state} setState={setState} go={go} lang={lang} config={config} />;
   else if (effectiveScreen === "about") body = <ScreenAbout state={state} setState={setState} go={go} lang={lang} />;
   else body = <ScreenPhone state={state} setState={setState} go={go} lang={lang} />;
