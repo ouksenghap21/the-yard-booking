@@ -804,6 +804,24 @@ button { font-family: inherit; cursor: pointer; }
   padding: 1px 3px;
 }
 
+/* v72 COMPED (waived): stays on the grid — they played, the time was real;
+   only the money was written off as goodwill. Grey/green chip, distinct
+   from the clay NO-SHOW chip. */
+.booking-block .comped-chip {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  color: var(--cream);
+  background: var(--green);
+  border-radius: 2px;
+  padding: 1px 3px;
+}
+.booking-block.state-waived { opacity: 0.75; }
+
 /* NO-SHOW FREED blocks are removed from the timeline grid entirely (the
  * court is free again — see the Timeline render filter); this rule is kept
  * as a safety net for any stale markup. */
@@ -1824,6 +1842,9 @@ button { font-family: inherit; cursor: pointer; }
 .status-pill.paid        { background: var(--green); color: var(--cream); border-color: var(--green); }
 .status-pill.no_show_freed { background: var(--clay); color: var(--cream); border-color: var(--clay); opacity: 0.8; }
 .status-pill.no_show_kept  { background: var(--clay-2); color: var(--cream); border-color: var(--clay); }
+/* v72 COMPED (waived): grey/green goodwill badge — deliberately distinct
+   from the clay NO-SHOW family (comp = gift, no-show = fault). */
+.status-pill.waived        { background: var(--concrete-2); color: var(--green); border-color: var(--green); }
 .status-pill.completed   { background: var(--ink); color: var(--cream); opacity: 0.7; }
 .status-pill.cancelled   { background: var(--concrete); color: var(--ink); opacity: 0.5; text-decoration: line-through; }
 
@@ -4523,6 +4544,7 @@ const API_CACHE_TTL = {
   adminFinancesRange: 30000,
   adminGetGoals: 120000,
   adminGetPromo: 120000,
+  adminGetFairUse: 120000,
   adminGetPosSettings: 120000,
   adminListMembers: 30000,
   adminListProducts: 15000,   // alias / not used directly but kept for clarity
@@ -4615,6 +4637,7 @@ const _PERSIST_ENDPOINTS = new Set([
   "adminListCustomers",
   "adminListSmsLog",
   "adminGetPromo",
+  "adminGetFairUse",
   "adminGetPosSettings",
   "adminGetGoals",
   "adminGetSponsorshipSettings",
@@ -4741,7 +4764,7 @@ var MUTATING_ACTIONS = new Set([
   "adminCreateBooking","adminCancelBooking","adminUncancelBooking","adminExtendBooking","adminMoveBookingCourt","adminReleaseBookingCourts","adminMarkPaid",
   "adminMarkRefunded","adminFlagNoShow","adminNoShowAndRelease","adminConfirmArrival",
   "adminCreateMember","adminUpdateMember","adminSetPricingRules","adminSetPromo",
-  "adminSetPosSettings","adminSetGoals","adminSetLandingConfig",
+  "adminSetPosSettings","adminSetGoals","adminSetLandingConfig","adminSetFairUse",
   "posCreateSale","adminSettleCombined","tabOpen","tabClose","tabAddItem","tabRemoveItem",
   "tabCancel","tabAttachBooking","tabAttachWalkInPlayer","tabDetachBooking","tabDetachWalkInPlayer",
   "tabAttachOpenPlayPlayer","tabDetachOpenPlayPlayer",
@@ -4865,6 +4888,7 @@ function _invalidateForMutation(action) {
   // Settings mutations invalidate their own corresponding read endpoint
   if (action === "adminSetGoals") invalidateApiCache("adminGetGoals");
   if (action === "adminSetPromo") invalidateApiCache("adminGetPromo");
+  if (action === "adminSetFairUse") { invalidateApiCache("adminGetFairUse"); try { invalidateApiCache("calculatePrice"); } catch (e) {} }
   if (action === "adminSetPosSettings") invalidateApiCache("adminGetPosSettings");
   if (action === "adminSetSponsorshipSettings") invalidateApiCache("adminGetSponsorshipSettings");
   if (action === "adminSetLandingConfig") invalidateApiCache("adminGetLandingConfig");
@@ -6327,7 +6351,8 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
                       <span className="name">{b.name}</span>
                       <span className="time">{b.time}</span>
                       {b.state === "no_show_kept" && <span className="noshow-chip">NO-SHOW</span>}
-                      {b.isMember && b.state !== "no_show_kept" && <span className="member-flag" title={b.memberTier || "Member"}>{b.memberTier === "founding" ? "★★" : "★"}</span>}
+                      {b.state === "waived" && <span className="comped-chip">COMPED</span>}
+                      {b.isMember && b.state !== "no_show_kept" && b.state !== "waived" && <span className="member-flag" title={b.memberTier || "Member"}>{b.memberTier === "founding" ? "★★" : "★"}</span>}
                     </div>
                   );
                 })}
@@ -7893,13 +7918,22 @@ function TodaysPulsePanel({ data, onOpenPlayClick }) {
       </div>
 
       <div className="pulse-metric">
-        <div className="label">Today's total revenue</div>
+        {/* v72 label-clarity fix: this metric is PAYMENT-DATE basis (money
+            collected today), while the hero "Today's revenue" tile is
+            SESSION-DATE basis (v67). They legitimately differ whenever a
+            booking is prepaid or paid later — "Collected today" says what
+            this one actually is instead of a second near-identical
+            "total revenue" that made the owner ask why the numbers differ. */}
+        <div className="label">
+          Collected today
+          <InfoTip flip="below" text="Money received today for these streams. The Revenue tile counts today's sessions instead — prepaid or pay-later bookings make them differ. Memberships and coach-cut are in Takings only." />
+        </div>
         <div className="value">${todayTotal.toFixed(2)}</div>
         <div style={{
           fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.14em",
           textTransform: "uppercase", opacity: 0.5, marginTop: 4
         }}>
-          court + walk-in + coaching + pos
+          court + walk-in + coaching + POS · by payment date
         </div>
         <div className={"delta " + deltaClass(deltaYest)}>
           vs yesterday: {deltaLabel(deltaYest)} · ${yest.toFixed(2)}
@@ -8008,6 +8042,7 @@ const STATUS_LABELS = {
   no_show_freed: "No-show · released",
   no_show_kept: "No-show",
   completed: "Completed",
+  waived: "Comped",   // v72: waived (goodwill) — she played, nothing owed
   cancelled: "Cancelled"
 };
 
@@ -8248,7 +8283,7 @@ function ScreenBookings() {
 
   // Status counts (guest bookings only)
   const counts = useMemo(() => {
-    const c = { all: 0, awaiting: 0, at_risk: 0, checked_in: 0, paid: 0, no_show_freed: 0, no_show_kept: 0, completed: 0, cancelled: 0 };
+    const c = { all: 0, awaiting: 0, at_risk: 0, checked_in: 0, paid: 0, no_show_freed: 0, no_show_kept: 0, completed: 0, waived: 0, cancelled: 0 };
     if (!entries) return c;
     for (const b of entries) {
       if (b.entryType !== "booking") continue;
@@ -8626,7 +8661,9 @@ function WeekView({ entries, days, onDayClick, onBlockClick }) {
       const walkinEntries = dayEntries.filter(e => e.entryType === "walkin");
       const openplayEntries = dayEntries.filter(e => e.entryType === "openplay");
       const tournamentEntries = dayEntries.filter(e => e.entryType === "tournament");
-      const courtRev = guestEntries.reduce((s, e) => s + (e.total || 0), 0);
+      // v73: waived (comped) bookings stay in guestCount (they played) but
+      // their $ is a goodwill write-off — never in the day's revenue figure.
+      const courtRev = guestEntries.reduce((s, e) => s + (e.derivedStatus === "waived" ? 0 : (e.total || 0)), 0);
       const coachingRev = coachEntries.reduce((s, e) => s + (e.facilityEarns || 0), 0);
       const walkinRev = walkinEntries.reduce((s, e) => s + (e.total || 0), 0);
       const openplayRev = openplayEntries.reduce((s, e) => s + (e.total || 0), 0);
@@ -8748,7 +8785,10 @@ function MonthView({ entries, centerDate, onDayClick }) {
       if (!map[e.date]) map[e.date] = { bookings: 0, coaching: 0, walkin: 0, openplay: 0, tournament: 0, revenue: 0, slots: 0, entries: [], seenTrnIds: new Set() };
       if (e.entryType === "booking" && e.derivedStatus !== "cancelled") {
         map[e.date].bookings++;
-        map[e.date].revenue += (e.total || 0);
+        // v73: a Waived (comped) booking's dollars will never be collected —
+        // keep it in the counts/slots (they played) but out of the day's $
+        // chip, matching every finance rollup's waived exclusion.
+        if (e.derivedStatus !== "waived") map[e.date].revenue += (e.total || 0);
         const courtCount = String(e.courtNumbers || "").split(",").filter(Boolean).length;
         map[e.date].slots += (e.slots || 0) * courtCount;
         map[e.date].entries.push(e);
@@ -9121,6 +9161,11 @@ function BookingDetailModal({ booking, onClose, onAction }) {
   // paid changes). Client preview scales linearly (price is per-court linear
   // for rack, member %, promo and corporate rates), server total is final.
   const [releaseOpen, setReleaseOpen] = useState(false);
+  // v72 — Waive (comp): owner comps an unpaid booking as goodwill. Reason is
+  // required (≤120 chars, stamped into Notes); the server flips the status to
+  // Waived, writes NO ledger row, and every revenue/receivable rollup skips it.
+  const [waiveOpen, setWaiveOpen] = useState(false);
+  const [waiveReason, setWaiveReason] = useState("");
   const [releaseSel, setReleaseSel] = useState({});   // court -> true (release it)
   const releaseChosen = bookingCourtList.filter(c => releaseSel[c]);
   const releaseRemaining = bookingCourtList.filter(c => !releaseSel[c]);
@@ -9147,6 +9192,51 @@ function BookingDetailModal({ booking, onClose, onAction }) {
       onClose && onClose();
     } else {
       showToast(r.error || "Release failed", "error");
+    }
+  }
+
+  async function doWaive() {
+    const reason = waiveReason.trim();
+    if (acting || !reason) return;
+    const ok = await confirmAction({
+      title: "Comp this booking?",
+      message: booking.name + " · " + booking.date + " " + booking.time + " · " + fmtMoney(booking.total || 0),
+      consequence: fmtMoney(booking.total || 0) + " will be written off as goodwill — no payment is expected, nothing goes to the ledger, and the booking stays on the schedule (they played). Reason: " + reason,
+      confirmLabel: "Yes, comp it",
+      destructive: false
+    });
+    if (!ok) return;
+    setActing(true);
+    const r = await api("adminWaiveBooking", { bookingId: booking.bookingId, reason: reason });
+    setActing(false);
+    if (r.ok) {
+      showToast(r.message || "Comped — written off as goodwill", "success");
+      onAction && onAction();
+      onClose && onClose();
+    } else {
+      showToast(r.error || "Couldn't waive — please retry", "error");
+    }
+  }
+
+  async function doUnwaive() {
+    if (acting) return;
+    const ok = await confirmAction({
+      title: "Remove the comp?",
+      message: booking.name + " · " + booking.date + " " + booking.time,
+      consequence: "The booking goes back to Pending — " + fmtMoney(booking.total || 0) + " becomes owed again and shows up in receivables.",
+      confirmLabel: "Yes, unwaive",
+      destructive: false
+    });
+    if (!ok) return;
+    setActing(true);
+    const r = await api("adminUnwaiveBooking", { bookingId: booking.bookingId });
+    setActing(false);
+    if (r.ok) {
+      showToast("Comp removed — booking is unpaid (Pending) again", "success");
+      onAction && onAction();
+      onClose && onClose();
+    } else {
+      showToast(r.error || "Couldn't unwaive — please retry", "error");
     }
   }
 
@@ -9541,6 +9631,41 @@ function BookingDetailModal({ booking, onClose, onAction }) {
           </div>
         )}
 
+        {/* v72 — Waive (comp) panel: reason required, confirm spells out the
+            goodwill write-off. Unpaid bookings only (see button gating). */}
+        {waiveOpen && (
+          <div style={{
+            padding: "12px 14px", marginBottom: 12,
+            background: "rgba(26,26,26,0.03)", borderRadius: 4,
+            border: "1.5px solid var(--green)"
+          }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 700, marginBottom: 8 }}>
+              Waive (comp) — {fmtMoney(booking.total || 0)} written off as goodwill
+            </div>
+            <input
+              type="text"
+              value={waiveReason}
+              maxLength={120}
+              placeholder="Reason (required, e.g. owner comp — birthday regular)"
+              onChange={(e) => setWaiveReason(e.target.value)}
+              style={{
+                width: "100%", boxSizing: "border-box", padding: "8px 10px",
+                border: "1.5px solid var(--ink)", borderRadius: 4,
+                background: "var(--cream)", fontFamily: "var(--mono)", fontSize: 12, marginBottom: 8
+              }}
+            />
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, lineHeight: 1.4, marginBottom: 8 }}>
+              No payment expected · no ledger entry · courts stay marked (they played) · excluded from revenue and receivables · shows as a "Comped" memo in Finances.
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn success" onClick={doWaive} disabled={acting || !waiveReason.trim()}>
+                {acting ? "Waiving…" : "Confirm comp"}
+              </button>
+              <button className="btn ghost" onClick={() => setWaiveOpen(false)} disabled={acting}>Back</button>
+            </div>
+          </div>
+        )}
+
         <div className="actions">
           {(d === "awaiting" || d === "at_risk" || d === "checked_in" || d === "completed" || d === "paid") && (
             <button
@@ -9588,6 +9713,27 @@ function BookingDetailModal({ booking, onClose, onAction }) {
               onClick={() => setPayAsk(() => (mth) => doAction("adminMarkPaid", undefined, mth))}
               disabled={acting}
             >Mark paid</button>
+          )}
+          {/* v72 — Waive (comp): UNPAID plain bookings only. Paid/POS/tab/
+              cancelled/no-show are refused server-side too; the button is
+              simply hidden for them so staff aren't teased. */}
+          {(d === "awaiting" || d === "at_risk" || d === "checked_in" || d === "completed") && (
+            <button
+              className="btn"
+              style={{ color: "var(--green)" }}
+              onClick={() => setWaiveOpen(v => !v)}
+              disabled={acting}
+            >Waive (comp)</button>
+          )}
+          {/* v72 — Unwaive: the one exit from the comped state. Restores
+              Pending; extend/move/mark-paid become available again. */}
+          {d === "waived" && (
+            <button
+              className="btn"
+              style={{ color: "var(--green)" }}
+              onClick={doUnwaive}
+              disabled={acting}
+            >Unwaive</button>
           )}
           {(d === "awaiting" || d === "at_risk") && (
             <button
@@ -9778,6 +9924,36 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
     }
     setPricePreview(result);
   }, [config, memberInfo, form.date, form.time, form.slots, form.courts.length, form.corporateId, corpAccounts.length]);
+
+  // v71 FAIR-USE server quote: when the policy is active (config.fairUse is
+  // present only then) and a MEMBER phone is entered on a non-corporate
+  // booking, the client estimate can't know today's used discounted-court
+  // cap or the premium courts — ask the server (the same calculatePrice
+  // createBooking charges with) and upgrade the preview. Policy OFF → this
+  // effect does nothing and the modal behaves exactly as before.
+  useEffect(() => {
+    if (!config || !config.fairUse || !memberInfo || selectedCorp) return;
+    let cancelled = false;
+    const tmr = setTimeout(() => {
+      api("calculatePrice", {
+        date: form.date, time: form.time, slots: form.slots,
+        courts: form.courts.length || 1,
+        requestedCourts: form.courts.join(","),
+        phone: form.phone
+      }).then(r => {
+        if (cancelled || !r || !r.ok) return;
+        setPricePreview(prev => prev ? {
+          ...prev,
+          subtotal: r.subtotal,
+          discountPct: r.discountPct,
+          discountAmount: r.discountAmount,
+          total: r.total,
+          fairUse: r.fairUse || null
+        } : r);
+      }).catch(() => {});
+    }, 400);
+    return () => { cancelled = true; clearTimeout(tmr); };
+  }, [config, memberInfo, form.date, form.time, form.slots, form.courts.join(","), form.phone, form.corporateId, corpAccounts.length]);
 
   function toggleCourt(c) {
     const isCurrentlySelected = form.courts.includes(c);
@@ -10030,10 +10206,26 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
               <span className="k">Subtotal{pricePreview.corporate ? " · corporate rate" : ""}</span>
               <span className="v">${pricePreview.subtotal.toFixed(2)}</span>
             </div>
+            {/* v71 — fair-use breakdown (server-quoted; absent while OFF) */}
+            {pricePreview.fairUse && pricePreview.fairUse.premiumSurcharge > 0 && (
+              <div className="row">
+                <span className="k">incl. premium court{pricePreview.fairUse.premiumCourts.length > 1 ? "s" : ""} C{pricePreview.fairUse.premiumCourts.join(", C")} · +${pricePreview.fairUse.premiumPerHour}/hr</span>
+                <span className="v">${pricePreview.fairUse.premiumSurcharge.toFixed(2)}</span>
+              </div>
+            )}
             {pricePreview.discountPct > 0 && (
               <div className="row" style={{ color: "var(--clay)" }}>
-                <span className="k">{pricePreview.corporate ? "Corporate discount" : "Discount"} ({pricePreview.discountPct}%)</span>
+                <span className="k">
+                  {pricePreview.corporate ? "Corporate discount" : "Discount"} ({pricePreview.discountPct}%)
+                  {pricePreview.fairUse && pricePreview.fairUse.maxCourtsPerDay > 0 ? " — first " + pricePreview.fairUse.maxCourtsPerDay + " courts/day" : ""}
+                </span>
                 <span className="v">−${pricePreview.discountAmount.toFixed(2)}</span>
+              </div>
+            )}
+            {pricePreview.fairUse && pricePreview.fairUse.rackCourts > 0 && (
+              <div className="row" style={{ opacity: 0.75 }}>
+                <span className="k">{pricePreview.fairUse.rackCourts} court(s) at rack — fair-use cap ({pricePreview.fairUse.alreadyUsed} of {pricePreview.fairUse.maxCourtsPerDay} discounted courts used today)</span>
+                <span className="v"></span>
               </div>
             )}
             <div className="row total facility">
@@ -16429,6 +16621,11 @@ function CorporateStatementModal({ account, onClose }) {
                 {stmt.cancelled.length} cancelled booking(s) excluded from totals.
               </div>
             )}
+            {(stmt.waived || []).length > 0 && (
+              <div style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55 }}>
+                {stmt.waived.length} comped (waived) booking(s) · {fmtMoney(stmt.totalWaived || 0)} goodwill — excluded from invoice totals.
+              </div>
+            )}
           </>
         )}
 
@@ -18688,6 +18885,17 @@ function FinancesView({ data, onChanged, opOnly }) {
           No-shows written off this month: <strong style={{ color: "var(--clay)" }}>{fmtMoney(h.noShowWriteOff.total)}</strong>
           {" · "}{h.noShowWriteOff.count} booking{h.noShowWriteOff.count === 1 ? "" : "s"}
           <span style={{ opacity: 0.6 }}> — not collectable, excluded from receivables</span>
+        </div>
+      )}
+
+      {/* v72 — goodwill memo. Comped (waived) bookings are the owner's gift:
+          no revenue, no receivable, no ledger row — recorded here so the
+          month still tells the truth about what was given away. */}
+      {(h.waivedComped && h.waivedComped.count > 0) && (
+        <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.8, marginTop: 6, marginBottom: 4 }}>
+          Comped (waived) this month: <strong style={{ color: "var(--green)" }}>{fmtMoney(h.waivedComped.total)}</strong>
+          {" · "}{h.waivedComped.count} booking{h.waivedComped.count === 1 ? "" : "s"}
+          <span style={{ opacity: 0.6 }}> — goodwill write-off, excluded from revenue and receivables</span>
         </div>
       )}
 
@@ -23263,6 +23471,11 @@ function ScreenSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [promo, setPromo] = useState({ active: false, pct: 50, label: "Soft launch −50%" });
+  // v71 — member fair-use policy (daily discounted-court cap + premium courts).
+  // premiumCourts is kept as the raw csv STRING in form state; the server
+  // validates + normalizes on save.
+  const [fairUse, setFairUse] = useState({ active: false, maxCourtsPerDay: 4, premiumCourts: "", premiumPerHour: 5 });
+  const [savingFairUse, setSavingFairUse] = useState(false);
   const [posSettings, setPosSettings] = useState({ memberDiscountPct: 10, memberDiscountDefault: 10 });
   const [savingPos, setSavingPos] = useState(false);
   const [goals, setGoals] = useState({
@@ -23303,12 +23516,14 @@ function ScreenSettings() {
     // STEP 1 — synchronous cache hydration so the page paints instantly
     // with stale data while the fresh fetches go out in parallel.
     const cPromo = getCachedApi("adminGetPromo");
+    const cFair  = getCachedApi("adminGetFairUse");
     const cPos   = getCachedApi("adminGetPosSettings");
     const cGoals = getCachedApi("adminGetGoals");
     const cSp    = getCachedApi("adminGetSponsorshipSettings");
     const cPr    = getCachedApi("adminGetPricingRules");
     const cLand  = getCachedApi("adminGetLandingConfig");
     if (cPromo && cPromo.ok) setPromo({ active: !!cPromo.active, pct: cPromo.pct || 50, label: cPromo.label || "Soft launch −50%" });
+    if (cFair && cFair.ok) setFairUse({ active: !!cFair.active, maxCourtsPerDay: cFair.maxCourtsPerDay, premiumCourts: (cFair.premiumCourts || []).join(","), premiumPerHour: cFair.premiumPerHour });
     if (cPos && cPos.ok) setPosSettings({ memberDiscountPct: cPos.memberDiscountPct, memberDiscountDefault: cPos.memberDiscountDefault });
     if (cGoals && cGoals.ok) setGoals(cGoals.goals);
     if (cSp && cSp.ok) setSponsorSettings({ totalSlots: cSp.totalSlots, totalSlotsDefault: cSp.totalSlotsDefault });
@@ -23321,13 +23536,14 @@ function ScreenSettings() {
 
     // STEP 2 — fire all five fetches in PARALLEL, not sequentially.
     // Was ~5 × round-trip; now bounded by the slowest single request.
-    const [r, ps, g, sp, pr, ld] = await Promise.all([
+    const [r, ps, g, sp, pr, ld, fu] = await Promise.all([
       api("adminGetPromo"),
       api("adminGetPosSettings"),
       api("adminGetGoals"),
       api("adminGetSponsorshipSettings"),
       api("adminGetPricingRules"),
-      api("adminGetLandingConfig")
+      api("adminGetLandingConfig"),
+      api("adminGetFairUse")
     ]);
     if (ld && ld.ok && ld.landing) {
       setLandingCfg({
@@ -23342,6 +23558,14 @@ function ScreenSettings() {
         active: !!r.active,
         pct: r.pct || 50,
         label: r.label || "Soft launch −50%"
+      });
+    }
+    if (fu && fu.ok) {
+      setFairUse({
+        active: !!fu.active,
+        maxCourtsPerDay: fu.maxCourtsPerDay,
+        premiumCourts: (fu.premiumCourts || []).join(","),
+        premiumPerHour: fu.premiumPerHour
       });
     }
     if (ps.ok) {
@@ -23381,6 +23605,31 @@ function ScreenSettings() {
         active: !!r.active,
         pct: r.pct || 50,
         label: r.label || ""
+      });
+    } else {
+      showToast(r.error || "Save failed", "error");
+    }
+  }
+
+  // v71 — save the member fair-use policy. The server validates + clamps
+  // (bad csv / negative surcharge are rejected atomically — nothing is
+  // half-written) and echoes the normalized config back.
+  async function saveFairUse() {
+    setSavingFairUse(true);
+    const r = await api("adminSetFairUse", {
+      active: fairUse.active,
+      maxCourtsPerDay: fairUse.maxCourtsPerDay,
+      premiumCourts: fairUse.premiumCourts,
+      premiumPerHour: fairUse.premiumPerHour
+    });
+    setSavingFairUse(false);
+    if (r.ok) {
+      showToast("Fair-use policy saved", "success");
+      setFairUse({
+        active: !!r.active,
+        maxCourtsPerDay: r.maxCourtsPerDay,
+        premiumCourts: (r.premiumCourts || []).join(","),
+        premiumPerHour: r.premiumPerHour
       });
     } else {
       showToast(r.error || "Save failed", "error");
@@ -23788,6 +24037,119 @@ function ScreenSettings() {
           <div className="settings-warning">
             <b>HEADS-UP:</b> All bookings will receive a {promo.pct}% discount as long as this is active.
             Toggle off to return to standard pricing + member discounts.
+          </div>
+        )}
+      </div>
+
+      <div className="settings-card">
+        <h3>Member fair use</h3>
+        <div className="desc">
+          Keeps member pricing fair on busy days: the member discount covers at most
+          <b> N courts per member per day</b> (extra courts price at rack rate), and
+          <b> premium courts</b> carry a per-hour surcharge on top of the discounted rate.
+          Guests, corporate bookings, birthday sessions and coaching are never affected.
+          <b> OFF by default</b> — pricing is completely unchanged until you switch it on.
+        </div>
+
+        <div className="settings-row">
+          <div className="field-label">Status</div>
+          <div
+            className={"toggle" + (fairUse.active ? " on" : "")}
+            onClick={() => setFairUse({ ...fairUse, active: !fairUse.active })}
+          />
+          <div style={{
+            fontFamily: "var(--mono)",
+            fontSize: 12,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            fontWeight: 600,
+            color: fairUse.active ? "var(--green)" : "var(--ink)",
+            opacity: fairUse.active ? 1 : 0.5
+          }}>
+            {fairUse.active ? "Active" : "Inactive"}
+          </div>
+        </div>
+
+        <div className="settings-row">
+          <div className="field-label">Discounted courts / day (0 = no cap)</div>
+          <input
+            type="number"
+            min="0"
+            max="99"
+            value={fairUse.maxCourtsPerDay}
+            onChange={(e) => setFairUse({ ...fairUse, maxCourtsPerDay: e.target.value })}
+          />
+        </div>
+
+        <div className="settings-row">
+          <div className="field-label">Premium courts (csv, blank = none)</div>
+          <input
+            type="text"
+            value={fairUse.premiumCourts}
+            placeholder="e.g. 3,4"
+            onChange={(e) => setFairUse({ ...fairUse, premiumCourts: e.target.value })}
+            maxLength={30}
+          />
+        </div>
+
+        <div className="settings-row">
+          <div className="field-label">Premium surcharge $ / hour / court</div>
+          <input
+            type="number"
+            min="0"
+            step="0.5"
+            value={fairUse.premiumPerHour}
+            onChange={(e) => setFairUse({ ...fairUse, premiumPerHour: e.target.value })}
+          />
+        </div>
+
+        {/* Live example — the policy doc's "$80 example" recomputed from the
+            values in the form + the current peak rack rate. */}
+        {(() => {
+          const rack = (() => {
+            let best = 0;
+            for (const r of (pricingRules || [])) { const v = parseFloat(r.rate) || 0; if (v > best) best = v; }
+            return best || 15;
+          })();
+          const hours = 2, exCourts = [1, 2, 3, 4];
+          const cap = Math.max(0, parseInt(fairUse.maxCourtsPerDay) || 0);
+          const per = Math.max(0, parseFloat(fairUse.premiumPerHour) || 0);
+          const premList = String(fairUse.premiumCourts || "").split(",").map(x => parseInt(x.trim())).filter(n => n >= 1);
+          const discN = cap === 0 ? exCourts.length : Math.min(exCourts.length, cap);
+          const rackN = exCourts.length - discN;
+          const premN = exCourts.slice(0, discN).filter(c => premList.includes(c)).length;
+          const stdN = discN - premN;
+          const half = rack / 2;
+          const stdAmt = stdN * hours * half;
+          const premAmt = premN * hours * (half + per);
+          const rackAmt = rackN * hours * rack;
+          const total = Math.round((stdAmt + premAmt + rackAmt) * 100) / 100;
+          return (
+            <div style={{ marginTop: 10, padding: "10px 12px", background: "rgba(0,0,0,0.03)", borderRadius: 6, fontFamily: "var(--mono)", fontSize: 12, lineHeight: 1.7 }}>
+              <div style={{ fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 2 }}>
+                Example — Founding member · 4 courts × {hours}h · ${rack}/h rack
+              </div>
+              {stdN > 0 && <div>· {stdN} discounted court{stdN > 1 ? "s" : ""}: {stdN} × {hours}h × ${half.toFixed(2)} = ${stdAmt.toFixed(2)}</div>}
+              {premN > 0 && <div>· {premN} premium court{premN > 1 ? "s" : ""}: {premN} × {hours}h × ${(half + per).toFixed(2)} = ${premAmt.toFixed(2)}</div>}
+              {rackN > 0 && <div>· {rackN} beyond cap (rack, no surcharge): {rackN} × {hours}h × ${rack.toFixed(2)} = ${rackAmt.toFixed(2)}</div>}
+              <div style={{ fontWeight: 700, marginTop: 2 }}>Total: ${total.toFixed(2)}</div>
+            </div>
+          );
+        })()}
+
+        <div className="settings-row">
+          <div className="actions">
+            <button className="btn primary" onClick={saveFairUse} disabled={savingFairUse}>
+              {savingFairUse ? "Saving…" : "Save fair-use policy"}
+            </button>
+          </div>
+        </div>
+
+        {fairUse.active && (
+          <div className="settings-warning">
+            <b>HEADS-UP:</b> Members now get the discount on at most {parseInt(fairUse.maxCourtsPerDay) || 0} court(s)/day
+            {String(fairUse.premiumCourts || "").trim() ? " and premium courts " + fairUse.premiumCourts + " carry the surcharge" : ""}.
+            The public site shows the policy while it is active. Toggle off to restore plain member pricing.
           </div>
         )}
       </div>
