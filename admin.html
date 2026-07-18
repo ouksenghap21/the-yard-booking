@@ -732,9 +732,40 @@ button { font-family: inherit; cursor: pointer; }
 }
 .booking-block .name,
 .booking-block .time,
-.booking-block .member-flag {
+.booking-block .member-flag,
+.booking-block .multi-court-tag {
   position: relative;
   z-index: 1;
+}
+
+/* v75 — MULTI-COURT TAG: a row spanning N courts renders one block per
+ * court row (layout/lanes untouched), so each block declares it's a slice
+ * of ONE entry: "2 CTS · C5+C6 · $90 TOTAL". Subtle mono chip in the
+ * brand style; truncates with ellipsis on narrow blocks. */
+.booking-block .multi-court-tag {
+  align-self: flex-start;
+  max-width: 100%;
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  line-height: 1.3;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(0,0,0,0.22);
+  color: rgba(241,234,214,0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-height: 0;
+}
+/* Sub-lane blocks are ~16px tall and already drop the time line — the tag
+ * can't fit either; the block/tag tooltip still carries the full story. */
+.booking-block.sub-lane .multi-court-tag { display: none; }
+/* Past blocks: mute the tag like the time line. */
+.booking-block.past .multi-court-tag {
+  background: rgba(26,26,26,0.12);
+  color: rgba(26,26,26,0.45);
 }
 
 /* AWAITING: no overlay tint — the dashed border from the override below
@@ -4765,7 +4796,7 @@ var MUTATING_ACTIONS = new Set([
   "adminMarkRefunded","adminFlagNoShow","adminNoShowAndRelease","adminConfirmArrival",
   "adminCreateMember","adminUpdateMember","adminSetPricingRules","adminSetPromo",
   "adminSetPosSettings","adminSetGoals","adminSetLandingConfig","adminSetFairUse",
-  "posCreateSale","adminSettleCombined","tabOpen","tabClose","tabAddItem","tabRemoveItem",
+  "posCreateSale","adminSettleCombined","tabOpen","tabClose","tabAddItem","tabAddItems","tabRemoveItem",
   "tabCancel","tabAttachBooking","tabAttachWalkInPlayer","tabDetachBooking","tabDetachWalkInPlayer",
   "tabAttachOpenPlayPlayer","tabDetachOpenPlayPlayer",
   "tabAttachCoachingSession","tabDetachCoachingSession",
@@ -6147,6 +6178,14 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
           isCoaching: isCoaching,
           isWalkIn: isWalkIn,
           isTournament: isTournament,
+          // v75 — MULTI-COURT TAG: one row spanning N courts renders N
+          // blocks (one per court row — layout unchanged), which used to
+          // read as N separate bookings each worth $total. Carry the
+          // sibling-court facts so each block can declare "I'm 1/N of ONE
+          // entry, $total is for ALL of it, paid once."
+          courtCount: courtNums.length,
+          courtsLabel: courtNums.map(n => "C" + n).join("+"),
+          courtsList: courtNums.join(", "),
           bookingId: b.bookingId,
           sourceEntry: b
         });
@@ -6345,10 +6384,18 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
                         (onBlockClick ? " clickable" : "")
                       }
                       style={Object.assign({ left: left + "px", width: width + "px" }, laneStyle)}
-                      title={b.name + " · " + b.time + " · $" + b.total + (b.isMember ? " · " + (b.memberTier || "Member") : "") + (isPast ? " · COMPLETED" : "") + (onBlockClick ? " · click to open" : "")}
+                      title={b.name + " · " + b.time + " · $" + b.total + (b.isMember ? " · " + (b.memberTier || "Member") : "") + (isPast ? " · COMPLETED" : "") + (b.courtCount > 1 ? " · One " + (b.type === "booking" ? "booking" : b.type) + " across courts " + b.courtsList + " — $" + b.total + " total (marked paid once)" : "") + (onBlockClick ? " · click to open" : "")}
                       onClick={onBlockClick ? (e) => { e.stopPropagation(); onBlockClick(b.sourceEntry); } : undefined}
                     >
                       <span className="name">{b.name}</span>
+                      {/* v75 — one entry across N courts renders one block per
+                          court row; without a tag each block reads as its own
+                          $total booking (owner saw "two $90 bookings"). */}
+                      {b.courtCount > 1 && (
+                        <span className="multi-court-tag" title={"One " + (b.type === "booking" ? "booking" : b.type) + " across courts " + b.courtsList + " — $" + b.total + " total (marked paid once)"}>
+                          {b.courtCount} CTS · {b.courtsLabel} · ${b.total} TOTAL
+                        </span>
+                      )}
                       <span className="time">{b.time}</span>
                       {b.state === "no_show_kept" && <span className="noshow-chip">NO-SHOW</span>}
                       {b.state === "waived" && <span className="comped-chip">COMPED</span>}
@@ -9925,11 +9972,12 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
     setPricePreview(result);
   }, [config, memberInfo, form.date, form.time, form.slots, form.courts.length, form.corporateId, corpAccounts.length]);
 
-  // v71 FAIR-USE server quote: when the policy is active (config.fairUse is
+  // v76 FAIR-USE server quote: when the policy is active (config.fairUse is
   // present only then) and a MEMBER phone is entered on a non-corporate
-  // booking, the client estimate can't know today's used discounted-court
-  // cap or the premium courts — ask the server (the same calculatePrice
-  // createBooking charges with) and upgrade the preview. Policy OFF → this
+  // booking, the client estimate can't know how many discounted courts the
+  // member already used today (count model: first K full, then surcharged,
+  // then rack) — ask the server (the same calculatePrice createBooking
+  // charges with) and upgrade the preview. Policy OFF → this
   // effect does nothing and the modal behaves exactly as before.
   useEffect(() => {
     if (!config || !config.fairUse || !memberInfo || selectedCorp) return;
@@ -10206,12 +10254,22 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
               <span className="k">Subtotal{pricePreview.corporate ? " · corporate rate" : ""}</span>
               <span className="v">${pricePreview.subtotal.toFixed(2)}</span>
             </div>
-            {/* v71 — fair-use breakdown (server-quoted; absent while OFF) */}
-            {pricePreview.fairUse && pricePreview.fairUse.premiumSurcharge > 0 && (
-              <div className="row">
-                <span className="k">incl. premium court{pricePreview.fairUse.premiumCourts.length > 1 ? "s" : ""} C{pricePreview.fairUse.premiumCourts.join(", C")} · +${pricePreview.fairUse.premiumPerHour}/hr</span>
-                <span className="v">${pricePreview.fairUse.premiumSurcharge.toFixed(2)}</span>
-              </div>
+            {/* v76 — fair-use breakdown (server-quoted; absent while OFF).
+                Count model: first K courts/day full discount, discounted
+                courts beyond K carry the per-hour surcharge. */}
+            {pricePreview.fairUse && pricePreview.fairUse.surcharge > 0 && (
+              <>
+                {pricePreview.fairUse.fullDiscountCourts > 0 && (
+                  <div className="row" style={{ opacity: 0.75 }}>
+                    <span className="k">{pricePreview.fairUse.fullDiscountCourts} court{pricePreview.fairUse.fullDiscountCourts > 1 ? "s" : ""} · full member discount</span>
+                    <span className="v"></span>
+                  </div>
+                )}
+                <div className="row">
+                  <span className="k">{pricePreview.fairUse.surchargedCourts} court{pricePreview.fairUse.surchargedCourts > 1 ? "s" : ""} · discount + ${pricePreview.fairUse.surchargePerHour}/hr surcharge</span>
+                  <span className="v">${pricePreview.fairUse.surcharge.toFixed(2)}</span>
+                </div>
+              </>
             )}
             {pricePreview.discountPct > 0 && (
               <div className="row" style={{ color: "var(--clay)" }}>
@@ -14508,8 +14566,11 @@ function TabDetailModal({ tabId, products, onClose }) {
 }
 
 function AddItemToTabModal({ tabId, products, onClose, onAdded }) {
-  const [sku, setSku] = useState("");
-  const [quantity, setQuantity] = useState(1);
+  // v77 MULTI-ADD: tap any number of products — each tapped row grows an
+  // inline qty stepper (default 1) — then ONE "ADD N ITEMS" button submits
+  // everything in a single tabAddItems call (validated + appended atomically
+  // server-side). Tapping a single item + ADD still works exactly as before.
+  const [sel, setSel] = useState({});          // { sku: qty }
   const [search, setSearch] = useState("");
   const [working, setWorking] = useState(false);
 
@@ -14521,21 +14582,46 @@ function AddItemToTabModal({ tabId, products, onClose, onAdded }) {
     );
   }, [products, search]);
 
-  const selectedProduct = useMemo(() => (products || []).find(p => p.sku === sku) || null, [products, sku]);
-  const maxQty = selectedProduct ? selectedProduct.stock : Infinity;
+  const bySku = useMemo(() => {
+    const m = {};
+    (products || []).forEach(p => { m[p.sku] = p; });
+    return m;
+  }, [products]);
+
+  const selSkus = Object.keys(sel);
+  const count = selSkus.reduce((s, k) => s + sel[k], 0);
+  const total = selSkus.reduce((s, k) => s + sel[k] * ((bySku[k] || {}).price || 0), 0);
+
+  function toggle(p) {
+    setSel(prev => {
+      if (prev[p.sku]) { const n = { ...prev }; delete n[p.sku]; return n; }
+      if ((p.stock || 0) < 1) { showToast("Out of stock", "error"); return prev; }
+      return { ...prev, [p.sku]: 1 };
+    });
+  }
+
+  function step(sku, delta) {
+    setSel(prev => {
+      const q = (prev[sku] || 0) + delta;
+      if (q <= 0) { const n = { ...prev }; delete n[sku]; return n; }
+      const p = bySku[sku];
+      if (p && q > p.stock) { showToast("Only " + p.stock + " in stock", "error"); return prev; }
+      return { ...prev, [sku]: q };
+    });
+  }
 
   async function submit() {
-    if (!sku) { showToast("Pick a product", "error"); return; }
-    const cappedQty = Math.min(quantity, maxQty);
+    if (count === 0) { showToast("Pick a product", "error"); return; }
     setWorking(true);
-    const r = await api("tabAddItem", {
+    const r = await api("tabAddItems", {
       tabId: tabId,
-      sku: sku,
-      quantity: cappedQty
+      items: JSON.stringify(selSkus.map(sku => ({ sku: sku, quantity: sel[sku] })))
     });
     setWorking(false);
-    if (r.ok) onAdded();
-    else showToast(r.error || "Failed", "error");
+    if (r.ok) {
+      showToast("Added " + count + " item" + (count === 1 ? "" : "s") + " to " + tabId, "success");
+      onAdded();
+    } else showToast(r.error || "Failed", "error");
   }
 
   return (
@@ -14561,46 +14647,56 @@ function AddItemToTabModal({ tabId, products, onClose, onAdded }) {
         <div style={{ maxHeight: 280, overflowY: "auto", marginBottom: 14, border: "1px solid rgba(26,26,26,0.1)", borderRadius: 3 }}>
           {filtered.length === 0 ? (
             <div className="empty-mini" style={{ padding: 18 }}>No products match</div>
-          ) : filtered.map(p => (
-            <div key={p.sku}
-              onClick={() => setSku(p.sku)}
-              style={{
-                padding: "10px 12px",
-                cursor: "pointer",
-                borderBottom: "1px solid rgba(26,26,26,0.06)",
-                background: sku === p.sku ? "rgba(61,122,79,0.1)" : "transparent",
-                display: "grid",
-                gridTemplateColumns: "1fr auto",
-                gap: 10
-              }}
-            >
-              <div>
-                <div style={{ fontWeight: 700 }}>{p.name}</div>
-                <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.5, marginTop: 2 }}>
-                  {p.sku} · stock: {p.stock}
+          ) : filtered.map(p => {
+            const qty = sel[p.sku] || 0;
+            return (
+              <div key={p.sku}
+                onClick={() => toggle(p)}
+                style={{
+                  padding: "10px 12px",
+                  cursor: "pointer",
+                  borderBottom: "1px solid rgba(26,26,26,0.06)",
+                  background: qty > 0 ? "rgba(61,122,79,0.1)" : "transparent",
+                  display: "grid",
+                  gridTemplateColumns: "1fr auto",
+                  gap: 10,
+                  alignItems: "center"
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 700 }}>{p.name}</div>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.5, marginTop: 2 }}>
+                    {p.sku} · stock: {p.stock}
+                  </div>
                 </div>
+                {qty > 0 ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }} onClick={(e) => e.stopPropagation()}>
+                    <button className="btn-sm" onClick={() => step(p.sku, -1)} aria-label={"Fewer " + p.name}>−</button>
+                    <span style={{ fontFamily: "var(--mono)", fontSize: 15, fontWeight: 700, minWidth: 24, textAlign: "center" }}>{qty}</span>
+                    <button className="btn-sm" onClick={() => step(p.sku, 1)} disabled={qty >= p.stock} aria-label={"More " + p.name}>+</button>
+                    <span style={{ fontFamily: "var(--mono)", fontWeight: 700, minWidth: 52, textAlign: "right" }}>${(p.price * qty).toFixed(2)}</span>
+                  </div>
+                ) : (
+                  <div style={{ fontFamily: "var(--mono)", fontWeight: 700 }}>${p.price.toFixed(2)}</div>
+                )}
               </div>
-              <div style={{ fontFamily: "var(--mono)", fontWeight: 700 }}>${p.price.toFixed(2)}</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        {sku && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-            <label style={{ fontFamily: "var(--mono)", fontSize: 11 }}>Quantity:</label>
-            <button className="btn-sm" onClick={() => setQuantity(Math.max(1, quantity - 1))}>−</button>
-            <span style={{ fontFamily: "var(--mono)", fontSize: 16, fontWeight: 700, minWidth: 30, textAlign: "center" }}>{quantity}</span>
-            <button className="btn-sm" onClick={() => { if (quantity >= maxQty) { showToast("Not enough stock", "error"); return; } setQuantity(quantity + 1); }} disabled={quantity >= maxQty}>+</button>
-            {selectedProduct && quantity >= maxQty && (
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>Only {maxQty} in stock</span>
-            )}
+        {count > 0 && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, padding: "8px 10px", background: "rgba(61,122,79,0.08)", borderRadius: 3 }}>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 11, fontWeight: 700 }}>
+              {count} item{count === 1 ? "" : "s"} · {selSkus.length} product{selSkus.length === 1 ? "" : "s"}
+            </span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 14, fontWeight: 700 }}>${total.toFixed(2)}</span>
           </div>
         )}
 
         <div className="actions">
           <button className="btn ghost" onClick={onClose}>Cancel</button>
-          <button className="btn primary" onClick={submit} disabled={working || !sku}>
-            {working ? "Adding…" : "Add to tab"}
+          <button className="btn primary" onClick={submit} disabled={working || count === 0}>
+            {working ? "Adding…" : count > 0 ? "ADD " + count + " ITEM" + (count === 1 ? "" : "S") : "Add to tab"}
           </button>
         </div>
       </div>
@@ -23525,10 +23621,10 @@ function ScreenSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [promo, setPromo] = useState({ active: false, pct: 50, label: "Soft launch −50%" });
-  // v71 — member fair-use policy (daily discounted-court cap + premium courts).
-  // premiumCourts is kept as the raw csv STRING in form state; the server
-  // validates + normalizes on save.
-  const [fairUse, setFairUse] = useState({ active: false, maxCourtsPerDay: 4, premiumCourts: "", premiumPerHour: 5 });
+  // v76 — member fair-use policy (COUNT model: daily discounted-court cap,
+  // first K full-discount courts/day, $/hr surcharge on discounted courts
+  // beyond K). The server validates + clamps on save.
+  const [fairUse, setFairUse] = useState({ active: false, maxCourtsPerDay: 4, fullDiscountCourts: 2, surchargePerHour: 5 });
   const [savingFairUse, setSavingFairUse] = useState(false);
   const [posSettings, setPosSettings] = useState({ memberDiscountPct: 10, memberDiscountDefault: 10 });
   const [savingPos, setSavingPos] = useState(false);
@@ -23577,7 +23673,7 @@ function ScreenSettings() {
     const cPr    = getCachedApi("adminGetPricingRules");
     const cLand  = getCachedApi("adminGetLandingConfig");
     if (cPromo && cPromo.ok) setPromo({ active: !!cPromo.active, pct: cPromo.pct || 50, label: cPromo.label || "Soft launch −50%" });
-    if (cFair && cFair.ok) setFairUse({ active: !!cFair.active, maxCourtsPerDay: cFair.maxCourtsPerDay, premiumCourts: (cFair.premiumCourts || []).join(","), premiumPerHour: cFair.premiumPerHour });
+    if (cFair && cFair.ok && cFair.fullDiscountCourts !== undefined) setFairUse({ active: !!cFair.active, maxCourtsPerDay: cFair.maxCourtsPerDay, fullDiscountCourts: cFair.fullDiscountCourts, surchargePerHour: cFair.surchargePerHour });
     if (cPos && cPos.ok) setPosSettings({ memberDiscountPct: cPos.memberDiscountPct, memberDiscountDefault: cPos.memberDiscountDefault });
     if (cGoals && cGoals.ok) setGoals(cGoals.goals);
     if (cSp && cSp.ok) setSponsorSettings({ totalSlots: cSp.totalSlots, totalSlotsDefault: cSp.totalSlotsDefault });
@@ -23618,8 +23714,8 @@ function ScreenSettings() {
       setFairUse({
         active: !!fu.active,
         maxCourtsPerDay: fu.maxCourtsPerDay,
-        premiumCourts: (fu.premiumCourts || []).join(","),
-        premiumPerHour: fu.premiumPerHour
+        fullDiscountCourts: fu.fullDiscountCourts,
+        surchargePerHour: fu.surchargePerHour
       });
     }
     if (ps.ok) {
@@ -23665,16 +23761,16 @@ function ScreenSettings() {
     }
   }
 
-  // v71 — save the member fair-use policy. The server validates + clamps
-  // (bad csv / negative surcharge are rejected atomically — nothing is
+  // v76 — save the member fair-use policy. The server validates + clamps
+  // (bad numbers / negative surcharge are rejected atomically — nothing is
   // half-written) and echoes the normalized config back.
   async function saveFairUse() {
     setSavingFairUse(true);
     const r = await api("adminSetFairUse", {
       active: fairUse.active,
       maxCourtsPerDay: fairUse.maxCourtsPerDay,
-      premiumCourts: fairUse.premiumCourts,
-      premiumPerHour: fairUse.premiumPerHour
+      fullDiscountCourts: fairUse.fullDiscountCourts,
+      surchargePerHour: fairUse.surchargePerHour
     });
     setSavingFairUse(false);
     if (r.ok) {
@@ -23682,8 +23778,8 @@ function ScreenSettings() {
       setFairUse({
         active: !!r.active,
         maxCourtsPerDay: r.maxCourtsPerDay,
-        premiumCourts: (r.premiumCourts || []).join(","),
-        premiumPerHour: r.premiumPerHour
+        fullDiscountCourts: r.fullDiscountCourts,
+        surchargePerHour: r.surchargePerHour
       });
     } else {
       showToast(r.error || "Save failed", "error");
@@ -24098,9 +24194,10 @@ function ScreenSettings() {
       <div className="settings-card">
         <h3>Member fair use</h3>
         <div className="desc">
-          Keeps member pricing fair on busy days: the member discount covers at most
-          <b> N courts per member per day</b> (extra courts price at rack rate), and
-          <b> premium courts</b> carry a per-hour surcharge on top of the discounted rate.
+          Keeps member pricing fair on busy days — it's a per-day COUNT, court numbers don't matter:
+          the first <b>K discounted courts each day</b> get the full member discount with no surcharge;
+          discounted courts beyond K (up to the <b>daily cap</b>) still get the discount but add a
+          <b> per-hour surcharge</b>; courts beyond the cap price at rack rate.
           Guests, corporate bookings, birthday sessions and coaching are never affected.
           <b> OFF by default</b> — pricing is completely unchanged until you switch it on.
         </div>
@@ -24136,55 +24233,57 @@ function ScreenSettings() {
         </div>
 
         <div className="settings-row">
-          <div className="field-label">Premium courts (csv, blank = none)</div>
+          <div className="field-label">Full-discount courts / day (0 = surcharge from the first)</div>
           <input
-            type="text"
-            value={fairUse.premiumCourts}
-            placeholder="e.g. 3,4"
-            onChange={(e) => setFairUse({ ...fairUse, premiumCourts: e.target.value })}
-            maxLength={30}
+            type="number"
+            min="0"
+            max="99"
+            value={fairUse.fullDiscountCourts}
+            onChange={(e) => setFairUse({ ...fairUse, fullDiscountCourts: e.target.value })}
           />
         </div>
 
         <div className="settings-row">
-          <div className="field-label">Premium surcharge $ / hour / court</div>
+          <div className="field-label">Surcharge $ / hour / court (beyond full-discount courts)</div>
           <input
             type="number"
             min="0"
             step="0.5"
-            value={fairUse.premiumPerHour}
-            onChange={(e) => setFairUse({ ...fairUse, premiumPerHour: e.target.value })}
+            value={fairUse.surchargePerHour}
+            onChange={(e) => setFairUse({ ...fairUse, surchargePerHour: e.target.value })}
           />
         </div>
 
         {/* Live example — the policy doc's "$80 example" recomputed from the
-            values in the form + the current peak rack rate. */}
+            values in the form + the current peak rack rate (COUNT model:
+            first K of the day full discount, then discount + surcharge up
+            to the cap, then rack). */}
         {(() => {
           const rack = (() => {
             let best = 0;
             for (const r of (pricingRules || [])) { const v = parseFloat(r.rate) || 0; if (v > best) best = v; }
             return best || 15;
           })();
-          const hours = 2, exCourts = [1, 2, 3, 4];
+          const hours = 2, exN = 4;
           const cap = Math.max(0, parseInt(fairUse.maxCourtsPerDay) || 0);
-          const per = Math.max(0, parseFloat(fairUse.premiumPerHour) || 0);
-          const premList = String(fairUse.premiumCourts || "").split(",").map(x => parseInt(x.trim())).filter(n => n >= 1);
-          const discN = cap === 0 ? exCourts.length : Math.min(exCourts.length, cap);
-          const rackN = exCourts.length - discN;
-          const premN = exCourts.slice(0, discN).filter(c => premList.includes(c)).length;
-          const stdN = discN - premN;
+          const per = Math.max(0, parseFloat(fairUse.surchargePerHour) || 0);
+          const kFull = Math.max(0, parseInt(fairUse.fullDiscountCourts) || 0);
+          const discN = cap === 0 ? exN : Math.min(exN, cap);
+          const rackN = exN - discN;
+          const fullN = per > 0 ? Math.min(discN, kFull) : discN;
+          const surN = discN - fullN;
           const half = rack / 2;
-          const stdAmt = stdN * hours * half;
-          const premAmt = premN * hours * (half + per);
+          const fullAmt = fullN * hours * half;
+          const surAmt = surN * hours * (half + per);
           const rackAmt = rackN * hours * rack;
-          const total = Math.round((stdAmt + premAmt + rackAmt) * 100) / 100;
+          const total = Math.round((fullAmt + surAmt + rackAmt) * 100) / 100;
           return (
             <div style={{ marginTop: 10, padding: "10px 12px", background: "rgba(0,0,0,0.03)", borderRadius: 6, fontFamily: "var(--mono)", fontSize: 12, lineHeight: 1.7 }}>
               <div style={{ fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 2 }}>
                 Example — Founding member · 4 courts × {hours}h · ${rack}/h rack
               </div>
-              {stdN > 0 && <div>· {stdN} discounted court{stdN > 1 ? "s" : ""}: {stdN} × {hours}h × ${half.toFixed(2)} = ${stdAmt.toFixed(2)}</div>}
-              {premN > 0 && <div>· {premN} premium court{premN > 1 ? "s" : ""}: {premN} × {hours}h × ${(half + per).toFixed(2)} = ${premAmt.toFixed(2)}</div>}
+              {fullN > 0 && <div>· {fullN} court{fullN > 1 ? "s" : ""} · full member discount: {fullN} × {hours}h × ${half.toFixed(2)} = ${fullAmt.toFixed(2)}</div>}
+              {surN > 0 && <div>· {surN} court{surN > 1 ? "s" : ""} · discount + ${per}/hr surcharge: {surN} × {hours}h × ${(half + per).toFixed(2)} = ${surAmt.toFixed(2)}</div>}
               {rackN > 0 && <div>· {rackN} beyond cap (rack, no surcharge): {rackN} × {hours}h × ${rack.toFixed(2)} = ${rackAmt.toFixed(2)}</div>}
               <div style={{ fontWeight: 700, marginTop: 2 }}>Total: ${total.toFixed(2)}</div>
             </div>
@@ -24202,7 +24301,8 @@ function ScreenSettings() {
         {fairUse.active && (
           <div className="settings-warning">
             <b>HEADS-UP:</b> Members now get the discount on at most {parseInt(fairUse.maxCourtsPerDay) || 0} court(s)/day
-            {String(fairUse.premiumCourts || "").trim() ? " and premium courts " + fairUse.premiumCourts + " carry the surcharge" : ""}.
+            {(parseFloat(fairUse.surchargePerHour) || 0) > 0 && (parseInt(fairUse.fullDiscountCourts) || 0) < (parseInt(fairUse.maxCourtsPerDay) || 99)
+              ? " — first " + (parseInt(fairUse.fullDiscountCourts) || 0) + " at full discount, the rest + $" + fairUse.surchargePerHour + "/hr surcharge" : ""}.
             The public site shows the policy while it is active. Toggle off to restore plain member pricing.
           </div>
         )}
