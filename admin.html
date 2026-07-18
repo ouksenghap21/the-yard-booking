@@ -19052,6 +19052,7 @@ function DailyRevenueChart({ daily }) {
 
 function OutstandingPanel({ outstanding, headline, onChanged }) {
   const [showAllPending, setShowAllPending] = useState(false);
+  const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   const [showAllOverdue, setShowAllOverdue] = useState(false);
 
   // Optimistic UI — track which items the user has just marked paid so they
@@ -19073,12 +19074,24 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
     });
   }
 
-  const pending = (outstanding && outstanding.pending ? outstanding.pending : [])
-    .filter(item => !optimisticPaid.has(optKey(item)));
+  // v74: the old single "pending" list mixed two very different things —
+  // items whose session already ENDED unpaid (collect at the counter NOW)
+  // and FUTURE bookings (not yet played — they settle when they come; not
+  // debts). Split: dueNow vs upcoming. Falls back to splitting the legacy
+  // pending union by ageHours if the backend hasn't sent the new lists yet.
+  const _legacyPending = (outstanding && outstanding.pending ? outstanding.pending : []);
+  const dueNow = (outstanding && outstanding.dueNow
+    ? outstanding.dueNow
+    : _legacyPending.filter(it => it.ageHours >= 0)
+  ).filter(item => !optimisticPaid.has(optKey(item)));
+  const upcoming = (outstanding && outstanding.upcoming
+    ? outstanding.upcoming
+    : _legacyPending.filter(it => it.ageHours < 0)
+  ).filter(item => !optimisticPaid.has(optKey(item)));
   const overdue = (outstanding && outstanding.overdue ? outstanding.overdue : [])
     .filter(item => !optimisticPaid.has(optKey(item)));
 
-  const allItems = [...overdue, ...pending];
+  const allItems = [...overdue, ...dueNow, ...upcoming];
   const selectedItems = allItems.filter(it => selected.has(optKey(it)));
   const selectedTotal = selectedItems.reduce((s, it) => s + (it.amount || 0), 0);
 
@@ -19185,7 +19198,9 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
 
   function renderRow(item, isOverdue) {
     const icon = item.entryType === "coaching" ? "★" : item.entryType === "walkin" ? "◉" : "⬛";
-    const ageLabel = item.ageHours < 0
+    const ageLabel = item.ageHours < -24
+      ? "in " + Math.round(Math.abs(item.ageHours) / 24) + "d"
+      : item.ageHours < 0
       ? "in " + Math.abs(Math.round(item.ageHours)) + "h"
       : item.ageHours < 24
       ? Math.round(item.ageHours) + "h ago"
@@ -19226,6 +19241,13 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
     );
   }
 
+  // v74: headline split with legacy-backend fallback (pending = the union,
+  // so an old backend's pendingTotal is the best available stand-in).
+  const hDueNowTotal = headline.dueNowTotal != null ? headline.dueNowTotal : headline.pendingTotal;
+  const hDueNowCount = headline.dueNowCount != null ? headline.dueNowCount : headline.pendingCount;
+  const hUpcomingTotal = headline.upcomingTotal != null ? headline.upcomingTotal : 0;
+  const hUpcomingCount = headline.upcomingCount != null ? headline.upcomingCount : 0;
+
   return (
     <>
       {/* Outstanding stat cards — concise. v69: overdue is RECEIVABLE-ONLY
@@ -19238,9 +19260,9 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
           <div className="sub">{headline.overdueCount} item{headline.overdueCount === 1 ? "" : "s"} · needs chasing</div>
         </div>
         <div className="stat-card">
-          <div className="label">Pending · today</div>
-          <div className="value" style={valueFitStyle(headline.pendingTotal)}>${headline.pendingTotal.toFixed(2)}</div>
-          <div className="sub">{headline.pendingCount} item{headline.pendingCount === 1 ? "" : "s"} · settles at counter</div>
+          <div className="label">Due now · ended ≤24h</div>
+          <div className="value" style={valueFitStyle(hDueNowTotal)}>${hDueNowTotal.toFixed(2)}</div>
+          <div className="sub">{hDueNowCount} item{hDueNowCount === 1 ? "" : "s"} · collect at counter</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
           <div className="label">★ Coaching share owed</div>
@@ -19338,27 +19360,56 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
         </>
       )}
 
-      {pending.length > 0 && (
+      {dueNow.length > 0 && (
         <>
           <div className="section-label" style={{ opacity: 0.7 }}>
             <span>
               <span className="num">~</span>
-              <span className="name">Pending · in progress or settling at counter</span>
+              <span className="name">Due now · session ended, settle at counter</span>
             </span>
-            <span className="right">{pending.length}</span>
+            <span className="right">{dueNow.length}</span>
           </div>
           <div style={{ background: "rgba(26,26,26,0.025)", padding: "4px 14px", marginBottom: 22 }}>
-            {(showAllPending ? pending : pending.slice(0, 3)).map(item => renderRow(item, false))}
-            {pending.length > 3 && (
+            {(showAllPending ? dueNow : dueNow.slice(0, 3)).map(item => renderRow(item, false))}
+            {dueNow.length > 3 && (
               <button className="btn-sm ghost" style={{ marginTop: 8, marginBottom: 6 }} onClick={() => setShowAllPending(!showAllPending)}>
-                {showAllPending ? "Show less" : "Show all " + pending.length + " pending"}
+                {showAllPending ? "Show less" : "Show all " + dueNow.length + " due now"}
               </button>
             )}
           </div>
         </>
       )}
 
-      {overdue.length === 0 && pending.length === 0 && (
+      {/* v74: UPCOMING — unpaid bookings whose session hasn't ended yet.
+          These are NOT debts: the customer simply hasn't come to play yet
+          and will settle at the counter. Deliberately calm, dashed, no-alarm
+          styling — excluded from aging and the debtor rollup. */}
+      {upcoming.length > 0 && (
+        <>
+          <div className="section-label" style={{ opacity: 0.6 }}>
+            <span>
+              <span className="num">→</span>
+              <span className="name">Upcoming · settles at counter</span>
+            </span>
+            <span className="right">
+              {upcoming.length} item{upcoming.length === 1 ? "" : "s"} · {fmtMoney(hUpcomingTotal)} expected
+            </span>
+          </div>
+          <div style={{ border: "1.5px dashed var(--concrete-2, #c9c4ba)", borderRadius: 4, padding: "4px 14px", marginBottom: 22, background: "transparent" }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.06em", opacity: 0.6, padding: "8px 0 2px" }}>
+              Not yet played — these settle at the counter when the customer comes. Not debts · excluded from aging &amp; debtor list.
+            </div>
+            {(showAllUpcoming ? upcoming : upcoming.slice(0, 3)).map(item => renderRow(item, false))}
+            {upcoming.length > 3 && (
+              <button className="btn-sm ghost" style={{ marginTop: 8, marginBottom: 6 }} onClick={() => setShowAllUpcoming(!showAllUpcoming)}>
+                {showAllUpcoming ? "Show less" : "Show all " + upcoming.length + " upcoming"}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
+      {overdue.length === 0 && dueNow.length === 0 && upcoming.length === 0 && (
         <div className="empty-mini" style={{ padding: 16, marginBottom: 18, textAlign: "center" }}>
           ✓ Everything is settled · no outstanding receivables
         </div>
@@ -19369,9 +19420,10 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
 }
 
 /* ====================================================================
- * AgingBucketsPanel — shows the 5-bucket aging breakdown of all unpaid
- * items as a horizontal stacked bar with a legend. Gives a quick read
- * on "is the overdue stale or fresh?" without scrolling through items.
+ * AgingBucketsPanel — shows the 5-bucket aging breakdown of DUE unpaid
+ * items (v74: dueNow + overdue only — upcoming bookings have no age and
+ * are not receivables) as a horizontal stacked bar with a legend. Quick
+ * read on "is the overdue stale or fresh?" without scrolling through items.
  * Buckets: 0-24h (green), 1-3d (yellow), 3-7d (orange), 1-4w (red),
  *          1+mo (deep red).
  * ==================================================================== */
@@ -19399,7 +19451,7 @@ function AgingBucketsPanel({ buckets }) {
   return (
     <div style={{ marginTop: 24, marginBottom: 24 }}>
       <div className="section-label">
-        <span><span className="num">·</span><span className="name">Aging of outstanding</span></span>
+        <span><span className="num">·</span><span className="name">Aging of outstanding · due items only</span></span>
         <span className="right">{grandCount} item{grandCount === 1 ? "" : "s"} · {fmtMoney(grandTotal)}</span>
       </div>
 
@@ -19485,9 +19537,11 @@ function AgingBucketsPanel({ buckets }) {
 }
 
 /* ====================================================================
- * OutstandingByCustomerPanel — groups all unpaid items by customer (or
- * coach for coaching share). Sorted biggest balance first. Helps spot
- * repeat offenders — "these 3 customers account for 60% of overdue".
+ * OutstandingByCustomerPanel — groups DUE unpaid items (v74: dueNow +
+ * overdue only — customers with merely-upcoming bookings are NOT
+ * debtors) by customer (or coach for coaching share). Sorted biggest
+ * balance first. Helps spot repeat offenders — "these 3 customers
+ * account for 60% of overdue".
  * ==================================================================== */
 function OutstandingByCustomerPanel({ rollup }) {
   const [showAll, setShowAll] = useState(false);
