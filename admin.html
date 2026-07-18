@@ -745,11 +745,11 @@ button { font-family: inherit; cursor: pointer; }
 .booking-block .multi-court-tag {
   align-self: flex-start;
   max-width: 100%;
-  font-size: 7.5px;
+  font-size: 7px;
   font-weight: 700;
   letter-spacing: 0.07em;
-  line-height: 1.3;
-  padding: 0 4px;
+  line-height: 1.15;
+  padding: 0 3px;
   border-radius: 3px;
   background: rgba(0,0,0,0.22);
   color: rgba(241,234,214,0.92);
@@ -759,6 +759,17 @@ button { font-family: inherit; cursor: pointer; }
   flex-shrink: 1;
   min-height: 0;
 }
+/* v78 — TAG FIT FIX: three lines (name / tag / time) never fit a 38px court
+ * row at v75 metrics, so the tag visually collided with the time text and
+ * both clipped. Blocks that actually SHOW the tag (JS adds .has-mc-tag only
+ * when the block is a solo lane AND wide enough — narrow blocks drop the tag
+ * entirely, the tooltip still tells the story) get a compact vertical rhythm
+ * sized so name + tag + time = 27.3px inside the 28px content box:
+ *   name 10px·1.1 (11) + tag 7px·1.15 (8.05) + time 7.5px·1.1 (8.25).
+ * Name and time stay ellipsized, full-width, and always visible. */
+.booking-block.has-mc-tag { padding: 2px 6px 1px; gap: 0; }
+.booking-block.has-mc-tag .name { font-size: 10px; line-height: 1.1; }
+.booking-block.has-mc-tag .time { font-size: 7.5px; line-height: 1.1; }
 /* Sub-lane blocks are ~16px tall and already drop the time line — the tag
  * can't fit either; the block/tag tooltip still carries the full story. */
 .booking-block.sub-lane .multi-court-tag { display: none; }
@@ -6372,6 +6383,13 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
                   const tierClass = b.memberTier === "founding" ? " tier-founding"
                                   : b.memberTier === "standard" ? " tier-standard"
                                   : "";
+                  // v78 — the multi-court tag only renders when it can be
+                  // shown WITHOUT crowding name/time: solo lane (sub-lanes
+                  // are half-height; CSS hid the tag but the DOM node still
+                  // existed) and block wide enough (>= 74px) for the chip to
+                  // stay legible under ellipsis. .has-mc-tag switches the
+                  // block to the compact 3-line rhythm (see CSS).
+                  const showMcTag = b.courtCount > 1 && laneCount === 1 && width >= 74;
                   return (
                     <div
                       key={c + "-" + b.bookingId + "-" + idx}
@@ -6381,6 +6399,7 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
                         tierClass +
                         (isPast ? " past" : "") +
                         (laneCount > 1 ? " sub-lane" : "") +
+                        (showMcTag ? " has-mc-tag" : "") +
                         (onBlockClick ? " clickable" : "")
                       }
                       style={Object.assign({ left: left + "px", width: width + "px" }, laneStyle)}
@@ -6390,8 +6409,10 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
                       <span className="name">{b.name}</span>
                       {/* v75 — one entry across N courts renders one block per
                           court row; without a tag each block reads as its own
-                          $total booking (owner saw "two $90 bookings"). */}
-                      {b.courtCount > 1 && (
+                          $total booking (owner saw "two $90 bookings").
+                          v78 — gated on fit: narrow/sub-lane blocks skip the
+                          tag; the block tooltip still carries the story. */}
+                      {showMcTag && (
                         <span className="multi-court-tag" title={"One " + (b.type === "booking" ? "booking" : b.type) + " across courts " + b.courtsList + " — $" + b.total + " total (marked paid once)"}>
                           {b.courtCount} CTS · {b.courtsLabel} · ${b.total} TOTAL
                         </span>
@@ -13254,6 +13275,32 @@ function CoachPayoutModal({ coach, sessions, onClose, onConfirm }) {
    Layout: product grid (left) + cart (right).
    ==================================================================== */
 
+/* v78 — RENDER-LEVEL DEDUPE: product tiles key by SKU. Two list entries
+ * sharing a SKU (hand-duplicated sheet row, or a stale cached list from
+ * before the owner deleted the extra row — posListProducts persists to
+ * localStorage for 24h) collide React keys, which is exactly the phantom
+ * behavior the owner saw: a duplicate card whose click lands on the
+ * NEIGHBORING card, multiplying on every re-render. Backend v78 dedupes
+ * at the source; this guards every path into setProducts (fresh fetch,
+ * in-memory cache, persisted cache, bootstrap hydrate) so a stale or
+ * old-backend payload can never seed duplicate keys again.
+ * First occurrence wins — matches the backend's first-row-wins rule. */
+function dedupeProductsBySku(list) {
+  const seen = new Set();
+  const out = [];
+  const duplicateSkus = [];
+  for (const p of (list || [])) {
+    const k = String(p && p.sku != null ? p.sku : "").trim().toUpperCase();
+    if (seen.has(k)) {
+      if (duplicateSkus.indexOf(p.sku) < 0) duplicateSkus.push(p.sku);
+      continue;
+    }
+    seen.add(k);
+    out.push(p);
+  }
+  return { products: out, duplicateSkus: duplicateSkus };
+}
+
 function ScreenPOS() {
   const [products, setProducts] = useState(null);
   const [category, setCategory] = useState("All");
@@ -13279,13 +13326,26 @@ function ScreenPOS() {
   const [showQuickNewTab, setShowQuickNewTab] = useState(false);
   const [openTabCount, setOpenTabCount] = useState(0);
   const [activeTabId, setActiveTabId] = useState(null);  // tab currently open in detail modal
+  // v78 — SKUs seen more than once in the live list (server-reported and/or
+  // client-detected). Non-empty ⇒ Manage Stock shows a fix-your-sheet banner.
+  const [dupSkus, setDupSkus] = useState([]);
 
+  function applyProducts(payload) {
+    // Replace, never merge: the incoming list is the whole truth. Dedupe by
+    // SKU (first wins) so React keys stay unique, and surface duplicates from
+    // BOTH the server scan (sheet has dup rows) and the client scan (stale
+    // cached payload from an older backend).
+    const d = dedupeProductsBySku(payload.products || []);
+    const serverDups = payload.duplicateSkus || [];
+    setProducts(d.products);
+    setDupSkus([...new Set([...serverDups, ...d.duplicateSkus])]);
+  }
   async function loadProducts() {
     // Sync cache hit for instant render
     const cached = getCachedApi("posListProducts");
-    if (cached && cached.ok) setProducts(cached.products || []);
+    if (cached && cached.ok) applyProducts(cached);
     const r = await api("posListProducts");
-    if (r.ok) setProducts(r.products || []);
+    if (r.ok) applyProducts(r);
   }
   async function loadTodayStats() {
     const r = await api("posListSales", { date: todayISO() });
@@ -13945,6 +14005,7 @@ function ScreenPOS() {
       {showStockMgmt && (
         <StockManagementModal
           products={products}
+          duplicateSkus={dupSkus}
           onClose={() => setShowStockMgmt(false)}
           onChanged={loadProducts}
         />
@@ -16003,7 +16064,7 @@ function ProductModal({ product, onClose, onSaved }) {
   );
 }
 
-function StockManagementModal({ products, onClose, onChanged }) {
+function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
   const [adjustments, setAdjustments] = useState({});  // sku -> delta string
   const [reorders, setReorders] = useState({});        // sku -> reorder-level string (edited)
   const [working, setWorking] = useState(false);
@@ -16051,6 +16112,22 @@ function StockManagementModal({ products, onClose, onChanged }) {
           </div>
           <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
+
+        {/* v78 — duplicate-SKU warning: the grid dedupes defensively (first
+            row wins), but the SHEET still holds the extra row(s) — sales and
+            stock adjustments only ever touch the first row, so the duplicates
+            silently drift. Tell the owner exactly which SKUs to clean up. */}
+        {duplicateSkus && duplicateSkus.length > 0 && (
+          <div style={{
+            border: "1.5px solid var(--clay)", borderRadius: 4, padding: "10px 12px",
+            marginBottom: 12, background: "rgba(198,79,58,0.08)",
+            fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.06em"
+          }}>
+            <b>⚠ Duplicate SKU rows in POS_Products:</b> {duplicateSkus.join(", ")}.
+            Only the first row of each SKU is used — delete the extra row(s) in the
+            sheet so stock and sales stay accurate.
+          </div>
+        )}
 
         <div style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.12em", opacity: 0.6, marginBottom: 12 }}>
           Adjust: a positive number adds stock (restock), negative for shrinkage/damage.
