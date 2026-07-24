@@ -9174,6 +9174,13 @@ function BookingDetailModal({ booking, onClose, onAction }) {
   // "+1H adds $15.00" on a corporate $8/h booking the server charged $8.)
   const [extendOpen, setExtendOpen] = useState(false);
   const [extendSlots, setExtendSlots] = useState(2);   // default +1h
+  // v80 — partial extend: which courts get the extra time (multi-court
+  // bookings only). Missing key = checked, so ALL courts are selected by
+  // default and the wire stays byte-identical to v79 unless the user
+  // unticks something. A PROPER subset makes the server create a linked
+  // booking for just those courts (a row has ONE end-time), even if the
+  // original is unpaid — the toast explains.
+  const [extendCourtSel, setExtendCourtSel] = useState({});
 
   const CLOSE_MIN = 22 * 60;  // mirrors backend CLOSE_HOUR (22:00)
   function timeToMin(t) {
@@ -9185,6 +9192,12 @@ function BookingDetailModal({ booking, onClose, onAction }) {
   }
   const extendCourtCount = String(booking.courtNumbers || "")
     .split(",").filter(s => s.trim()).length || parseInt(booking.courts) || 1;
+  // v80 — court picker derivations: chosen = every court not explicitly
+  // unticked (booking order preserved, same as the server's validator).
+  const extendCourtList = String(booking.courtNumbers || "")
+    .split(",").map(s => parseInt(s.trim())).filter(n => n >= 1);
+  const extendChosen = extendCourtList.filter(c => extendCourtSel[c] !== false);
+  const extendIsSubset = extendChosen.length > 0 && extendChosen.length < extendCourtList.length;
   const extendEndMin = timeToMin(booking.timeEnd) + extendSlots * 30;
   const extendFits = extendEndMin <= CLOSE_MIN;
   // Debounced server preview: null = "pricing…" in the panel. A stale-guard
@@ -9192,11 +9205,17 @@ function BookingDetailModal({ booking, onClose, onAction }) {
   // slow +30m reply can never overwrite the +1h price on screen.
   const [extendPreview, setExtendPreview] = useState(null);
   useEffect(() => {
-    if (!extendOpen || !extendFits) { setExtendPreview(null); return; }
+    if (!extendOpen || !extendFits || extendChosen.length === 0) { setExtendPreview(null); return; }
     setExtendPreview(null);
     let stale = false;
     const t = setTimeout(() => {
-      api("adminPreviewExtend", { bookingId: booking.bookingId, addSlots: extendSlots }, { bypassCache: true })
+      // v80: a PROPER subset sends extendCourts (server prices just those
+      // courts via the same shared helper the confirm uses — parity is
+      // guaranteed server-side); the full set omits it, keeping the wire
+      // byte-identical to v79.
+      const req = { bookingId: booking.bookingId, addSlots: extendSlots };
+      if (extendIsSubset) req.extendCourts = extendChosen.join(",");
+      api("adminPreviewExtend", req, { bypassCache: true })
         .then(r => {
           if (stale || !r || !r.ok || !r.extension) return;
           setExtendPreview({
@@ -9209,7 +9228,7 @@ function BookingDetailModal({ booking, onClose, onAction }) {
         .catch(() => {});
     }, 250);
     return () => { stale = true; clearTimeout(t); };
-  }, [extendOpen, extendSlots, extendFits, booking.bookingId]);
+  }, [extendOpen, extendSlots, extendFits, booking.bookingId, extendChosen.join(",")]);
 
   // v61 — Move court: swap ONE court of the booking for another (works for
   // single- and multi-court bookings; the court COUNT and price never
@@ -9328,14 +9347,21 @@ function BookingDetailModal({ booking, onClose, onAction }) {
   }
 
   async function doExtend() {
+    if (extendChosen.length === 0) return;
     setActing(true);
-    const r = await api("adminExtendBooking", { bookingId: booking.bookingId, addSlots: extendSlots });
+    // v80: subset → extendCourts on the wire (server always answers with a
+    // LINKED booking for just those courts); full set → same request as v79.
+    const req = { bookingId: booking.bookingId, addSlots: extendSlots };
+    if (extendIsSubset) req.extendCourts = extendChosen.join(",");
+    const r = await api("adminExtendBooking", req);
     setActing(false);
     if (r.ok) {
       const amt = r.extension ? (r.extension.total || 0) : 0;
       showToast(
         r.mode === "linked"
-          ? "Created linked booking " + r.linkedBookingId + " · " + r.timeStart + "–" + r.newEndTime + " · $" + amt.toFixed(2) + " due (original stays settled)"
+          ? (r.partial
+              ? "Extended C·" + (r.extendedCourts || extendChosen.join(", ")) + " only · linked booking " + r.linkedBookingId + " · " + r.timeStart + "–" + r.newEndTime + " · $" + amt.toFixed(2) + " due (original booking unchanged)"
+              : "Created linked booking " + r.linkedBookingId + " · " + r.timeStart + "–" + r.newEndTime + " · $" + amt.toFixed(2) + " due (original stays settled)")
           : "Extended to " + r.newEndTime + " · +$" + amt.toFixed(2),
         "success"
       );
@@ -9576,6 +9602,24 @@ function BookingDetailModal({ booking, onClose, onAction }) {
             <div style={{ fontFamily: "var(--mono)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", opacity: 0.7, marginBottom: 8 }}>
               Extend from {booking.timeEnd} · same court{extendCourtCount > 1 ? "s" : ""} ({booking.courtNumbers})
             </div>
+            {/* v80 — partial extend: tick which courts get the extra time.
+                All checked (default) = classic extend; a subset creates a
+                linked booking for just those courts, original untouched. */}
+            {extendCourtCount > 1 && (
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+                {extendCourtList.map(c => (
+                  <label key={c} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--mono)", fontSize: 12, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={extendCourtSel[c] !== false}
+                      onChange={(e) => setExtendCourtSel({ ...extendCourtSel, [c]: e.target.checked })}
+                      disabled={acting}
+                    />
+                    C·{c}
+                  </label>
+                ))}
+              </div>
+            )}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
               {[[1, "+30m"], [2, "+1h"], [3, "+1.5h"], [4, "+2h"]].map(([n, label]) => {
                 const fits = timeToMin(booking.timeEnd) + n * 30 <= CLOSE_MIN;
@@ -9591,11 +9635,17 @@ function BookingDetailModal({ booking, onClose, onAction }) {
                 );
               })}
             </div>
-            {extendFits ? (
+            {extendChosen.length === 0 ? (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 12, marginBottom: 10, color: "var(--clay)" }}>
+                Tick at least one court to extend.
+              </div>
+            ) : extendFits ? (
               <div style={{ fontFamily: "var(--mono)", fontSize: 12, marginBottom: 10 }}>
                 New end <strong>{minToTime(extendEndMin)}</strong>
                 {extendPreview ? <span> · adds <strong>${(extendPreview.total || 0).toFixed(2)}</strong>{extendPreview.corporateApplied ? " (corporate rate)" : (extendPreview.discountPct || 0) > 0 ? " (after " + extendPreview.discountPct + "% off)" : ""}</span> : <span> · pricing…</span>}
-                {d === "paid" && <span style={{ opacity: 0.7 }}> · creates a linked booking (this one stays settled)</span>}
+                {extendIsSubset
+                  ? <span style={{ opacity: 0.7 }}> · C·{extendChosen.join(", ")} only — creates a linked booking (this booking is unchanged)</span>
+                  : d === "paid" && <span style={{ opacity: 0.7 }}> · creates a linked booking (this one stays settled)</span>}
               </div>
             ) : (
               <div style={{ fontFamily: "var(--mono)", fontSize: 12, marginBottom: 10, color: "var(--clay)" }}>
@@ -9603,7 +9653,7 @@ function BookingDetailModal({ booking, onClose, onAction }) {
               </div>
             )}
             <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn primary" onClick={doExtend} disabled={acting || !extendFits}>
+              <button className="btn primary" onClick={doExtend} disabled={acting || !extendFits || extendChosen.length === 0}>
                 {acting ? "Extending…" : "Confirm extend"}
               </button>
               <button className="btn ghost" onClick={() => setExtendOpen(false)} disabled={acting}>Back</button>
@@ -9738,7 +9788,7 @@ function BookingDetailModal({ booking, onClose, onAction }) {
           {(d === "awaiting" || d === "at_risk" || d === "checked_in" || d === "completed" || d === "paid") && (
             <button
               className="btn"
-              onClick={() => setExtendOpen(v => !v)}
+              onClick={() => { setExtendCourtSel({}); setExtendOpen(v => !v); }}
               disabled={acting}
             >Extend</button>
           )}
@@ -23732,6 +23782,28 @@ function ScreenSettings() {
     }
   }
 
+  // v81 — Full data validation (owner-only, read-only comprehensive scan)
+  const _valStaffInfo = getStaffInfo();
+  const isOwnerSession = !(_valStaffInfo && _valStaffInfo.role === "staff");
+  const [fullVal, setFullVal] = useState(null);
+  const [validating, setValidating] = useState(false);
+  const [openChecks, setOpenChecks] = useState({});
+  async function runFullValidation() {
+    if (validating) return;
+    setValidating(true);
+    setFullVal(null);
+    setOpenChecks({});
+    try {
+      const r = await api("adminFullDataValidation", {}, { bypassCache: true });
+      if (r && r.ok) setFullVal(r);
+      else showToast((r && r.error) || "Validation failed to run", "error");
+    } catch (e) {
+      showToast("Validation error: " + e.message, "error");
+    } finally {
+      setValidating(false);
+    }
+  }
+
   // Pricing & Hours — array of rules. Each rule:
   // { name, days: [...], hourStart, hourEnd, rate, notes }
   const [pricingRules, setPricingRules] = useState([]);
@@ -24202,6 +24274,76 @@ function ScreenSettings() {
           </div>
         )}
       </div>
+
+      {isOwnerSession && (
+      <div className="settings-card">
+        <h3>Full Data Validation</h3>
+        <div className="desc">
+          Owner-only, <b>read-only</b> deep scan of every sheet: booking math and statuses,
+          the payments ledger (orphans, duplicates, reversals), POS linkage in both directions,
+          coaching splits and payouts, open-play/walk-in registrations, the availability grid
+          against ground truth, members, and a cross-check of ledger vs recognized revenue.
+          Nothing is changed — it only reports, with sheet + row references.
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <button className="btn primary" onClick={runFullValidation} disabled={validating}>
+            {validating ? "Validating…" : "Run full data validation"}
+          </button>
+        </div>
+        {fullVal && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{
+              fontFamily: "var(--mono)", fontWeight: 700, fontSize: 13, padding: "8px 12px", borderRadius: 6,
+              background: fullVal.summary.fail > 0 ? "rgba(198,79,58,0.12)" : fullVal.summary.warn > 0 ? "rgba(176,124,63,0.12)" : "rgba(61,122,79,0.12)",
+              color: fullVal.summary.fail > 0 ? "var(--clay)" : fullVal.summary.warn > 0 ? "var(--wood)" : "var(--green)"
+            }}>
+              {fullVal.summary.fail > 0
+                ? "✗ " + fullVal.summary.fail + " check(s) FAILED · " + fullVal.summary.warn + " warning(s)"
+                : fullVal.summary.warn > 0
+                  ? "⚠ " + fullVal.summary.warn + " check(s) with warnings — everything else passed"
+                  : "✓ All " + fullVal.checks.length + " checks passed — live data is consistent"}
+              <span style={{ fontWeight: 400, fontSize: 11, marginLeft: 8, opacity: 0.7 }}>ran {fullVal.ranAt}</span>
+            </div>
+            <div style={{ marginTop: 10 }}>
+              {fullVal.checks.map((chk, i) => (
+                <div key={i} style={{ borderBottom: "1px solid rgba(0,0,0,0.07)", padding: "6px 0" }}>
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 10, cursor: chk.details.length ? "pointer" : "default" }}
+                    onClick={() => chk.details.length && setOpenChecks({ ...openChecks, [i]: !openChecks[i] })}
+                  >
+                    <span style={{
+                      fontFamily: "var(--mono)", fontSize: 10, fontWeight: 700, letterSpacing: "0.1em",
+                      padding: "2px 8px", borderRadius: 10, textTransform: "uppercase",
+                      background: chk.status === "fail" ? "rgba(198,79,58,0.15)" : chk.status === "warn" ? "rgba(176,124,63,0.15)" : "rgba(61,122,79,0.15)",
+                      color: chk.status === "fail" ? "var(--clay)" : chk.status === "warn" ? "var(--wood)" : "var(--green)"
+                    }}>
+                      {chk.status === "fail" ? "FAIL" : chk.status === "warn" ? "WARN" : "OK"}
+                    </span>
+                    <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{chk.name}</span>
+                    <span style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.7 }}>
+                      {chk.issues > 0 ? chk.issues + " issue(s)" : "clean"}
+                    </span>
+                    {chk.details.length > 0 && (
+                      <span style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.5 }}>{openChecks[i] ? "▾" : "▸"}</span>
+                    )}
+                  </div>
+                  {openChecks[i] && chk.details.length > 0 && (
+                    <pre style={{
+                      margin: "6px 0 2px 0", maxHeight: 240, overflow: "auto", fontFamily: "var(--mono)", fontSize: 11,
+                      lineHeight: 1.5, whiteSpace: "pre-wrap", background: "rgba(0,0,0,0.03)", padding: "8px 10px", borderRadius: 6
+                    }}>
+                      {chk.details.map((d, j) => (
+                        <div key={j} style={{ color: chk.status === "fail" ? "var(--clay)" : chk.status === "warn" ? "var(--wood)" : "inherit" }}>{d}</div>
+                      ))}
+                    </pre>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      )}
 
       <div className="settings-card">
         <h3>Promotional Discount</h3>
