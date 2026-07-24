@@ -17342,7 +17342,7 @@ function generateAccountingPdf(report) {
       incomeStatement: {
         courtRev: 0, walkinRev: 0, coachingRev: 0, posRev: 0, openPlayRev: 0,
         sponsorshipRev: 0, sponsorshipMonthly: 0, sponsorshipOneOff: 0,
-        membershipFeesThisMonth: 0, grossOperationalRevenue: 0,
+        membershipFeesThisMonth: 0, tournamentNet: 0, grossOperationalRevenue: 0,
         grossRevenue: 0, totalDiscountsApplied: 0, netRevenue: 0
       },
       paymentMethodSplit: {},
@@ -17428,7 +17428,9 @@ function generateAccountingPdf(report) {
   doc.setDrawColor(...INK);
   doc.setLineWidth(0.5);
   const summaryBoxY = y;
-  const summaryBoxH = 150;
+  // v86: 150 → 172 — the breakdown gained a "Tournaments (net)" line; the box
+  // must grow with it (8 rows × 11pt starting at +90 = 167pt + padding).
+  const summaryBoxH = 172;
   doc.setFillColor(248, 245, 235);  // very light cream
   doc.rect(M, summaryBoxY, W - 2 * M, summaryBoxH, "FD");
 
@@ -17480,7 +17482,12 @@ function generateAccountingPdf(report) {
     ["POS sales", fmtUsd(inc2.posRev)],
     ["Walk-in (session players)", fmtUsd(inc2.openPlayRev || 0)],
     ["Sponsorships", fmtUsd(inc2.sponsorshipRev)],
-    ["Memberships sold", fmtUsd(inc2.membershipFeesThisMonth)]
+    ["Memberships sold", fmtUsd(inc2.membershipFeesThisMonth)],
+    // v86 FIX: tournament net was inside GROSS REVENUE but had NO line here —
+    // the owner's YTD summary lines summed to $9,294.33 against a $10,004.33
+    // total, with the $710 tournament net invisible. Every component of the
+    // total gets a line so the breakdown always sums to the headline.
+    ["Tournaments (net)", fmtUsd(inc2.tournamentNet || 0)]
   ];
   for (let i = 0; i < breakdownItems.length; i++) {
     const [label, amount] = breakdownItems[i];
@@ -17581,8 +17588,13 @@ function generateAccountingPdf(report) {
     _ilLine("of which one-off banners", fmtUsd(inc.sponsorshipOneOff), { indent: 20, muted: true, size: 8 });
   }
   _ilLine("Membership fees collected", fmtUsd(inc.membershipFeesThisMonth), { indent: 10 });
+  // v86 FIX: tournament net revenue is part of TOTAL REVENUE (backend folds it
+  // into grossRevenue, same as adminFinancesMonth's non-operational bucket) but
+  // the statement had no line for it — so the lines didn't sum to the total.
+  // Classified under OTHER REVENUE alongside sponsorships + memberships.
+  _ilLine("Tournaments (net revenue - expenses)", fmtUsd(inc.tournamentNet || 0), { indent: 10 });
   _ilDivider({ indent: 10 });
-  const otherRev = (inc.sponsorshipRev || 0) + (inc.membershipFeesThisMonth || 0);
+  const otherRev = (inc.sponsorshipRev || 0) + (inc.membershipFeesThisMonth || 0) + (inc.tournamentNet || 0);
   _ilLine("Subtotal — other revenue", fmtUsd(otherRev), { bold: true });
   _ilSpacer(10);
 
@@ -18026,8 +18038,15 @@ function generateAccountingPdf(report) {
     doc.text("Page " + i + " of " + totalPages, W - M, H - 20, { align: "right" });
   }
 
-  // Trigger download
-  const filename = "TheYard_AccountingReport_" + report.period.year + "-" + String(report.period.month).padStart(2, "0") + ".pdf";
+  // Trigger download.
+  // v86 FIX: prefer the server-provided filenameBase — the old client-built
+  // name used period.year/month (the range START), so a YTD export was named
+  // "TheYard_AccountingReport_2026-01" — indistinguishable from January's
+  // monthly report. The server names YTD ranges "TheYard_AccountingReport_YTD-YYYY"
+  // and keeps single months as "TheYard_AccountingReport_YYYY-MM". Legacy
+  // fallback kept for a stale (pre-v86) backend.
+  const filename = (report.filenameBase ||
+    ("TheYard_AccountingReport_" + report.period.year + "-" + String(report.period.month).padStart(2, "0"))) + ".pdf";
   doc.save(filename);
 }
 
