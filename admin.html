@@ -17125,10 +17125,22 @@ function CustomerHistoryModal({ customer, onClose }) {
                   <span style={{ opacity: 0.5, fontSize: "0.7em" }}> · {data.totalTournaments || 0}🏆</span>
                 </div>
               </div>
+              {/* v88: unified with the Finances "Top customers" formula —
+                  court + walk-in + open play + coaching (student money) +
+                  shop (POS products-only) + membership. Includes coach-bound
+                  lesson money, so "(paid to facility)" would be inaccurate —
+                  relabeled "Total spend" with a composition sub-line. */}
               <div className="stat-card accent-green">
-                <div className="label">Lifetime spend</div>
-                <div className="value">${data.totalSpent.toFixed(2)}</div>
-                <div className="sub">(paid to facility)</div>
+                <div className="label">Total spend</div>
+                <div className="value">${(data.lifetimeSpend != null ? data.lifetimeSpend : data.totalSpent).toFixed(2)}</div>
+                {(() => {
+                  const b = data.spendBreakdown || {};
+                  const parts = [
+                    ["court", b.court], ["walk-in", b.walkin], ["open play", b.openplay],
+                    ["coach", b.coaching], ["shop", b.pos], ["member", b.membership]
+                  ].filter(p => (p[1] || 0) > 0).map(p => p[0] + " $" + p[1].toFixed(2));
+                  return parts.length > 0 ? <div className="sub">{parts.join(" · ")}</div> : null;
+                })()}
               </div>
             </div>
 
