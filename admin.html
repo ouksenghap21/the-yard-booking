@@ -6483,6 +6483,9 @@ function ScreenDashboard() {
   // v67: expandable per-type breakdown on the Takings card — answers
   // "why is takings different from revenue" on-screen.
   const [takingsOpen, setTakingsOpen] = useState(false);
+  // v92: same expander pattern on the hero Revenue tile — per-stream lines
+  // with each stream's BASIS spelled out (session date vs sale date).
+  const [revOpen, setRevOpen] = useState(false);
 
   // Click-to-detail modals — same pattern as ScreenBookings
   const [detailBooking, setDetailBooking] = useState(null);
@@ -6885,6 +6888,52 @@ function ScreenDashboard() {
                     <> · {fmtMoney(totalPending)} pending</>
                   )}
                   {" · by session date"}
+                </div>
+                {/* v92: expandable per-stream breakdown (mirrors the v67/v72
+                    Takings pattern) — every line states its BASIS so the
+                    owner sees WHY this tile and Takings legitimately differ. */}
+                <div style={{ marginTop: 8 }}>
+                  <button
+                    onClick={() => setRevOpen(o => !o)}
+                    style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0,
+                             color: "var(--cream)", opacity: 0.75,
+                             fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.08em",
+                             textTransform: "uppercase" }}>
+                    {revOpen ? "▾ hide breakdown" : "▸ what's in this number?"}
+                  </button>
+                  {revOpen && (() => {
+                    const lines = [
+                      { label: "Court (today's sessions)", amt: court },
+                      { label: "Coaching (today's sessions)", amt: coaching },
+                      { label: "Walk-in court blocks (today's sessions)", amt: walkin },
+                      { label: "Walk-in sessions (today's sessions)", amt: openPlay },
+                      { label: "POS products (sold today)", amt: pos }
+                    ];
+                    if (mem > 0) lines.push({ label: "Memberships (sold today)", amt: mem });
+                    return (
+                      <div style={{ marginTop: 6, borderTop: "1px dashed rgba(241,234,214,0.35)",
+                                    paddingTop: 8, color: "var(--cream)" }}>
+                        {lines.map(ln => (
+                          <div key={ln.label} style={{ display: "flex", alignItems: "baseline", gap: 8,
+                                                       fontSize: 12, lineHeight: 1.9 }}>
+                            <span style={{ opacity: 0.85 }}>{ln.label}</span>
+                            <span style={{ marginLeft: "auto", fontFamily: "var(--mono)", fontWeight: 700 }}>
+                              {fmtMoney(ln.amt)}
+                            </span>
+                          </div>
+                        ))}
+                        <div style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 12,
+                                      lineHeight: 1.9, borderTop: "1px solid rgba(241,234,214,0.35)", marginTop: 4, paddingTop: 4 }}>
+                          <span style={{ fontWeight: 700 }}>Total</span>
+                          <span style={{ marginLeft: "auto", fontFamily: "var(--mono)", fontWeight: 700 }}>{fmtMoney(total)}</span>
+                        </div>
+                        <div style={{ marginTop: 6, fontSize: 11, opacity: 0.75, lineHeight: 1.5 }}>
+                          A booking played yesterday but paid today shows in yesterday's revenue
+                          and today's takings. POS products count on their sale date.
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </>
             );
@@ -13752,8 +13801,9 @@ function ScreenPOS() {
           <h1>Point of Sale</h1>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", opacity: 0.6 }}>
-            Today: ${todayStats.revenue.toFixed(2)} · {todayStats.transactions} sales
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", opacity: 0.6 }}
+            title="gross receipts incl. attached court/coaching lines — see Finances for revenue by stream">
+            Receipts today: ${todayStats.revenue.toFixed(2)} · {todayStats.transactions} sales
           </div>
           <button className="btn" onClick={() => setShowOpenTabs(true)} style={{ position: "relative" }}>
             Open tabs
@@ -16012,6 +16062,25 @@ function ProductModal({ product, onClose, onSaved }) {
     }
   }
 
+  // v92 — archive: hides the product from the POS grid and blocks selling /
+  // adding to tabs. The sheet row (and all sales history) is untouched;
+  // unarchive any time from Manage Stock → Archived.
+  async function archiveProduct() {
+    if (saving) return;
+    if (!confirm('Archive "' + product.name + '" (' + product.sku + ')?\n\n' +
+      "It disappears from the POS grid and can no longer be sold or added to tabs. " +
+      "The row and its sales history are kept — unarchive any time from Manage Stock → Archived.")) return;
+    setSaving(true);
+    const r = await api("posUpdateProduct", { sku: product.sku, archived: true });
+    setSaving(false);
+    if (r.ok) {
+      showToast("Product archived", "success");
+      onSaved && onSaved();
+    } else {
+      showToast(r.error || "Archive failed", "error");
+    }
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -16105,6 +16174,13 @@ function ProductModal({ product, onClose, onSaved }) {
         </div>
 
         <div className="actions">
+          {!isNew && (
+            <button className="btn ghost" onClick={archiveProduct} disabled={saving}
+              style={{ marginRight: "auto", color: "var(--clay)", borderColor: "var(--clay)" }}
+              title="Hide from the POS grid; row & history kept. Unarchive from Manage Stock → Archived.">
+              Archive product
+            </button>
+          )}
           <button className="btn ghost" onClick={onClose} disabled={saving}>Cancel</button>
           <button className="btn primary" onClick={save} disabled={saving}>
             {saving ? "Saving…" : isNew ? "Add product" : "Save changes"}
@@ -16119,6 +16195,31 @@ function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
   const [adjustments, setAdjustments] = useState({});  // sku -> delta string
   const [reorders, setReorders] = useState({});        // sku -> reorder-level string (edited)
   const [working, setWorking] = useState(false);
+  // v92 — Archived section: fetched fresh (includeArchived bypasses the
+  // products cache server-side) so the grid list stays archive-free.
+  const [archivedList, setArchivedList] = useState(null);
+  async function loadArchived() {
+    const r = await api("posListProducts", { includeArchived: true });
+    if (r.ok) setArchivedList(r.archived || []);
+  }
+  useEffect(() => { loadArchived(); }, []);
+  async function unarchive(p) {
+    if (working) return;
+    if (!confirm('Unarchive "' + p.name + '" (' + p.sku + ')? It returns to the POS grid and becomes sellable again.')) return;
+    setWorking(true);
+    try {
+      const r = await api("posUpdateProduct", { sku: p.sku, archived: false });
+      if (r.ok) {
+        showToast("Unarchived " + p.name, "success");
+        await loadArchived();
+        onChanged && onChanged();
+      } else {
+        showToast(r.error || "Unarchive failed", "error");
+      }
+    } finally {
+      setWorking(false);
+    }
+  }
 
   async function applyAll() {
     if (working) return;
@@ -16225,6 +16326,33 @@ function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
             </div>
           ))}
         </div>
+
+        {/* v92 — Archived products: off the grid, unsellable, history kept.
+            Unarchive returns one to the grid. */}
+        {archivedList && archivedList.length > 0 && (
+          <div style={{ marginTop: 14, borderTop: "1px dashed var(--concrete)", paddingTop: 10 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.16em",
+                          textTransform: "uppercase", opacity: 0.6, marginBottom: 6 }}>
+              Archived · {archivedList.length} — hidden from the grid, can't be sold or tabbed
+            </div>
+            <div style={{ maxHeight: 180, overflowY: "auto" }}>
+              {archivedList.map(p => (
+                <div key={p.sku + ":" + p.row} style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "8px 0", borderBottom: "1px solid rgba(26,26,26,0.08)", opacity: 0.75
+                }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontFamily: "var(--sans)", fontWeight: 600, fontSize: 13 }}>{p.name}</div>
+                    <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.1em", opacity: 0.55 }}>
+                      {p.sku} · {p.category} · stock {p.stock}
+                    </div>
+                  </div>
+                  <button className="btn ghost" disabled={working} onClick={() => unarchive(p)}>Unarchive</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="actions">
           <button className="btn ghost" onClick={onClose}>Close</button>
