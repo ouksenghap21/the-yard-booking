@@ -19316,6 +19316,24 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
   const [payAsk, setPayAsk] = useState(null);
   const optKey = (item) => item.entryType + ":" + item.id;
 
+  // v89: the OPPOSITE money direction, mirrored under the "Coaches owe you"
+  // card so the two coach figures can't be confused. Same source + same math
+  // as the Pay Coaches tab (PayCoachesView): adminListCoachPayments →
+  // Σ summary[].oweCoach — their cut of sessions already collected from
+  // students, not yet paid out. Cheap: 30s-TTL cached AND prefetched at
+  // boot, so the cached value paints instantly and a fresh one follows.
+  const [owedToCoaches, setOwedToCoaches] = useState(() => {
+    const c = getCachedApi("adminListCoachPayments");
+    return (c && c.ok) ? (c.summary || []).reduce((s, x) => s + (x.oweCoach || 0), 0) : null;
+  });
+  useEffect(() => {
+    let alive = true;
+    api("adminListCoachPayments").then(r => {
+      if (alive && r && r.ok) setOwedToCoaches((r.summary || []).reduce((s, x) => s + (x.oweCoach || 0), 0));
+    }).catch(() => { /* link-only fallback renders without the figure */ });
+    return () => { alive = false; };
+  }, []);
+
   // Bulk select state — Set of optKeys
   const [selected, setSelected] = useState(new Set());
   function toggleSelect(item) {
@@ -19519,9 +19537,22 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
           <div className="sub">{hDueNowCount} item{hDueNowCount === 1 ? "" : "s"} · collect at counter</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
-          <div className="label">★ Coaching share owed</div>
+          {/* v89 label clarity: the old wording on this card read, to the
+              owner, like the money HE owes coaches (the Pay Coaches figure)
+              — the exact opposite direction. Renamed to say who owes whom,
+              plus a small mirror line showing the Pay Coaches figure right
+              beneath it so the two can never be confused again. */}
+          <div className="label">
+            ★ Coaches owe you
+            <InfoTip text={"Two opposite directions: THIS number is money coaches owe YOU (flat-rent court share they collected but haven’t handed in). “You owe coaches” is THEIR cut of lessons you already collected — pay it out from the Pay Coaches tab."} />
+          </div>
           <div className="value" style={Object.assign({ color: "var(--wood)" }, valueFitStyle(headline.overdueCoaching))}>${headline.overdueCoaching.toFixed(2)}</div>
-          <div className="sub">facility share unpaid by coaches</div>
+          <div className="sub">flat-rent share not yet handed in · $0 = all settled</div>
+          <div className="sub" style={{ marginTop: 3, color: "var(--clay)" }}>
+            {owedToCoaches != null
+              ? <>You owe coaches: {fmtMoney(owedToCoaches)} · Pay Coaches tab</>
+              : <>You owe coaches · see Pay Coaches tab</>}
+          </div>
         </div>
         <div className="stat-card">
           <div className="label">No-shows · written off</div>
