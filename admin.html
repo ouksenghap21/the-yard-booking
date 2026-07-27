@@ -4816,6 +4816,7 @@ var MUTATING_ACTIONS = new Set([
   "adminMarkWalkInPlayerPaid","adminMarkCoachingSessionsPaid","adminPayCoach","adminRefundCoachingSession",
   "adminUpdateOpenPlayPlayer","adminRemoveOpenPlayPlayer","adminAddOpenPlayPlayer","adminUpdateOpenPlaySession",
   "adminCreateSponsorship","adminUpdateSponsorship","adminCancelSponsorship",
+  "adminMarkSponsorshipInstallmentPaid","adminUnmarkSponsorshipInstallmentPaid",
   "adminCreateCorporateAccount","adminUpdateCorporateAccount",
   "adminCreateStaff","adminUpdateStaff",
   "adminRefreshCache"
@@ -4967,7 +4968,7 @@ function _invalidateForMutation(action) {
     /^(adminCreateMember|adminUpdateMember|adminDeleteMember|adminCancelMember)/.test(action)
   );
   const isSponsorshipMutation = (
-    /^(adminCreateSponsorship|adminUpdateSponsorship|adminCancelSponsorship)/.test(action)
+    /^(adminCreateSponsorship|adminUpdateSponsorship|adminCancelSponsorship|adminMarkSponsorshipInstallmentPaid|adminUnmarkSponsorshipInstallmentPaid)/.test(action)
   );
 
   // Helper — wipe a single endpoint's caches (memory + localStorage)
@@ -17353,7 +17354,7 @@ function generateAccountingPdf(report) {
       period: (report && report.period) || { label: "This period", fromStr: "", toStr: "", daysInRange: 0 },
       incomeStatement: {
         courtRev: 0, walkinRev: 0, coachingRev: 0, posRev: 0, openPlayRev: 0,
-        sponsorshipRev: 0, sponsorshipMonthly: 0, sponsorshipOneOff: 0,
+        sponsorshipRev: 0, sponsorshipMonthly: 0, sponsorshipOneOff: 0, sponsorshipScheduled: 0,
         membershipFeesThisMonth: 0, tournamentNet: 0, grossOperationalRevenue: 0,
         grossRevenue: 0, totalDiscountsApplied: 0, netRevenue: 0
       },
@@ -17594,10 +17595,11 @@ function generateAccountingPdf(report) {
 
   // OTHER REVENUE section
   _ilLine("OTHER REVENUE", null, { bold: true, size: 9 });
-  _ilLine("Sponsorships (monthly + one-off)", fmtUsd(inc.sponsorshipRev), { indent: 10 });
-  if (inc.sponsorshipMonthly > 0 || inc.sponsorshipOneOff > 0) {
+  _ilLine("Sponsorships (monthly + one-off + scheduled)", fmtUsd(inc.sponsorshipRev), { indent: 10 });
+  if (inc.sponsorshipMonthly > 0 || inc.sponsorshipOneOff > 0 || (inc.sponsorshipScheduled || 0) > 0) {
     _ilLine("of which monthly subscriptions (prorated)", fmtUsd(inc.sponsorshipMonthly), { indent: 20, muted: true, size: 8 });
     _ilLine("of which one-off banners", fmtUsd(inc.sponsorshipOneOff), { indent: 20, muted: true, size: 8 });
+    _ilLine("of which scheduled contract installments (cash-basis)", fmtUsd(inc.sponsorshipScheduled || 0), { indent: 20, muted: true, size: 8 });
   }
   _ilLine("Membership fees collected", fmtUsd(inc.membershipFeesThisMonth), { indent: 10 });
   // v86 FIX: tournament net revenue is part of TOTAL REVENUE (backend folds it
@@ -17870,14 +17872,14 @@ function generateAccountingPdf(report) {
 
     doc.autoTable({
       startY: y + 4,
-      head: [["ID", "Sponsor", "Location", "Type", "Amount"]],
+      head: [["Date", "ID", "Sponsor", "Location", "Type", "Invoice", "Amount"]],
       body: report.sponsorshipLedger.map(s => [
-        s.id, s.sponsor || "—", s.location || "—", s.type, fmtUsd(s.amount)
+        s.date || "—", s.id, s.sponsor || "—", s.location || "—", s.type, s.invoiceNo || "—", fmtUsd(s.amount)
       ]),
       theme: "grid",
       headStyles: { fillColor: INK, textColor: CREAM, fontSize: 9 },
       bodyStyles: { fontSize: 9 },
-      columnStyles: { 4: { halign: "right" } },
+      columnStyles: { 6: { halign: "right" } },
       margin: { left: M, right: M }
     });
     y = doc.lastAutoTable.finalY + 20;
@@ -18823,7 +18825,7 @@ function FinancesRangeView({ data, granularity, opOnly }) {
             <div className="value" style={{ color: "var(--clay)" }}>{fmtMoneyWhole(h.sponsorshipRev || 0)}</div>
             <div className="sub">
               {fmtPct(pct(h.sponsorshipRev || 0), 0)}
-              {(h.sponsorshipMonthly || h.sponsorshipOneOff) ? " · " + (h.sponsorshipMonthly ? "MRR " + fmtMoneyWhole(h.sponsorshipMonthly) : "") + (h.sponsorshipMonthly && h.sponsorshipOneOff ? " + " : "") + (h.sponsorshipOneOff ? "one-off " + fmtMoneyWhole(h.sponsorshipOneOff) : "") : ""}
+              {(h.sponsorshipMonthly || h.sponsorshipOneOff || h.sponsorshipScheduled) ? " · " + [h.sponsorshipMonthly ? "MRR " + fmtMoneyWhole(h.sponsorshipMonthly) : "", h.sponsorshipOneOff ? "one-off " + fmtMoneyWhole(h.sponsorshipOneOff) : "", h.sponsorshipScheduled ? "installments " + fmtMoneyWhole(h.sponsorshipScheduled) : ""].filter(Boolean).join(" + ") : ""}
             </div>
           </div>
         )}
@@ -19037,7 +19039,7 @@ function FinancesView({ data, onChanged, opOnly }) {
             <div className="value" style={Object.assign({ color: "var(--clay)" }, valueFitStyle(h.sponsorshipRev || 0))}>{fmtMoneyWhole(h.sponsorshipRev || 0)}</div>
             <div className="sub">
               {fmtPct(pct(h.sponsorshipRev || 0), 0)}
-              {(h.sponsorshipMonthly || h.sponsorshipOneOff) ? " · " + (h.sponsorshipMonthly ? "MRR " + fmtMoneyWhole(h.sponsorshipMonthly) : "") + (h.sponsorshipMonthly && h.sponsorshipOneOff ? " + " : "") + (h.sponsorshipOneOff ? "one-off " + fmtMoneyWhole(h.sponsorshipOneOff) : "") : ""}
+              {(h.sponsorshipMonthly || h.sponsorshipOneOff || h.sponsorshipScheduled) ? " · " + [h.sponsorshipMonthly ? "MRR " + fmtMoneyWhole(h.sponsorshipMonthly) : "", h.sponsorshipOneOff ? "one-off " + fmtMoneyWhole(h.sponsorshipOneOff) : "", h.sponsorshipScheduled ? "installments " + fmtMoneyWhole(h.sponsorshipScheduled) : ""].filter(Boolean).join(" + ") : ""}
             </div>
           </div>
         )}
@@ -22944,6 +22946,9 @@ function ScreenSponsorships() {
         <div>
           <div className="title">Banner inventory · sponsor revenue</div>
           <h1>Sponsorships</h1>
+          <div style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.06em", marginTop: 4, color: (rev.outstandingScheduled || 0) > 0 ? "var(--clay)" : "var(--ink)", opacity: (rev.outstandingScheduled || 0) > 0 ? 1 : 0.55 }}>
+            Outstanding sponsorship installments: {"$" + (rev.outstandingScheduled || 0).toFixed(2)}
+          </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button className="btn primary" onClick={() => setShowAdd(true)}>+ New Banner</button>
@@ -23033,18 +23038,30 @@ function ScreenSponsorships() {
               </div>
               <div>
                 <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, letterSpacing: "0.1em", marginBottom: 3 }}>
-                  {b.saleType === "monthly" ? "MONTHLY SUB" : "ONE-OFF"}
+                  {b.saleType === "monthly" ? "MONTHLY SUB" : b.saleType === "scheduled" ? "SCHEDULED CONTRACT" : "ONE-OFF"}
                 </div>
                 <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.7 }}>
                   {b.startDate}{b.endDate ? " → " + b.endDate : ""}
                 </div>
+                {b.saleType === "scheduled" && (
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 10, marginTop: 3 }}>
+                    Paid ${(b.schedulePaid || 0).toFixed(0)} of ${(b.scheduleTotal || 0).toFixed(0)}
+                    {b.overdueCount > 0 && (
+                      <span style={{
+                        marginLeft: 6, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em",
+                        padding: "1px 6px", borderRadius: 999,
+                        background: "rgba(217,120,92,0.15)", color: "var(--clay)"
+                      }}>OVERDUE</span>
+                    )}
+                  </div>
+                )}
               </div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 22, fontWeight: 700 }}>
                   ${b.price.toFixed(0)}
                 </div>
                 <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.5 }}>
-                  {b.saleType === "monthly" ? "per month" : "total"}
+                  {b.saleType === "monthly" ? "per month" : b.saleType === "scheduled" ? "contract total" : "total"}
                 </div>
               </div>
               <div>{statusPill(b.status)}</div>
@@ -23057,6 +23074,7 @@ function ScreenSponsorships() {
         <SponsorshipModal
           onClose={() => setShowAdd(false)}
           onSaved={() => { setShowAdd(false); load(); }}
+          onChanged={load}
         />
       )}
 
@@ -23065,13 +23083,14 @@ function ScreenSponsorships() {
           banner={editBanner}
           onClose={() => setEditBanner(null)}
           onSaved={() => { setEditBanner(null); load(); }}
+          onChanged={load}
         />
       )}
     </div>
   );
 }
 
-function SponsorshipModal({ banner, onClose, onSaved }) {
+function SponsorshipModal({ banner, onClose, onSaved, onChanged }) {
   const isNew = !banner;
   const [form, setForm] = useState({
     location: banner ? banner.location : "",
@@ -23087,6 +23106,133 @@ function SponsorshipModal({ banner, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [files, setFiles] = useState(banner && banner.files ? banner.files : []);
   const [uploading, setUploading] = useState(false);
+
+  /* ── v90: scheduled-contract installment plan ─────────────────────── */
+  const SPONSOR_PAY_METHODS = ["Cash", "ABA", "Wing", "Card"];
+  const [sched, setSched] = useState(
+    banner && banner.schedule ? banner.schedule.map(x => Object.assign({}, x)) : []
+  );
+  const [builder, setBuilder] = useState({
+    termMonths: 6,
+    monthlyAmount: 200,
+    oneTimeFees: [{ label: "Frame setup", amount: 0 }],
+    startMonth: todayISO().substring(0, 7),
+    inArrears: true
+  });
+  // marking = { id, method, paidDate } while the method picker is open
+  const [marking, setMarking] = useState(null);
+  const [instBusy, setInstBusy] = useState(false);
+
+  const schedTotal = sched.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+  const schedPaid = sched.reduce((s, r) => s + (String(r.status) === "Paid" ? (parseFloat(r.amount) || 0) : 0), 0);
+  const nextDueRow = sched
+    .filter(r => String(r.status) !== "Paid")
+    .slice()
+    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))[0] || null;
+
+  function _fmtIsoDate(d) {
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+
+  function generateSchedule() {
+    const parts = String(builder.startMonth || "").split("-");
+    const y = parseInt(parts[0]), m = parseInt(parts[1]);
+    if (!y || !m) return showToast("Pick a start month first", "error");
+    const term = Math.max(1, Math.min(60, parseInt(builder.termMonths) || 0));
+    const monthly = parseFloat(builder.monthlyAmount) || 0;
+    const fees = builder.oneTimeFees.filter(f => (parseFloat(f.amount) || 0) > 0);
+    const oneTimeTotal = fees.reduce((s, f) => s + (parseFloat(f.amount) || 0), 0);
+    const feeLabels = fees.map(f => f.label || "One-time fee").join(" + ");
+    const rows = [];
+    for (let k = 0; k < term; k++) {
+      // In arrears: due at the END of each service month. Otherwise: due on the 1st.
+      const due = builder.inArrears
+        ? _fmtIsoDate(new Date(y, m - 1 + k + 1, 0))
+        : _fmtIsoDate(new Date(y, m - 1 + k, 1));
+      const amount = Math.round(((k === 0 ? oneTimeTotal : 0) + monthly) * 100) / 100;
+      const label = k === 0 && oneTimeTotal > 0
+        ? feeLabels + " + Month 1"
+        : "Month " + (k + 1);
+      rows.push({ id: "i" + (k + 1), dueDate: due, amount: amount, label: label, invoiceNo: "", status: "Pending", paidDate: "", method: "" });
+    }
+    setSched(rows);
+  }
+
+  function updateInst(idx, patch) {
+    setSched(prev => prev.map((r, i) => i === idx ? Object.assign({}, r, patch) : r));
+  }
+  function addInstRow() {
+    setSched(prev => {
+      let maxN = 0;
+      prev.forEach(r => { const n = parseInt(String(r.id).replace(/^i/, "")); if (n > maxN) maxN = n; });
+      const last = prev[prev.length - 1];
+      return [...prev, { id: "i" + (maxN + 1), dueDate: last ? last.dueDate : todayISO(), amount: 0, label: "", invoiceNo: "", status: "Pending", paidDate: "", method: "" }];
+    });
+  }
+  function removeInstRow(idx) {
+    setSched(prev => prev.filter((_, i) => i !== idx));
+  }
+
+  async function markInstPaid() {
+    if (!marking || instBusy) return;
+    setInstBusy(true);
+    const r = await api("adminMarkSponsorshipInstallmentPaid", {
+      sponsorshipId: banner.bannerId,
+      installmentId: marking.id,
+      method: marking.method,
+      paidDate: marking.paidDate
+    });
+    setInstBusy(false);
+    if (r.ok) {
+      setSched(prev => prev.map(x => String(x.id) === String(marking.id)
+        ? Object.assign({}, x, { status: "Paid", paidDate: r.paidDate, method: r.method })
+        : x));
+      setMarking(null);
+      showToast("Installment marked paid · $" + (r.amount || 0).toFixed(2), "success");
+      invalidateApiCache("adminListSponsorships");
+      onChanged && onChanged();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  async function unmarkInstPaid(inst) {
+    if (instBusy) return;
+    if (!confirm("Un-mark installment \"" + (inst.label || inst.id) + "\" ($" + (parseFloat(inst.amount) || 0).toFixed(2) + ")? A reversal row is written to the ledger.")) return;
+    setInstBusy(true);
+    const r = await api("adminUnmarkSponsorshipInstallmentPaid", {
+      sponsorshipId: banner.bannerId,
+      installmentId: inst.id
+    });
+    setInstBusy(false);
+    if (r.ok) {
+      setSched(prev => prev.map(x => String(x.id) === String(inst.id)
+        ? Object.assign({}, x, { status: "Pending", paidDate: "", method: "" })
+        : x));
+      showToast("Un-marked · reversal recorded", "success");
+      invalidateApiCache("adminListSponsorships");
+      onChanged && onChanged();
+    } else {
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
+  function instChip(inst) {
+    const isPaid = String(inst.status) === "Paid";
+    const overdue = !isPaid && String(inst.dueDate || "") < todayISO();
+    const c = isPaid
+      ? { bg: "rgba(61,122,79,0.15)", color: "var(--green)", label: "PAID" }
+      : overdue
+        ? { bg: "rgba(217,120,92,0.15)", color: "var(--clay)", label: "OVERDUE" }
+        : { bg: "rgba(168,116,74,0.15)", color: "var(--wood)", label: "PENDING" };
+    return (
+      <span style={{
+        fontFamily: "var(--mono)", fontSize: 9, fontWeight: 700, letterSpacing: "0.12em",
+        padding: "2px 7px", borderRadius: 999, background: c.bg, color: c.color, whiteSpace: "nowrap"
+      }}>{c.label}</span>
+    );
+  }
+  /* ─────────────────────────────────────────────────────────────────── */
 
   // Upload goes as a JSON POST (base64 can't fit in a GET URL).
   async function _postApi(action, payload) {
@@ -23159,9 +23305,16 @@ function SponsorshipModal({ banner, onClose, onSaved }) {
     if (!form.location.trim()) return showToast("Location required", "error");
     if (!form.sponsorName.trim()) return showToast("Sponsor name required", "error");
     if (form.saleType === "one_off" && !form.endDate) return showToast("One-off banners need an End Date", "error");
+    if (form.saleType === "scheduled" && sched.length === 0) return showToast("Add at least one installment (use the builder)", "error");
 
     setSaving(true);
     const params = { ...form };
+    if (form.saleType === "scheduled") {
+      // Backend computes Price_USD from the plan; send rows sorted by due date.
+      delete params.price;
+      const sorted = sched.slice().sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
+      params.schedule = JSON.stringify(sorted);
+    }
     if (!isNew) params.bannerId = banner.bannerId;
     const action = isNew ? "adminCreateSponsorship" : "adminUpdateSponsorship";
     const r = await api(action, params);
@@ -23236,19 +23389,153 @@ function SponsorshipModal({ banner, onClose, onSaved }) {
             <select value={form.saleType} onChange={(e) => setForm({ ...form, saleType: e.target.value })}>
               <option value="monthly">Monthly subscription</option>
               <option value="one_off">One-off payment</option>
+              <option value="scheduled">Scheduled contract</option>
             </select>
           </div>
-          <div className="field">
-            <div className="field-label">Price · USD</div>
-            <input
-              type="number"
-              min="0"
-              step="10"
-              value={form.price}
-              onChange={(e) => setForm({ ...form, price: parseFloat(e.target.value) || 0 })}
-            />
-          </div>
+          {form.saleType !== "scheduled" ? (
+            <div className="field">
+              <div className="field-label">Price · USD</div>
+              <input
+                type="number"
+                min="0"
+                step="10"
+                value={form.price}
+                onChange={(e) => setForm({ ...form, price: parseFloat(e.target.value) || 0 })}
+              />
+            </div>
+          ) : (
+            <div className="field">
+              <div className="field-label">Contract total · USD</div>
+              <div style={{ fontFamily: "var(--serif)", fontStyle: "italic", fontSize: 24, fontWeight: 700, padding: "6px 0" }}>
+                ${schedTotal.toFixed(2)}
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* ── v90: SCHEDULED CONTRACT — installment plan ─────────────── */}
+        {form.saleType === "scheduled" && (
+          <div className="field" style={{ border: "1.5px solid rgba(26,26,26,0.2)", borderRadius: 6, padding: 12 }}>
+            <div className="field-label" style={{ marginBottom: 8 }}>Payment schedule</div>
+
+            {/* Builder — term, monthly amount, one-time fees, start month, arrears */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+              <div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", opacity: 0.6, marginBottom: 3 }}>TERM · MONTHS</div>
+                <input type="number" min="1" max="60" value={builder.termMonths}
+                  onChange={(e) => setBuilder({ ...builder, termMonths: parseInt(e.target.value) || 0 })} />
+              </div>
+              <div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", opacity: 0.6, marginBottom: 3 }}>MONTHLY · USD</div>
+                <input type="number" min="0" step="10" value={builder.monthlyAmount}
+                  onChange={(e) => setBuilder({ ...builder, monthlyAmount: parseFloat(e.target.value) || 0 })} />
+              </div>
+              <div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", opacity: 0.6, marginBottom: 3 }}>START MONTH</div>
+                <input type="month" value={builder.startMonth}
+                  onChange={(e) => setBuilder({ ...builder, startMonth: e.target.value })} />
+              </div>
+            </div>
+            {builder.oneTimeFees.map((f, fi) => (
+              <div key={fi} style={{ display: "grid", gridTemplateColumns: "2fr 1fr auto", gap: 8, marginBottom: 6, alignItems: "center" }}>
+                <input type="text" placeholder="One-time fee label (e.g. Frame setup)" value={f.label}
+                  onChange={(e) => setBuilder({ ...builder, oneTimeFees: builder.oneTimeFees.map((x, i) => i === fi ? { ...x, label: e.target.value } : x) })} />
+                <input type="number" min="0" step="10" value={f.amount}
+                  onChange={(e) => setBuilder({ ...builder, oneTimeFees: builder.oneTimeFees.map((x, i) => i === fi ? { ...x, amount: parseFloat(e.target.value) || 0 } : x) })} />
+                <button className="btn-sm ghost" style={{ color: "var(--clay)" }}
+                  onClick={() => setBuilder({ ...builder, oneTimeFees: builder.oneTimeFees.filter((_, i) => i !== fi) })}>×</button>
+              </div>
+            ))}
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
+              <button className="btn-sm ghost" onClick={() => setBuilder({ ...builder, oneTimeFees: [...builder.oneTimeFees, { label: "", amount: 0 }] })}>
+                + One-time fee
+              </button>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--mono)", fontSize: 11, cursor: "pointer" }}>
+                <input type="checkbox" checked={builder.inArrears}
+                  onChange={(e) => setBuilder({ ...builder, inArrears: e.target.checked })} />
+                In arrears · due month-end
+              </label>
+              <button className="btn-sm" style={{ marginLeft: "auto" }} onClick={generateSchedule}>
+                Generate schedule
+              </button>
+            </div>
+
+            {/* Installment rows — all editable; paid rows locked */}
+            {sched.length === 0 ? (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11, opacity: 0.55, padding: "6px 0" }}>
+                No installments yet — set the terms above and hit "Generate schedule", or add rows manually.
+              </div>
+            ) : (
+              <div>
+                {sched.map((inst, idx) => {
+                  const isPaid = String(inst.status) === "Paid";
+                  return (
+                    <div key={inst.id} style={{
+                      borderTop: "1px solid rgba(26,26,26,0.1)", padding: "8px 0",
+                      opacity: instBusy ? 0.6 : 1
+                    }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1.4fr 1fr auto", gap: 6, alignItems: "center" }}>
+                        {instChip(inst)}
+                        <input type="date" value={inst.dueDate || ""} disabled={isPaid}
+                          onChange={(e) => updateInst(idx, { dueDate: e.target.value })} />
+                        <input type="number" min="0" step="10" value={inst.amount} disabled={isPaid}
+                          onChange={(e) => updateInst(idx, { amount: parseFloat(e.target.value) || 0 })} />
+                        <input type="text" placeholder="Label" value={inst.label || ""} disabled={isPaid}
+                          onChange={(e) => updateInst(idx, { label: e.target.value })} />
+                        <input type="text" placeholder="Invoice #" value={inst.invoiceNo || ""}
+                          onChange={(e) => updateInst(idx, { invoiceNo: e.target.value })} />
+                        <button className="btn-sm ghost" style={{ color: "var(--clay)" }} disabled={isPaid}
+                          title={isPaid ? "Un-mark first" : "Remove installment"}
+                          onClick={() => removeInstRow(idx)}>×</button>
+                      </div>
+                      {/* Mark / un-mark — saved scheduled banners only */}
+                      {!isNew && banner.saleType === "scheduled" && (
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 5, flexWrap: "wrap" }}>
+                          {isPaid ? (
+                            <React.Fragment>
+                              <span style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6 }}>
+                                Paid {inst.paidDate}{inst.method ? " · " + inst.method : ""}
+                              </span>
+                              <button className="btn-sm ghost" disabled={instBusy} onClick={() => unmarkInstPaid(inst)}>Unmark</button>
+                            </React.Fragment>
+                          ) : marking && String(marking.id) === String(inst.id) ? (
+                            <React.Fragment>
+                              <select value={marking.method} onChange={(e) => setMarking({ ...marking, method: e.target.value })}>
+                                {SPONSOR_PAY_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+                              </select>
+                              <input type="date" value={marking.paidDate}
+                                onChange={(e) => setMarking({ ...marking, paidDate: e.target.value })} />
+                              <button className="btn-sm primary" disabled={instBusy} onClick={markInstPaid}>
+                                {instBusy ? "Saving…" : "Confirm paid"}
+                              </button>
+                              <button className="btn-sm ghost" disabled={instBusy} onClick={() => setMarking(null)}>Cancel</button>
+                            </React.Fragment>
+                          ) : (
+                            <button className="btn-sm" disabled={instBusy}
+                              onClick={() => setMarking({ id: inst.id, method: "Cash", paidDate: todayISO() })}>
+                              Mark paid
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                <div style={{ display: "flex", gap: 8, alignItems: "center", borderTop: "1px solid rgba(26,26,26,0.15)", paddingTop: 8, marginTop: 2 }}>
+                  <button className="btn-sm ghost" onClick={addInstRow}>+ Add row</button>
+                  <div style={{ marginLeft: "auto", fontFamily: "var(--mono)", fontSize: 11 }}>
+                    Running total: <b>${schedTotal.toFixed(2)}</b>
+                  </div>
+                </div>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 11, marginTop: 6, letterSpacing: "0.04em" }}>
+                  Paid ${schedPaid.toFixed(2)} of ${schedTotal.toFixed(2)}
+                  {nextDueRow ? " · next due " + nextDueRow.dueDate + " $" + (parseFloat(nextDueRow.amount) || 0).toFixed(2) : " · fully collected"}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {/* ───────────────────────────────────────────────────────────── */}
 
         <div className="field-row">
           <div className="field">
@@ -23261,7 +23548,7 @@ function SponsorshipModal({ banner, onClose, onSaved }) {
           </div>
           <div className="field">
             <div className="field-label">
-              End date {form.saleType === "monthly" ? "(optional)" : "(required)"}
+              End date {form.saleType === "one_off" ? "(required)" : form.saleType === "scheduled" ? "(optional · defaults to last installment)" : "(optional)"}
             </div>
             <input
               type="date"
