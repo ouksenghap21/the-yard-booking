@@ -4814,7 +4814,7 @@ var MUTATING_ACTIONS = new Set([
   "adminRenewMember",
   "adminSendReceiptSms",
   "adminMarkWalkInPlayerPaid","adminMarkCoachingSessionsPaid","adminPayCoach","adminRefundCoachingSession",
-  "adminUpdateOpenPlayPlayer","adminRemoveOpenPlayPlayer","adminAddOpenPlayPlayer","adminUpdateOpenPlaySession",
+  "adminUpdateOpenPlayPlayer","adminRemoveOpenPlayPlayer","adminAddOpenPlayPlayer","adminUpdateOpenPlaySession","adminMoveOpenPlaySessionCourt",
   "adminCreateSponsorship","adminUpdateSponsorship","adminCancelSponsorship",
   "adminMarkSponsorshipInstallmentPaid","adminUnmarkSponsorshipInstallmentPaid",
   "adminCreateCorporateAccount","adminUpdateCorporateAccount",
@@ -4953,7 +4953,7 @@ function _invalidateForMutation(action) {
     /^(adminCreateCoachingSession|adminCancelCoachingSession|adminUpdateCoachingSession|adminMoveCoachingSessionCourt|adminMarkCoachingSessionsPaid|adminPayCoach|adminRefundCoachingSession|adminCreateCoach|adminUpdateCoach|adminDeleteCoach|tabAttachCoachingSession|tabDetachCoachingSession|posVoidSale)/.test(action)
   );
   const isOpenPlayMutation = (
-    /^(adminCreateOpenPlaySession|adminCancelOpenPlaySession|adminUpdateOpenPlaySession|adminAddOpenPlayPlayer|registerForOpenPlay|cancelMyOpenPlayRegistration|adminUpdateOpenPlayPlayer|adminRemoveOpenPlayPlayer)/.test(action)
+    /^(adminCreateOpenPlaySession|adminCancelOpenPlaySession|adminUpdateOpenPlaySession|adminMoveOpenPlaySessionCourt|adminAddOpenPlayPlayer|registerForOpenPlay|cancelMyOpenPlayRegistration|adminUpdateOpenPlayPlayer|adminRemoveOpenPlayPlayer)/.test(action)
   );
   const isTournamentMutation = (
     /^(adminCreateTournament|adminCancelTournament|adminUpdateTournament|adminAddTournamentPlayer|adminRemoveTournamentPlayer|adminAddTournamentRevenue|adminAddTournamentExpense|registerForTournament|adminMarkTournamentPlayerPaid)/.test(action)
@@ -7075,6 +7075,49 @@ function ScreenDashboard() {
                       cut — so the two legitimately differ by prepayments, pay-laters, memberships,
                       and coach money held for payout.
                     </div>
+                    {/* v93: server-computed Revenue→Takings RECONCILER — itemizes
+                        every dollar of the gap and asserts the identity to the
+                        cent. Only NONZERO items render; ends "= exact match ✓"
+                        (or the honest "unexplained $Z" if books ever disagree). */}
+                    {data && data.revenueTakingsBridge && (() => {
+                      const b = data.revenueTakingsBridge;
+                      const nz = v => Math.abs(v || 0) >= 0.005;
+                      const items = [
+                        { label: "Coach's cut held for payout", amt: b.coachCutHeld },
+                        { label: "Collected today for other days' sessions", amt: b.otherDaySessionMoneyCollectedToday },
+                        { label: "Paid earlier for today's sessions", amt: -(b.todaySessionMoneyCollectedEarlier || 0) },
+                        { label: "Memberships", amt: b.membershipsCollected },
+                        { label: "Tournament fees", amt: b.tournamentsCollectedToday },
+                        { label: "Sponsorships", amt: b.sponsorshipsCollectedToday },
+                        { label: "Other till activity", amt: b.otherLedgerToday },
+                        { label: "Cash coach payouts", amt: -(b.cashCoachPayoutsToday || 0) },
+                        { label: "Refunds", amt: -(b.refundsToday || 0) }
+                      ].filter(x => nz(x.amt));
+                      const fmtSigned = v => (v < 0 ? "−" + fmtMoney(-v) : "+" + fmtMoney(v));
+                      return (
+                        <div style={{ marginTop: 8, borderTop: "1px dashed var(--concrete)", paddingTop: 8 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700 }}>
+                            Bridge from Revenue {fmtMoney(b.revenueTotal || 0)} → Takings {fmtMoney(b.takingsTotal || 0)}:
+                          </div>
+                          {items.map(x => (
+                            <div key={x.label} style={{ display: "flex", alignItems: "baseline", gap: 8,
+                                                        fontSize: 12, lineHeight: 1.9 }}>
+                              <span>{x.label}</span>
+                              <span style={{ marginLeft: "auto", fontFamily: "var(--mono)", fontWeight: 700,
+                                             color: x.amt < 0 ? "var(--clay)" : "inherit" }}>
+                                {fmtSigned(x.amt)}
+                              </span>
+                            </div>
+                          ))}
+                          <div style={{ fontSize: 12, lineHeight: 1.9, fontFamily: "var(--mono)", fontWeight: 700,
+                                        color: nz(b.unexplained) ? "var(--clay)" : "var(--green)" }}>
+                            {nz(b.unexplained)
+                              ? "unexplained " + (b.unexplained < 0 ? "−" + fmtMoney(-b.unexplained) : fmtMoney(b.unexplained))
+                              : "= exact match ✓"}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })()}
@@ -20869,6 +20912,9 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({ price: 0, title: "", playerCap: 0 });
   const [savingEdit, setSavingEdit] = useState(false);
+  // v95: move the session to another court (mirrors coaching's mover).
+  const [moveCourtTo, setMoveCourtTo] = useState("");
+  const [movingCourt, setMovingCourt] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -20964,6 +21010,26 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
     else {
       setData(prev => prev && ({ ...prev, players: prevPlayers }));
       showToast(r.error || "Failed", "error");
+    }
+  }
+
+  // v95: switch this session to a different court. The server atomically
+  // verifies the target court is free for the session's remaining window
+  // before touching anything — on conflict it refuses and nothing changes.
+  // Registrations, payments and tabs are unaffected (they key on the
+  // session ID, which doesn't change).
+  async function moveCourt() {
+    if (movingCourt || !moveCourtTo) return;
+    setMovingCourt(true);
+    const r = await api("adminMoveOpenPlaySessionCourt", { sessionId: sessionId, newCourt: moveCourtTo });
+    setMovingCourt(false);
+    if (r.ok) {
+      showToast("Moved to court " + r.toCourt + (r.midSession ? " (remaining time only)" : ""), "success");
+      setMoveCourtTo("");
+      load();
+      onChanged && onChanged();
+    } else {
+      showToast(r.error || "Court move failed", "error");
     }
   }
 
@@ -21092,6 +21158,31 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
           </div>
         </div>
       </div>
+
+      {/* v95: move to another court — mirrors coaching's court mover */}
+      {!isCancelled && s.status !== "completed" && (
+        String(s.courts || "").split(",").filter(x => x.trim()).length === 1 ? (
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.6, marginBottom: 4 }}>
+              Court · currently C·{s.courts}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <select style={{ flex: 1 }} value={moveCourtTo} onChange={(e) => setMoveCourtTo(e.target.value)}>
+                <option value="">Move to court…</option>
+                {[1, 2, 3, 4, 5, 6, 7, 8].filter(c => String(c) !== String(s.courts).trim()).map(c => (
+                  <option key={c} value={c}>C·{c}</option>
+                ))}
+              </select>
+              <button className="btn ghost" onClick={moveCourt} disabled={movingCourt || !moveCourtTo}>
+                {movingCourt ? "…" : "Move court"}
+              </button>
+            </div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, marginTop: 4, lineHeight: 1.4 }}>
+              Moves the session only if the target court is free for the whole (remaining) window. Players, payments and tabs are unchanged.
+            </div>
+          </div>
+        ) : null
+      )}
 
       {s.notes && (
         <div style={{
@@ -23095,9 +23186,9 @@ function ScreenSponsorships() {
           </div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--green)" }}>
-          <div className="label">Monthly recurring</div>
-          <div className="value" style={{ color: "var(--green)" }}>${rev.mrr.toFixed(0)}</div>
-          <div className="sub">MRR · active subscriptions</div>
+          <div className="label">Contracted / month</div>
+          <div className="value" style={{ color: "var(--green)" }}>${(rev.contractedMonthly != null ? rev.contractedMonthly : rev.mrr).toFixed(0)}</div>
+          <div className="sub">legacy subscriptions ${(rev.mrr || 0).toFixed(0)} · scheduled contracts ${(rev.scheduledMonthlyEquivalent || 0).toFixed(0)}/mo avg</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
           <div className="label">One-off this month</div>
