@@ -9349,8 +9349,22 @@ function BookingDetailModal({ booking, onClose, onAction }) {
   const [releaseSel, setReleaseSel] = useState({});   // court -> true (release it)
   const releaseChosen = bookingCourtList.filter(c => releaseSel[c]);
   const releaseRemaining = bookingCourtList.filter(c => !releaseSel[c]);
+  // v96 — prorated estimate (mirrors the server's played-time rule): a
+  // released court's PLAYED half-hours stay billed. Played = slots whose
+  // START is before now (ceil — the in-progress half-hour counts as played,
+  // a slot starting exactly now doesn't). Estimate weights each released
+  // court by its played share; kept courts keep the full window. Linear
+  // per-court scaling like v68 — server total is final.
+  const relSlotsTotal = booking.slots || 0;
+  const relStartMin = timeToMin(booking.time);
+  const relNowMin = (() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); })();
+  const relPlayedSlots = booking.date === todayISO()
+    ? Math.max(0, Math.min(relSlotsTotal, Math.ceil((relNowMin - relStartMin) / 30)))
+    : (booking.date < todayISO() ? relSlotsTotal : 0);
+  const relPlayedShare = relSlotsTotal > 0 ? relPlayedSlots / relSlotsTotal : 0;
+  const relFmtH = (n) => { const h = n * 0.5; return (h === Math.floor(h) ? String(h) : h.toFixed(1)) + "h"; };
   const releaseEstTotal = bookingCourtList.length > 0
-    ? Math.round((booking.total || 0) * releaseRemaining.length / bookingCourtList.length * 100) / 100
+    ? Math.round((booking.total || 0) * (releaseRemaining.length + releaseChosen.length * relPlayedShare) / bookingCourtList.length * 100) / 100
     : 0;
 
   async function doReleaseCourts() {
@@ -9358,7 +9372,9 @@ function BookingDetailModal({ booking, onClose, onAction }) {
     const ok = await confirmAction({
       title: "Release court" + (releaseChosen.length > 1 ? "s" : "") + " " + releaseChosen.join(", ") + "?",
       message: booking.name + " · keeps C·" + releaseRemaining.join(", ") + " · " + booking.date + " " + booking.time,
-      consequence: "The released court" + (releaseChosen.length > 1 ? "s become" : " becomes") + " available for walk-ins. The booking is repriced for the remaining court" + (releaseRemaining.length > 1 ? "s" : "") + " — about " + fmtMoney(releaseEstTotal) + " (exact total is recalculated on confirm).",
+      consequence: "The released court" + (releaseChosen.length > 1 ? "s become" : " becomes") + " available for walk-ins." +
+        (relPlayedSlots > 0 ? " Mid-session: " + relFmtH(relPlayedSlots) + " already played stays billed on the released court" + (releaseChosen.length > 1 ? "s" : "") + "; " + relFmtH(relSlotsTotal - relPlayedSlots) + " is freed." : "") +
+        " The booking is repriced for the remaining court" + (releaseRemaining.length > 1 ? "s" : "") + " — about " + fmtMoney(releaseEstTotal) + " (exact total is recalculated on confirm).",
       confirmLabel: "Yes, release",
       destructive: true
     });
@@ -9828,10 +9844,18 @@ function BookingDetailModal({ booking, onClose, onAction }) {
                 Releases C·{releaseChosen.join(", ")} · keeps C·{releaseRemaining.join(", ")} ·
                 new price ≈ <strong>{fmtMoney(releaseEstTotal)}</strong>
                 <span style={{ opacity: 0.6 }}> (was {fmtMoney(booking.total || 0)} — exact total recalculated on confirm)</span>
+                {relPlayedSlots > 0 && (
+                  <div style={{ marginTop: 4, color: "var(--clay)" }}>
+                    {releaseChosen.map(c => (
+                      <div key={c}>court {c}: {relFmtH(relPlayedSlots)} played stays billed{relSlotsTotal > relPlayedSlots ? " · " + relFmtH(relSlotsTotal - relPlayedSlots) + " freed" : ""}</div>
+                    ))}
+                    <div style={{ opacity: 0.7 }}>kept court{releaseRemaining.length > 1 ? "s" : ""} C·{releaseRemaining.join(", ")}: full {relFmtH(relSlotsTotal)} billed</div>
+                  </div>
+                )}
               </div>
             )}
             <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, lineHeight: 1.4, marginBottom: 8 }}>
-              Mid-session: only the remaining time is freed — played half-hours stay recorded. Unpaid bookings only; paid changes go through refund flows.
+              Mid-session: the released court's played half-hours (rounded up to the half-hour containing now) stay billed; the rest of its time is freed for walk-ins. Unpaid bookings only; paid changes go through refund flows.
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button className="btn danger" onClick={doReleaseCourts} disabled={acting || releaseChosen.length === 0 || releaseRemaining.length === 0}>
