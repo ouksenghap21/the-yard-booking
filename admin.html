@@ -5059,6 +5059,16 @@ function _invalidateForMutation(action) {
   if (isBookingMutation) {
     wipe("adminListBookings");
   }
+  // v97 fix: the Customers tab aggregates bookings, walk-ins, coaching,
+  // open play, tournaments, members AND POS spend — but no mutation ever
+  // wiped its cache, so after "Mark paid" / "Add walk-in player" / a new
+  // booking the tab kept serving the stale 30s cache (and the persisted
+  // localStorage copy). Any customer-affecting mutation invalidates it now.
+  if (isBookingMutation || isWalkInMutation || isCoachingMutation ||
+      isOpenPlayMutation || isTournamentMutation || isPosMutation ||
+      isTabMutation || isMemberMutation) {
+    wipe("adminListCustomers");
+  }
 }
 
 async function api(action, params = {}, options = {}) {
@@ -17060,25 +17070,51 @@ function ScreenCustomers() {
   const [customers, setCustomers] = useState(null);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  // v97 filters — visits threshold, visit-date range, sort order
+  const [minVisits, setMinVisits] = useState("");
+  const [visitedFrom, setVisitedFrom] = useState("");
+  const [visitedTo, setVisitedTo] = useState("");
+  const [sortBy, setSortBy] = useState("lastSeen");
+  const [serverCounts, setServerCounts] = useState(null);
   const [historyCustomer, setHistoryCustomer] = useState(null);
   const [showCorporate, setShowCorporate] = useState(false);
 
-  async function load() {
+  function buildParams() {
+    // Default shape stays exactly { search, type } so the tab-bundle prewarm
+    // cache key still matches; extra filter params only join when active.
     const params = { search: search, type: typeFilter === "all" ? "" : typeFilter };
+    const mv = parseInt(minVisits, 10);
+    if (mv > 0) params.minVisits = mv;
+    if (visitedFrom) params.visitedFrom = visitedFrom;
+    if (visitedTo) params.visitedTo = visitedTo;
+    if (sortBy !== "lastSeen") params.sortBy = sortBy;
+    return params;
+  }
+
+  async function load() {
+    const params = buildParams();
     // Sync cache hit — show instantly while we re-fetch
     const cached = getCachedApi("adminListCustomers", params);
     if (cached && cached.ok) {
       setCustomers(cached.customers || []);
+      if (cached.counts) setServerCounts(cached.counts);
     }
     const r = await api("adminListCustomers", params);
-    if (r.ok) setCustomers(r.customers || []);
+    if (r.ok) {
+      setCustomers(r.customers || []);
+      setServerCounts(r.counts || null);
+    }
   }
   useEffect(() => {
-    const id = setTimeout(load, 200);  // debounce search
+    const id = setTimeout(load, 200);  // debounce search + filter typing
     return () => clearTimeout(id);
-  }, [search, typeFilter]);
+  }, [search, typeFilter, minVisits, visitedFrom, visitedTo, sortBy]);
 
   const counts = useMemo(() => {
+    // v97 fix: prefer the server's counts — computed BEFORE the type filter,
+    // so selecting a type chip no longer collapses every other chip's count.
+    // Fallback (older cached responses): compute from the visible list.
+    if (serverCounts) return serverCounts;
     if (!customers) return { all: 0, member: 0, guest: 0, walkin: 0, student: 0, openplay: 0, tournament: 0 };
     return {
       all: customers.length,
@@ -17089,17 +17125,26 @@ function ScreenCustomers() {
       openplay: customers.filter(c => c.sources.indexOf("openplay") >= 0).length,
       tournament: customers.filter(c => c.sources.indexOf("tournament") >= 0).length
     };
-  }, [customers]);
+  }, [customers, serverCounts]);
 
+  // v97 fix: "walkin" (legacy blocks) and "openplay" (session players) chips
+  // were BOTH labeled "Walk-in players" — two identical, indistinguishable
+  // chips. Labels now follow the Finances naming convention.
   const FILTERS = [
     { id: "all", label: "All" },
     { id: "member", label: "Members" },
     { id: "guest", label: "Court guests" },
-    { id: "walkin", label: "Walk-in players" },
+    { id: "walkin", label: "Walk-in · blocks" },
     { id: "student", label: "Coaching students" },
-    { id: "openplay", label: "Walk-in players" },
+    { id: "openplay", label: "Walk-in · sessions" },
     { id: "tournament", label: "Tournament players" }
   ];
+
+  const SORT_LABELS = { lastSeen: "Last seen", visits: "Most visits", spend: "Top spend", name: "Name A–Z" };
+  const hasActiveFilters = (parseInt(minVisits, 10) > 0) || !!visitedFrom || !!visitedTo || sortBy !== "lastSeen";
+  function clearFilters() {
+    setMinVisits(""); setVisitedFrom(""); setVisitedTo(""); setSortBy("lastSeen");
+  }
 
   return (
     <div className="main">
@@ -17123,7 +17168,7 @@ function ScreenCustomers() {
 
       {showCorporate && <CorporateAccountsModal onClose={() => setShowCorporate(false)} />}
 
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
         <input
           type="text"
           className="search-input"
@@ -17142,6 +17187,75 @@ function ScreenCustomers() {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* v97 — visit filters + sort */}
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+        <label style={{ display: "flex", gap: 6, alignItems: "center", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.75 }}>
+          Min visits
+          <input
+            type="number" min="1" step="1" placeholder="—"
+            value={minVisits}
+            onChange={(e) => setMinVisits(e.target.value)}
+            style={{ width: 64, padding: "5px 8px", border: "1.5px solid var(--line,#1A1A1A)", borderRadius: 4, background: "transparent", font: "inherit" }}
+          />
+        </label>
+        <label style={{ display: "flex", gap: 6, alignItems: "center", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.75 }}>
+          Visited
+          <input
+            type="date"
+            value={visitedFrom}
+            max={visitedTo || undefined}
+            onChange={(e) => setVisitedFrom(e.target.value)}
+            style={{ padding: "5px 8px", border: "1.5px solid var(--line,#1A1A1A)", borderRadius: 4, background: "transparent", font: "inherit" }}
+          />
+          →
+          <input
+            type="date"
+            value={visitedTo}
+            min={visitedFrom || undefined}
+            onChange={(e) => setVisitedTo(e.target.value)}
+            style={{ padding: "5px 8px", border: "1.5px solid var(--line,#1A1A1A)", borderRadius: 4, background: "transparent", font: "inherit" }}
+          />
+        </label>
+        <label style={{ display: "flex", gap: 6, alignItems: "center", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.75 }}>
+          Sort
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            style={{ padding: "5px 8px", border: "1.5px solid var(--line,#1A1A1A)", borderRadius: 4, background: "transparent", font: "inherit" }}
+          >
+            <option value="lastSeen">Last seen</option>
+            <option value="visits">Most visits</option>
+            <option value="spend">Top spend</option>
+            <option value="name">Name A–Z</option>
+          </select>
+        </label>
+        {hasActiveFilters && (
+          <div className="filter-chips" style={{ margin: 0 }}>
+            {parseInt(minVisits, 10) > 0 && (
+              <button className="filter-chip on" onClick={() => setMinVisits("")} title="Clear">
+                ≥ {parseInt(minVisits, 10)} visit{parseInt(minVisits, 10) === 1 ? "" : "s"} ×
+              </button>
+            )}
+            {visitedFrom && (
+              <button className="filter-chip on" onClick={() => setVisitedFrom("")} title="Clear">
+                from {visitedFrom} ×
+              </button>
+            )}
+            {visitedTo && (
+              <button className="filter-chip on" onClick={() => setVisitedTo("")} title="Clear">
+                to {visitedTo} ×
+              </button>
+            )}
+            {sortBy !== "lastSeen" && (
+              <button className="filter-chip on" onClick={() => setSortBy("lastSeen")} title="Reset sort">
+                sort: {SORT_LABELS[sortBy] || sortBy} ×
+              </button>
+            )}
+            <button className="filter-chip" onClick={clearFilters}>Clear all</button>
+          </div>
+        )}
       </div>
 
       {customers === null ? (
@@ -17168,7 +17282,12 @@ function ScreenCustomers() {
       ) : (
         <div className="customer-list">
           {customers.map(c => {
-            const totalActivity = (c.totalBookings || 0) + (c.totalWalkInVisits || 0) + (c.totalCoachingSessions || 0);
+            // v97: the server's pinned visit count (attended activity only —
+            // no cancelled, no no-shows, no future bookings, incl. open play
+            // + tournaments). Fallback for stale cached rows: the old sum.
+            const totalActivity = c.totalVisits != null
+              ? c.totalVisits
+              : (c.totalBookings || 0) + (c.totalWalkInVisits || 0) + (c.totalCoachingSessions || 0);
             return (
               <div
                 key={c.identityKey || c.phone}
@@ -17195,21 +17314,24 @@ function ScreenCustomers() {
                   <div className="cust-meta">
                     {c.phone || "(no phone)"}{c.memberNumber ? " · " + c.memberNumber : ""}{c.email ? " · " + c.email : ""}
                   </div>
-                  {/* Sub-counts: bookings · walk-ins · coaching */}
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.55, marginTop: 4 }}>
-                    {c.totalBookings > 0 && <span>{c.totalBookings} booking{c.totalBookings === 1 ? "" : "s"}</span>}
-                    {c.totalBookings > 0 && (c.totalWalkInVisits > 0 || c.totalCoachingSessions > 0) && " · "}
-                    {c.totalWalkInVisits > 0 && <span style={{ color: "var(--peach,#D9785C)" }}>{c.totalWalkInVisits} walk-in{c.totalWalkInVisits === 1 ? "" : "s"}</span>}
-                    {c.totalWalkInVisits > 0 && c.totalCoachingSessions > 0 && " · "}
-                    {c.totalCoachingSessions > 0 && <span style={{ color: "var(--wood)" }}>{c.totalCoachingSessions} coaching</span>}
+                  {/* Sub-counts: bookings · walk-ins · coaching · sessions · tournaments
+                      v97 fix: open play + tournaments were missing here while the
+                      profile modal showed them — list row and modal disagreed. */}
+                  {(() => {
+                    const parts = [];
+                    if (c.totalBookings > 0) parts.push(<span key="bk">{c.totalBookings} booking{c.totalBookings === 1 ? "" : "s"}</span>);
+                    if (c.totalWalkInVisits > 0) parts.push(<span key="wi" style={{ color: "var(--peach,#D9785C)" }}>{c.totalWalkInVisits} walk-in{c.totalWalkInVisits === 1 ? "" : "s"}</span>);
+                    if (c.totalCoachingSessions > 0) parts.push(<span key="co" style={{ color: "var(--wood)" }}>{c.totalCoachingSessions} coaching</span>);
+                    if ((c.totalOpenPlay || 0) > 0) parts.push(<span key="op" style={{ color: "#5B6BA8" }}>{c.totalOpenPlay} session{c.totalOpenPlay === 1 ? "" : "s"}</span>);
+                    if ((c.totalTournaments || 0) > 0) parts.push(<span key="tr" style={{ color: "var(--clay)" }}>{c.totalTournaments} tournament{c.totalTournaments === 1 ? "" : "s"}</span>);
                     {/* v69: no-show fault count — repeat-offender tracking */}
-                    {(c.noShowCount || 0) > 0 && (
-                      <>
-                        {" · "}
-                        <span style={{ color: "var(--clay)", fontWeight: 700 }}>No-shows: {c.noShowCount}</span>
-                      </>
-                    )}
-                  </div>
+                    if ((c.noShowCount || 0) > 0) parts.push(<span key="ns" style={{ color: "var(--clay)", fontWeight: 700 }}>No-shows: {c.noShowCount}</span>);
+                    return (
+                      <div style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.55, marginTop: 4 }}>
+                        {parts.map((p, i) => <React.Fragment key={i}>{i > 0 && " · "}{p}</React.Fragment>)}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="cust-stats">
                   <div className="big">{totalActivity}</div>
@@ -17275,9 +17397,9 @@ function CustomerHistoryModal({ customer, onClose }) {
             const cfg = {
               member: { label: customer.tier + " member", bg: "var(--ink)", color: "var(--cream)" },
               guest: { label: "Court guest", bg: "var(--green)", color: "var(--cream)" },
-              walkin: { label: "◉ Walk-in player", bg: "var(--peach,#D9785C)", color: "var(--cream)" },
+              walkin: { label: "◉ Walk-in · blocks", bg: "var(--peach,#D9785C)", color: "var(--cream)" },
               student: { label: "★ Coaching student", bg: "var(--wood)", color: "var(--cream)" },
-              openplay: { label: "◉ Walk-in player", bg: "var(--peach,#D9785C)", color: "var(--cream)" },
+              openplay: { label: "◉ Walk-in · sessions", bg: "var(--peach,#D9785C)", color: "var(--cream)" },
               tournament: { label: "🏆 Tournament player", bg: "var(--clay)", color: "var(--cream)" }
             }[s];
             if (!cfg) return null;
@@ -17379,7 +17501,7 @@ function CustomerHistoryModal({ customer, onClose }) {
                 sections.push(
                   <React.Fragment key="walkins">
                     <div className="section-label">
-                      <span><span className="num">{num()}</span><span className="name" style={{ color: "var(--peach,#D9785C)" }}>◉ Walk-in</span></span>
+                      <span><span className="num">{num()}</span><span className="name" style={{ color: "var(--peach,#D9785C)" }}>◉ Walk-in · blocks</span></span>
                       <span className="right">{data.walkIns.length} visits</span>
                     </div>
                     <div style={{ maxHeight: 240, overflowY: "auto", marginBottom: 16 }}>
@@ -17427,7 +17549,7 @@ function CustomerHistoryModal({ customer, onClose }) {
                 sections.push(
                   <React.Fragment key="openplay">
                     <div className="section-label">
-                      <span><span className="num">{num()}</span><span className="name" style={{ color: "var(--peach,#D9785C)" }}>◉ Walk-in</span></span>
+                      <span><span className="num">{num()}</span><span className="name" style={{ color: "var(--peach,#D9785C)" }}>◉ Walk-in · sessions</span></span>
                       <span className="right">{data.openPlay.length} registrations</span>
                     </div>
                     <div style={{ maxHeight: 240, overflowY: "auto", marginBottom: 16 }}>
