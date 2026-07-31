@@ -13462,12 +13462,25 @@ function CoachPayoutModal({ coach, sessions, onClose, onConfirm }) {
  * in-memory cache, persisted cache, bootstrap hydrate) so a stale or
  * old-backend payload can never seed duplicate keys again.
  * First occurrence wins — matches the backend's first-row-wins rule. */
+// v98 — canonical SKU key (matches backend _posSkuKey): NFKC + zero-width
+// strip + trim + casefold. Khmer text passes through untouched.
+function posSkuKey(v) {
+  let s = String(v == null ? "" : v);
+  try { s = s.normalize("NFKC"); } catch (e) {}
+  return s.replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim().toUpperCase();
+}
+// v98 — Khmer-safe search normalization (NFC folds combining-mark variants).
+function searchNorm(s) {
+  let t = String(s == null ? "" : s).toLowerCase();
+  try { t = t.normalize("NFC"); } catch (e) {}
+  return t;
+}
 function dedupeProductsBySku(list) {
   const seen = new Set();
   const out = [];
   const duplicateSkus = [];
   for (const p of (list || [])) {
-    const k = String(p && p.sku != null ? p.sku : "").trim().toUpperCase();
+    const k = posSkuKey(p && p.sku != null ? p.sku : "");
     if (seen.has(k)) {
       if (duplicateSkus.indexOf(p.sku) < 0) duplicateSkus.push(p.sku);
       continue;
@@ -13598,16 +13611,16 @@ function ScreenPOS() {
       if (category === "Top") return true; // handled below
       if (category !== "All" && p.category !== category) return false;
       if (search) {
-        const s = search.toLowerCase();
-        if (p.name.toLowerCase().indexOf(s) < 0 && p.sku.toLowerCase().indexOf(s) < 0) return false;
+        const s = searchNorm(search);
+        if (searchNorm(p.name).indexOf(s) < 0 && searchNorm(p.sku).indexOf(s) < 0) return false;
       }
       return true;
     });
     if (category === "Top") {
       // Sort by usage score; take top 8. Apply search filter still.
       if (search) {
-        const s = search.toLowerCase();
-        out = out.filter(p => p.name.toLowerCase().includes(s) || p.sku.toLowerCase().includes(s));
+        const s = searchNorm(search);
+        out = out.filter(p => searchNorm(p.name).includes(s) || searchNorm(p.sku).includes(s));
       }
       out = out
         .map(p => ({ p, score: usageScores[p.sku] || 0 }))
@@ -13616,6 +13629,9 @@ function ScreenPOS() {
         .filter(x => x.score > 0)
         .map(x => x.p);
     }
+    // v98 — grayed OUT OF STOCK cards sort LAST (stable within each group)
+    // so live products stay tappable at the top of the grid.
+    out = [...out.filter(p => p.stock > 0), ...out.filter(p => !(p.stock > 0))];
     return out;
   }, [products, category, search, usageScores]);
 
@@ -13630,7 +13646,7 @@ function ScreenPOS() {
     } catch (e) {}
 
     setCart(prev => {
-      const idx = prev.findIndex(x => x.sku === p.sku);
+      const idx = prev.findIndex(x => (x.productId || x.sku) === (p.productId || p.sku));
       if (idx >= 0) {
         const next = [...prev];
         if (next[idx].quantity < p.stock) {
@@ -13645,6 +13661,7 @@ function ScreenPOS() {
         return prev;
       }
       return [...prev, {
+        productId: p.productId || "",
         sku: p.sku, name: p.name, category: p.category,
         price: p.price, quantity: 1, stockLimit: p.stock,
         memberEligible: p.memberEligible !== false
@@ -13774,7 +13791,7 @@ function ScreenPOS() {
       const attachedOpenPlay = attached.filter(a => a.kind === "openplay_player").map(a => a.id);
       const attachedCoaching = attached.filter(a => a.kind === "coaching_session").map(a => a.id);
       r = await api("adminSettleCombined", {
-        items: JSON.stringify(cart.map(x => ({ sku: x.sku, quantity: x.quantity }))),
+        items: JSON.stringify(cart.map(x => ({ productId: x.productId || undefined, sku: x.sku, quantity: x.quantity }))),
         attachedBookings: JSON.stringify(attachedBookings),
         attachedWalkInPlayers: JSON.stringify(attachedPlayers),
         attachedOpenPlayPlayers: JSON.stringify(attachedOpenPlay),
@@ -13790,7 +13807,7 @@ function ScreenPOS() {
       });
     } else {
       r = await api("posCreateSale", {
-        items: JSON.stringify(cart.map(x => ({ sku: x.sku, quantity: x.quantity }))),
+        items: JSON.stringify(cart.map(x => ({ productId: x.productId || undefined, sku: x.sku, quantity: x.quantity }))),
         discountPct: discountPct > 0 ? discountPct : 0,
         discountAmount: discountPct > 0 ? 0 : (parseFloat(discountAmount) || 0),  // staff portion only — backend re-derives the member discount itself (don't double it)
         paymentMethod: paymentMethod,
@@ -13806,7 +13823,7 @@ function ScreenPOS() {
       // Save last cart for "Repeat last sale" recall
       try {
         localStorage.setItem("yard-pos-last-cart", JSON.stringify({
-          items: cart.map(x => ({ sku: x.sku, name: x.name, quantity: x.quantity })),
+          items: cart.map(x => ({ productId: x.productId || "", sku: x.sku, name: x.name, quantity: x.quantity })),
           savedAt: Date.now()
         }));
       } catch (e) {}
@@ -13929,12 +13946,12 @@ function ScreenPOS() {
           ) : (
             <div className="pos-grid">
               {visibleProducts.map(p => {
-                const inCart = cart.find(x => x.sku === p.sku);
+                const inCart = cart.find(x => (x.productId || x.sku) === (p.productId || p.sku));
                 const stockLow = p.reorderLevel > 0 && p.stock <= p.reorderLevel;
                 const outOfStock = p.stock < 1;
                 return (
                   <div
-                    key={p.sku}
+                    key={p.productId || p.sku}
                     className={"pos-tile" + (outOfStock ? " oos" : "") + (inCart ? " in-cart" : "")}
                     onClick={() => addToCart(p)}
                     onContextMenu={(e) => { e.preventDefault(); setEditProduct(p); setShowProductModal(true); }}
@@ -13982,11 +13999,12 @@ function ScreenPOS() {
                       const rebuilt = [];
                       const dropped = [];
                       for (const li of lastCart.items) {
-                        const p = (products || []).find(x => x.sku === li.sku && x.active);
+                        const p = (products || []).find(x => x.active && (li.productId ? x.productId === li.productId : x.sku === li.sku));
                         if (!p) { dropped.push(li.name || li.sku); continue; }
                         const qty = Math.min(li.quantity, p.stock);
                         if (qty < 1) { dropped.push(p.name || li.sku); continue; }
                         rebuilt.push({
+                          productId: p.productId || "",
                           sku: p.sku, name: p.name, category: p.category,
                           price: p.price, quantity: qty, stockLimit: p.stock,
                           memberEligible: p.memberEligible !== false
@@ -14809,7 +14827,7 @@ function AddItemToTabModal({ tabId, products, onClose, onAdded }) {
   // inline qty stepper (default 1) — then ONE "ADD N ITEMS" button submits
   // everything in a single tabAddItems call (validated + appended atomically
   // server-side). Tapping a single item + ADD still works exactly as before.
-  const [sel, setSel] = useState({});          // { sku: qty }
+  const [sel, setSel] = useState({});          // { (productId||sku): qty }
   const [search, setSearch] = useState("");
   const [working, setWorking] = useState(false);
 
@@ -14817,13 +14835,14 @@ function AddItemToTabModal({ tabId, products, onClose, onAdded }) {
     if (!products) return [];
     const q = search.toLowerCase();
     return products.filter(p =>
-      p.active && (!q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
+      p.active && (!q || searchNorm(p.name).includes(searchNorm(q)) || searchNorm(p.sku).includes(searchNorm(q)))
     );
   }, [products, search]);
 
+  // v98 — keyed by row-stable productId (sku fallback for legacy payloads)
   const bySku = useMemo(() => {
     const m = {};
-    (products || []).forEach(p => { m[p.sku] = p; });
+    (products || []).forEach(p => { m[p.productId || p.sku] = p; });
     return m;
   }, [products]);
 
@@ -14832,10 +14851,11 @@ function AddItemToTabModal({ tabId, products, onClose, onAdded }) {
   const total = selSkus.reduce((s, k) => s + sel[k] * ((bySku[k] || {}).price || 0), 0);
 
   function toggle(p) {
+    const k = p.productId || p.sku;
     setSel(prev => {
-      if (prev[p.sku]) { const n = { ...prev }; delete n[p.sku]; return n; }
+      if (prev[k]) { const n = { ...prev }; delete n[k]; return n; }
       if ((p.stock || 0) < 1) { showToast("Out of stock", "error"); return prev; }
-      return { ...prev, [p.sku]: 1 };
+      return { ...prev, [k]: 1 };
     });
   }
 
@@ -14852,9 +14872,13 @@ function AddItemToTabModal({ tabId, products, onClose, onAdded }) {
   async function submit() {
     if (count === 0) { showToast("Pick a product", "error"); return; }
     setWorking(true);
+    // v98 — send the row-stable productId with each line (sku kept as label)
     const r = await api("tabAddItems", {
       tabId: tabId,
-      items: JSON.stringify(selSkus.map(sku => ({ sku: sku, quantity: sel[sku] })))
+      items: JSON.stringify(selSkus.map(k => {
+        const p = bySku[k] || {};
+        return { productId: p.productId || undefined, sku: p.sku || k, quantity: sel[k] };
+      }))
     });
     setWorking(false);
     if (r.ok) {
@@ -14887,9 +14911,9 @@ function AddItemToTabModal({ tabId, products, onClose, onAdded }) {
           {filtered.length === 0 ? (
             <div className="empty-mini" style={{ padding: 18 }}>No products match</div>
           ) : filtered.map(p => {
-            const qty = sel[p.sku] || 0;
+            const qty = sel[p.productId || p.sku] || 0;
             return (
-              <div key={p.sku}
+              <div key={p.productId || p.sku}
                 onClick={() => toggle(p)}
                 style={{
                   padding: "10px 12px",
@@ -14910,9 +14934,9 @@ function AddItemToTabModal({ tabId, products, onClose, onAdded }) {
                 </div>
                 {qty > 0 ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }} onClick={(e) => e.stopPropagation()}>
-                    <button className="btn-sm" onClick={() => step(p.sku, -1)} aria-label={"Fewer " + p.name}>−</button>
+                    <button className="btn-sm" onClick={() => step(p.productId || p.sku, -1)} aria-label={"Fewer " + p.name}>−</button>
                     <span style={{ fontFamily: "var(--mono)", fontSize: 15, fontWeight: 700, minWidth: 24, textAlign: "center" }}>{qty}</span>
-                    <button className="btn-sm" onClick={() => step(p.sku, 1)} disabled={qty >= p.stock} aria-label={"More " + p.name}>+</button>
+                    <button className="btn-sm" onClick={() => step(p.productId || p.sku, 1)} disabled={qty >= p.stock} aria-label={"More " + p.name}>+</button>
                     <span style={{ fontFamily: "var(--mono)", fontWeight: 700, minWidth: 52, textAlign: "right" }}>${(p.price * qty).toFixed(2)}</span>
                   </div>
                 ) : (
@@ -16128,7 +16152,13 @@ function ProductModal({ product, onClose, onSaved }) {
     setSaving(true);
     const action = isNew ? "posCreateProduct" : "posUpdateProduct";
     const params = { ...form };
-    if (!isNew) params.sku = product.sku;
+    if (!isNew) {
+      // v98 — locate by row-stable productId; SKU is an editable label now.
+      // A changed SKU travels as newSku through the server-side dup guard.
+      params.productId = product.productId || "";
+      params.sku = product.sku;
+      if (form.sku !== product.sku) params.newSku = form.sku;
+    }
     const r = await api(action, params);
     setSaving(false);
     if (r.ok) {
@@ -16148,7 +16178,7 @@ function ProductModal({ product, onClose, onSaved }) {
       "It disappears from the POS grid and can no longer be sold or added to tabs. " +
       "The row and its sales history are kept — unarchive any time from Manage Stock → Archived.")) return;
     setSaving(true);
-    const r = await api("posUpdateProduct", { sku: product.sku, archived: true });
+    const r = await api("posUpdateProduct", { productId: product.productId || "", sku: product.sku, archived: true });
     setSaving(false);
     if (r.ok) {
       showToast("Product archived", "success");
@@ -16172,7 +16202,8 @@ function ProductModal({ product, onClose, onSaved }) {
         <div className="field-row">
           <div className="field">
             <div className="field-label">SKU</div>
-            <input type="text" value={form.sku} disabled={!isNew}
+            <input type="text" value={form.sku}
+              title={isNew ? undefined : "SKU is a label — sales stay linked by product id, so fixing a wrong or duplicate SKU here is safe"}
               onChange={(e) => setForm({ ...form, sku: e.target.value.toUpperCase() })} />
           </div>
           <div className="field">
@@ -16285,7 +16316,7 @@ function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
     if (!confirm('Unarchive "' + p.name + '" (' + p.sku + ')? It returns to the POS grid and becomes sellable again.')) return;
     setWorking(true);
     try {
-      const r = await api("posUpdateProduct", { sku: p.sku, archived: false });
+      const r = await api("posUpdateProduct", { productId: p.productId || "", sku: p.sku, archived: false });
       if (r.ok) {
         showToast("Unarchived " + p.name, "success");
         await loadArchived();
@@ -16315,11 +16346,13 @@ function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
     try {
       let success = 0;
       for (const [sku, delta] of deltas) {
-        const r = await api("posAdjustStock", { sku: sku, delta: parseInt(delta) });
+        const prod = (products || []).find(p => p.sku === sku);
+        const r = await api("posAdjustStock", { productId: prod && prod.productId ? prod.productId : "", sku: sku, delta: parseInt(delta) });
         if (r.ok) success++;
       }
       for (const [sku, v] of reorderChanges) {
-        const r = await api("posUpdateProduct", { sku: sku, reorderLevel: parseInt(v) });
+        const prod = (products || []).find(p => p.sku === sku);
+        const r = await api("posUpdateProduct", { productId: prod && prod.productId ? prod.productId : "", sku: sku, reorderLevel: parseInt(v) });
         if (r.ok) success++;
       }
       showToast(`Updated ${success} change${success === 1 ? "" : "s"}`, "success");
