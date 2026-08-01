@@ -4888,6 +4888,36 @@ async function _doFetchRaw(action, params) {
   }
 }
 
+/**
+ * v99 — POS SPEED: patch the cached posListProducts payload IN PLACE from a
+ * mutation response's stockDeltas instead of wiping + refetching the whole
+ * grid. Stock truth stays server-side — these are the server's own
+ * post-write numbers riding back on the mutation response. Returns true when
+ * a cached grid entry existed and was patched (the invalidator then keeps
+ * the default grid key instead of wiping it); the normal TTL refresh and the
+ * 10s dashboard pulse remain the eventual-consistency net.
+ */
+function _patchProductsCacheFromDeltas(deltas) {
+  if (!Array.isArray(deltas) || deltas.length === 0) return false;
+  const key = _apiCacheKey("posListProducts", {});
+  const cached = _apiCache.get(key);
+  if (!cached || !cached.data || cached.data.ok !== true || !Array.isArray(cached.data.products)) return false;
+  const byId = {};
+  const bySku = {};
+  for (const p of cached.data.products) {
+    if (p.productId) byId[p.productId] = p;
+    if (p.sku !== undefined && p.sku !== null) bySku[String(p.sku).trim().toUpperCase()] = p;
+  }
+  for (const d of deltas) {
+    const p = (d.productId && byId[d.productId]) || bySku[String(d.sku || "").trim().toUpperCase()];
+    if (p && typeof d.newStock === "number") p.stock = d.newStock;
+  }
+  const t = Date.now();
+  _apiCache.set(key, { data: cached.data, time: t });
+  _persistCacheEntry(key, cached.data, t);
+  return true;
+}
+
 // Mutation detection — any action that writes/changes state in sheets.
 // After such a call succeeds, related cache entries are invalidated so the
 // next read pulls fresh data.
@@ -4922,7 +4952,7 @@ function _isMutation(action) {
 
 // Broad-stroke invalidation: clear most cached reads after any mutation.
 // Specific endpoints (settings) keep their cache because they're set elsewhere.
-function _invalidateForMutation(action) {
+function _invalidateForMutation(action, result) {
   // Surgical invalidation: only wipe caches actually affected by THIS mutation.
   // Previously this wiped EVERYTHING which forced every tab to re-fetch from
   // scratch — making the UI feel slow after every save. Now a POS sale only
@@ -5008,8 +5038,27 @@ function _invalidateForMutation(action) {
   if (isBookingMutation || isWalkInMutation || isCoachingMutation || isOpenPlayMutation || isTournamentMutation) {
     wipe("getAvailability");  // bookings/walk-ins/etc change court availability
   }
-  if (isPosMutation || isTabMutation) {
-    wipe("posListProducts");   // stock changes
+  // v99 — POS SPEED: adding/removing TAB ITEMS moves no stock and writes no
+  // sale (stock moves at tab close), so the product grid, sales list and
+  // settleable-entries caches all stay valid — wiping them forced up to 3
+  // pointless refetches after every single add at the counter.
+  const isTabItemOnlyMutation = /^tab(AddItems?|RemoveItem)$/.test(action);
+  if ((isPosMutation || isTabMutation) && !isTabItemOnlyMutation) {
+    // v99 — when the mutation response carries per-product stockDeltas
+    // (posCreateSale / tabClose / adminSettleCombined), the default grid
+    // cache is patched IN PLACE so the cashier's grid updates instantly
+    // from the response; only the other posListProducts variants
+    // (includeArchived etc.) still get wiped.
+    if (_patchProductsCacheFromDeltas(result && result.stockDeltas)) {
+      const keepKey = _apiCacheKey("posListProducts", {});
+      for (const k of [..._apiCache.keys()]) {
+        if (k.split(":")[0] !== "posListProducts" || k === keepKey) continue;
+        _apiCache.delete(k);
+        try { localStorage.removeItem(_LS_CACHE_PREFIX + k); } catch (e) {}
+      }
+    } else {
+      wipe("posListProducts");   // stock changes
+    }
     wipe("posListSales");
     wipe("adminListSettleableEntries");
   }
@@ -5079,7 +5128,7 @@ async function api(action, params = {}, options = {}) {
     // fresh data.
     const result = await _doFetchRaw(action, params);
     if (result && result.ok && _isMutation(action)) {
-      _invalidateForMutation(action);
+      _invalidateForMutation(action, result);
       // OPTIMISTIC LIVE-UPDATE: tell any listener (the dashboard) that
       // something just changed. The dashboard refreshes immediately rather
       // than waiting up to 10s for the next pulse to detect the change.
@@ -13569,7 +13618,20 @@ function ScreenPOS() {
   // state — those are mid-transaction and yanking them would lose the
   // cashier's work.
   useEffect(() => {
-    function onDataChanged() {
+    function onDataChanged(ev) {
+      const a = ev && ev.detail ? String(ev.detail.action || "") : "";
+      // v99 — POS SPEED: these mutations carry their fresh state in the
+      // response (stock deltas / full tab detail) and their submit handlers
+      // apply it in place — blanket-refetching here re-issued the exact
+      // round-trips the deltas just saved (products + sales + tab list after
+      // EVERY add/checkout/close). Re-render from the (already patched)
+      // cache only; cross-device changes still land via the normal TTL
+      // refresh and the 10s dashboard pulse.
+      if (/^(posCreateSale|adminSettleCombined|tab(Open|Close|Cancel|AddItems?|RemoveItem|Attach|Detach))/.test(a)) {
+        const cached = getCachedApi("posListProducts");
+        if (cached && cached.ok) applyProducts(cached);
+        return;
+      }
       loadProducts();
       loadTodayStats();
       loadTabCount();
@@ -13870,8 +13932,23 @@ function ScreenPOS() {
       setCustomerPhone("");
       setCustomerName("");
       setNotes("");
-      loadProducts();
-      loadTodayStats();
+      // v99 — POS SPEED: the response's stockDeltas were already patched
+      // into the posListProducts cache by the api() layer — re-render the
+      // grid from it and bump the header stats locally (display-only; the
+      // wiped posListSales cache refetches fresh on its next real read).
+      // Two full round-trips saved per checkout; fall back to the old
+      // refetches only if an older backend sent no deltas.
+      if (Array.isArray(r.stockDeltas)) {
+        const cached = getCachedApi("posListProducts");
+        if (cached && cached.ok) applyProducts(cached);
+        setTodayStats(prev => ({
+          revenue: prev.revenue + (typeof r.total === "number" ? r.total : 0),
+          transactions: prev.transactions + 1
+        }));
+      } else {
+        loadProducts();
+        loadTodayStats();
+      }
     } else {
       showToast(r.error || "Sale failed", "error");
     }
@@ -14239,7 +14316,9 @@ function ScreenPOS() {
           onClose={() => setShowQuickNewTab(false)}
           onCreated={(tabId) => {
             setShowQuickNewTab(false);
-            loadTabCount();
+            // v99 — the count is simply one more; the wiped tabListOpen
+            // cache refetches on its next real read (Open Tabs modal).
+            setOpenTabCount(c => c + 1);
             setActiveTabId(tabId);  // jump straight to detail view
           }}
         />
@@ -14249,7 +14328,28 @@ function ScreenPOS() {
         <TabDetailModal
           tabId={activeTabId}
           products={products}
-          onClose={() => { setActiveTabId(null); loadTabCount(); loadProducts(); loadTodayStats(); }}
+          onClose={(settleResult) => {
+            setActiveTabId(null);
+            // v99 — POS SPEED: when the modal closes after a SETTLE, the
+            // tabClose response already carried everything the header needs
+            // (stock deltas were patched into the grid cache by the api()
+            // layer): tab count drops by one, receipts-today grows by the
+            // settled total — zero refetches. A plain close/cancel keeps the
+            // old refresh (cheap: caches are warm unless something changed).
+            if (settleResult && settleResult.saleId) {
+              const cached = getCachedApi("posListProducts");
+              if (cached && cached.ok) applyProducts(cached);
+              setOpenTabCount(c => Math.max(0, c - 1));
+              setTodayStats(prev => ({
+                revenue: prev.revenue + (typeof settleResult.total === "number" ? settleResult.total : 0),
+                transactions: prev.transactions + 1
+              }));
+            } else {
+              loadTabCount();
+              loadProducts();
+              loadTodayStats();
+            }
+          }}
         />
       )}
     </div>
@@ -14477,6 +14577,44 @@ function TabDetailModal({ tabId, products, onClose }) {
   }
   useEffect(() => { load(); }, [tabId]);
 
+  // v99 — OPTIMISTIC ADD (same pattern as the check-in toggles: apply
+  // immediately, roll back on failure). The tapped lines appear at once with
+  // a pending style; the tabAddItems response carries the authoritative
+  // fresh detail (computed server-side under the write lock) and REPLACES
+  // the whole view — items, totals, everything. No client-side money math
+  // becomes truth: the running totals only change on reconciliation.
+  async function addItems(lines) {
+    setShowAddItem(false);
+    const stamp = Date.now();
+    const pending = lines.map((ln, i) => ({
+      itemId: "PENDING-" + stamp + "-" + i,
+      addedAt: "", addedBy: "",
+      sku: ln.sku, name: ln.name, category: ln.category || "",
+      quantity: ln.quantity, price: ln.price || 0,
+      lineTotal: Math.round((ln.price || 0) * ln.quantity * 100) / 100,
+      memberEligible: true,
+      _pending: true
+    }));
+    setData(prev => prev ? Object.assign({}, prev, { items: prev.items.concat(pending) }) : prev);
+    const r = await api("tabAddItems", {
+      tabId: tabId,
+      items: JSON.stringify(lines.map(ln => ({ productId: ln.productId || undefined, sku: ln.sku, quantity: ln.quantity })))
+    });
+    if (r.ok) {
+      const count = lines.reduce((s, ln) => s + ln.quantity, 0);
+      showToast("Added " + count + " item" + (count === 1 ? "" : "s") + " to " + tabId, "success");
+      // v99 — POS SPEED: reconcile from the response's fresh detail — zero
+      // extra round-trips. Refetch only if an older backend sent none.
+      if (r.detail && r.detail.ok) setData(r.detail);
+      else load();
+    } else {
+      // Roll back the optimistic lines — tabAddItems is all-or-nothing
+      // server-side, so the pre-tap view is exactly the true state.
+      setData(prev => prev ? Object.assign({}, prev, { items: prev.items.filter(it => !it._pending) }) : prev);
+      showToast(r.error || "Failed", "error");
+    }
+  }
+
   async function removeItem(itemId) {
     if (!confirm("Remove this item from the tab?")) return;
     setWorking(true);
@@ -14612,15 +14750,15 @@ function TabDetailModal({ tabId, products, onClose }) {
         ) : (
           <div style={{ marginBottom: 14 }}>
             {data.items.map(it => (
-              <div key={it.itemId} className="modal-detail-row" style={{ padding: "8px 0" }}>
+              <div key={it.itemId} className="modal-detail-row" style={{ padding: "8px 0", opacity: it._pending ? 0.55 : 1 }}>
                 <span className="k">
-                  <span style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.4, marginRight: 8 }}>{it.addedAt}</span>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.4, marginRight: 8 }}>{it._pending ? "adding…" : it.addedAt}</span>
                   <strong>{it.name}</strong>
                   <span style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.55, marginLeft: 6 }}>{it.quantity} × ${it.price.toFixed(2)}</span>
                 </span>
                 <span className="v" style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   ${it.lineTotal.toFixed(2)}
-                  {isOpen && (
+                  {isOpen && !it._pending && (
                     <button className="btn-sm" onClick={() => removeItem(it.itemId)} disabled={working}
                       style={{ color: "var(--clay)" }}>×</button>
                   )}
@@ -14785,7 +14923,7 @@ function TabDetailModal({ tabId, products, onClose }) {
             tabId={tabId}
             products={products}
             onClose={() => setShowAddItem(false)}
-            onAdded={() => { setShowAddItem(false); load(); }}
+            onAdd={addItems}
           />
         )}
 
@@ -14814,7 +14952,7 @@ function TabDetailModal({ tabId, products, onClose }) {
             walkInPlayers={data.walkInPlayers}
             coachingSessions={data.coachingSessions || []}
             onClose={() => setShowClose(false)}
-            onClosed={() => { setShowClose(false); onClose(); }}
+            onClosed={(settleResult) => { setShowClose(false); onClose(settleResult); }}
           />
         )}
       </div>
@@ -14822,7 +14960,7 @@ function TabDetailModal({ tabId, products, onClose }) {
   );
 }
 
-function AddItemToTabModal({ tabId, products, onClose, onAdded }) {
+function AddItemToTabModal({ tabId, products, onClose, onAdd }) {
   // v77 MULTI-ADD: tap any number of products — each tapped row grows an
   // inline qty stepper (default 1) — then ONE "ADD N ITEMS" button submits
   // everything in a single tabAddItems call (validated + appended atomically
@@ -14869,22 +15007,24 @@ function AddItemToTabModal({ tabId, products, onClose, onAdded }) {
     });
   }
 
-  async function submit() {
+  function submit() {
     if (count === 0) { showToast("Pick a product", "error"); return; }
-    setWorking(true);
-    // v98 — send the row-stable productId with each line (sku kept as label)
-    const r = await api("tabAddItems", {
-      tabId: tabId,
-      items: JSON.stringify(selSkus.map(k => {
-        const p = bySku[k] || {};
-        return { productId: p.productId || undefined, sku: p.sku || k, quantity: sel[k] };
-      }))
-    });
-    setWorking(false);
-    if (r.ok) {
-      showToast("Added " + count + " item" + (count === 1 ? "" : "s") + " to " + tabId, "success");
-      onAdded();
-    } else showToast(r.error || "Failed", "error");
+    // v99 — OPTIMISTIC: hand the picked lines (with the v98 row-stable
+    // productId; sku kept as label) to the tab modal, which shows them
+    // instantly in a pending style, fires ONE tabAddItems call, and
+    // reconciles from the response's fresh detail — or rolls back with an
+    // error toast if the batch is refused. This modal closes immediately.
+    onAdd(selSkus.map(k => {
+      const p = bySku[k] || {};
+      return {
+        productId: p.productId || undefined,
+        sku: p.sku || k,
+        name: p.name || String(k),
+        category: p.category || "",
+        price: typeof p.price === "number" ? p.price : 0,
+        quantity: sel[k]
+      };
+    }));
   }
 
   return (
@@ -15325,7 +15465,7 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
           <div className="actions">
             <button className="btn" onClick={printYardReceipt}>Print receipt</button>
             <button className="btn" onClick={function () { sendReceiptSms(settled); }}>Text receipt</button>
-            <button className="btn primary" onClick={onClosed}>Done</button>
+            <button className="btn primary" onClick={() => onClosed(settled)}>Done</button>
           </div>
         </div>
         <YardReceipt r={settled} />
