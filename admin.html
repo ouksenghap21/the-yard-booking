@@ -25228,10 +25228,12 @@ function ScreenSettings() {
     if (applyingFixes) return;
     if (!confirm(
       "Apply validation fixes?\n\n" +
-      "This runs three server-side fixes on the live sheets:\n" +
+      "This runs five server-side fixes on the live sheets:\n" +
       "• Duplicate ledger collections — appends a negative reversal row for each surplus collection (nothing is ever deleted; renewals and legitimate refunds are untouched)\n" +
       "• Duplicate POS SKUs — renames later duplicates to “<sku>-DUP2”, “-DUP3”… (first row keeps its SKU)\n" +
-      "• Negative stock — resets it to 0 so you can recount the shelf\n\n" +
+      "• Negative stock — resets it to 0 so you can recount the shelf\n" +
+      "• Leftover “-DUP” products with no sales — auto-archived off the grid (the row is kept; a -DUP SKU that has sales is left alone)\n" +
+      "• Missing POS sale links — stamps the sale id back onto attached bookings, walk-ins, open-play registrations and coaching sessions that pre-date the link column (only when the row is Paid and the amount matches; an existing link is never overwritten)\n\n" +
       "Safe to re-run: already-fixed data is left alone."
     )) return;
     setApplyingFixes(true);
@@ -25245,7 +25247,9 @@ function ScreenSettings() {
             ? "Already clean — nothing needed fixing"
             : "Fixes applied: " + r.fixed.reversals.length + " reversal(s), " +
               r.fixed.skusRenamed.length + " SKU rename(s), " +
-              r.fixed.stockZeroed.length + " stock reset(s)",
+              r.fixed.stockZeroed.length + " stock reset(s), " +
+              ((r.fixed.autoArchived || []).length) + " archived, " +
+              ((r.fixed.backfilled || []).length) + " sale link(s)",
           "success"
         );
       } else showToast((r && r.error) || "Fix run failed", "error");
@@ -25736,9 +25740,12 @@ function ScreenSettings() {
           coaching splits and payouts, open-play/walk-in registrations, the availability grid
           against ground truth, members, and a cross-check of ledger vs recognized revenue.
           Nothing is changed — it only reports, with sheet + row references.
-          “Apply validation fixes” is the separate, deliberate write step: it fixes the three
+          “Apply validation fixes” is the separate, deliberate write step: it fixes the five
           known issue classes (duplicate ledger collections → appended reversal rows, duplicate
-          POS SKUs → renamed, negative stock → reset to 0) and is safe to re-run.
+          POS SKUs → renamed, negative stock → reset to 0, leftover “-DUP” products with no
+          sales → auto-archived, and missing POS sale links → the sale id stamped back onto the
+          attached booking / walk-in / open-play / coaching row when it is Paid at the matching
+          amount, never overwriting an existing link) and is safe to re-run.
         </div>
         <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button className="btn primary" onClick={runFullValidation} disabled={validating}>
@@ -25759,10 +25766,14 @@ function ScreenSettings() {
                 ? "✓ Already clean — nothing needed fixing"
                 : "✓ Fixes applied — " + fixResult.fixed.reversals.length + " ledger reversal(s) · " +
                   fixResult.fixed.skusRenamed.length + " SKU rename(s) · " +
-                  fixResult.fixed.stockZeroed.length + " stock reset(s)"}
+                  fixResult.fixed.stockZeroed.length + " stock reset(s) · " +
+                  ((fixResult.fixed.autoArchived || []).length) + " archived · " +
+                  ((fixResult.fixed.backfilled || []).length) + " sale link(s)"}
               <span style={{ fontWeight: 400, fontSize: 11, marginLeft: 8, opacity: 0.7 }}>ran {fixResult.ranAt}</span>
             </div>
-            {!fixResult.alreadyClean && (
+            {(!fixResult.alreadyClean
+              || (fixResult.fixed.backfillSkipped || []).length > 0
+              || (fixResult.fixed.autoArchiveSkipped || []).length > 0) && (
               <pre style={{
                 marginTop: 10, maxHeight: 240, overflow: "auto", fontFamily: "var(--mono)", fontSize: 11,
                 lineHeight: 1.5, whiteSpace: "pre-wrap", background: "rgba(0,0,0,0.03)", padding: "8px 10px", borderRadius: 6
@@ -25775,6 +25786,18 @@ function ScreenSettings() {
                 ))}
                 {fixResult.fixed.stockZeroed.map((f, i) => (
                   <div key={"z" + i}>Stock reset to 0 · {f.sku} (row {f.row}) · was {f.was} — recount the shelf</div>
+                ))}
+                {(fixResult.fixed.autoArchived || []).map((f, i) => (
+                  <div key={"a" + i}>Auto-archived leftover duplicate · {f.sku} (POS_Products row {f.row}) — no sales history</div>
+                ))}
+                {(fixResult.fixed.autoArchiveSkipped || []).map((f, i) => (
+                  <div key={"ak" + i} style={{ opacity: 0.75 }}>Skipped archive · {f.sku} (row {f.row}) — {f.reason}</div>
+                ))}
+                {(fixResult.fixed.backfilled || []).map((f, i) => (
+                  <div key={"b" + i}>Linked {f.id} → {f.saleId} (${Number(f.amount || 0).toFixed(2)}) · {f.entity} row {f.row}</div>
+                ))}
+                {(fixResult.fixed.backfillSkipped || []).map((f, i) => (
+                  <div key={"bk" + i} style={{ opacity: 0.75 }}>Skipped link · {f.id} → {f.saleId} — {f.reason}</div>
                 ))}
               </pre>
             )}
