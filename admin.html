@@ -4819,6 +4819,7 @@ var MUTATING_ACTIONS = new Set([
   "adminMarkSponsorshipInstallmentPaid","adminUnmarkSponsorshipInstallmentPaid",
   "adminCreateCorporateAccount","adminUpdateCorporateAccount",
   "adminCreateStaff","adminUpdateStaff",
+  "adminStocktake",
   "adminRefreshCache"
 ]);
 function genRequestId(){
@@ -4988,8 +4989,10 @@ function _invalidateForMutation(action, result) {
   const isTournamentMutation = (
     /^(adminCreateTournament|adminCancelTournament|adminUpdateTournament|adminAddTournamentPlayer|adminRemoveTournamentPlayer|adminAddTournamentRevenue|adminAddTournamentExpense|registerForTournament|adminMarkTournamentPlayerPaid)/.test(action)
   );
+  // v101 — adminStocktake SETS stock on N products in one call, so the
+  // cached posListProducts payload is stale the moment it returns.
   const isPosMutation = (
-    /^(posCreate|posVoid|posAdjust|posUpdate|posDelete|adminSettleCombined)/.test(action)
+    /^(posCreate|posVoid|posAdjust|posUpdate|posDelete|adminSettleCombined|adminStocktake)/.test(action)
   );
   const isTabMutation = (
     /^tab(Open|Close|Cancel|AddItem|RemoveItem|Attach|Detach|Update)/.test(action)
@@ -16443,6 +16446,85 @@ function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
   const [adjustments, setAdjustments] = useState({});  // sku -> delta string
   const [reorders, setReorders] = useState({});        // sku -> reorder-level string (edited)
   const [working, setWorking] = useState(false);
+  // v100 — stock movements ledger: optional note saved on adjustments
+  // (lands in Stock_Movements Ref_Id) + per-product history expander.
+  const [adjustNote, setAdjustNote] = useState("");
+  const [histOpen, setHistOpen] = useState({});        // sku -> bool
+  const [histData, setHistData] = useState({});        // sku -> {loading, movements, total, error}
+  // v101 — STOCKTAKE mode: type what's physically on the shelf, the server
+  // derives the variance and SETS stock to the count (never a delta the
+  // owner has to compute himself).
+  const [mode, setMode] = useState("adjust");          // "adjust" | "stocktake"
+  const [counts, setCounts] = useState({});            // sku -> counted qty string
+  const [stNote, setStNote] = useState("");
+  const [stResult, setStResult] = useState(null);      // adminStocktake response
+
+  // Only products with a usable count typed in — blank means "not counted"
+  // (NOT "zero on the shelf"), so blanks never reach the server.
+  function stocktakeLines() {
+    return (products || []).map(p => {
+      const raw = counts[p.sku];
+      if (raw === undefined || String(raw).trim() === "") return null;
+      const counted = parseInt(raw, 10);
+      if (isNaN(counted) || counted < 0) return null;
+      const system = parseInt(p.stock) || 0;
+      const variance = counted - system;
+      return {
+        productId: p.productId || "", sku: p.sku, name: p.name,
+        countedQty: counted, system: system, variance: variance,
+        value: Math.round(variance * (parseFloat(p.price) || 0) * 100) / 100
+      };
+    }).filter(Boolean);
+  }
+
+  async function applyStocktake() {
+    if (working) return;
+    const lines = stocktakeLines();
+    if (lines.length === 0) { showToast("Enter at least one count", "error"); return; }
+    const changed = lines.filter(l => l.variance !== 0);
+    const shrink = changed.filter(l => l.variance < 0).reduce((s, l) => s - l.value, 0);
+    const body = changed.length === 0
+      ? "Every counted product matches the system — no variances."
+      : changed.map(l => l.name + ": system " + l.system + " → counted " + l.countedQty
+          + " (" + (l.variance > 0 ? "+" : "") + l.variance + ")").join("\n");
+    if (!confirm(
+      "Apply stocktake for " + lines.length + " product" + (lines.length === 1 ? "" : "s") + "?\n\n"
+      + body
+      + (shrink > 0 ? "\n\nShrinkage value: $" + shrink.toFixed(2) : "")
+      + "\n\nStock is SET to the counted numbers and every count is logged to stock history."
+    )) return;
+    setWorking(true);
+    try {
+      const r = await api("adminStocktake", {
+        counts: JSON.stringify(lines.map(l => ({
+          productId: l.productId, sku: l.sku, name: l.name, countedQty: l.countedQty
+        }))),
+        note: stNote.trim()
+      });
+      if (!r.ok) { showToast(r.error || "Stocktake failed", "error"); return; }
+      setStResult(r);
+      setCounts({});
+      setStNote("");
+      setHistData({});   // movements changed — force a fresh history fetch
+      showToast("Stocktake applied · " + (r.totals ? r.totals.items : lines.length) + " counted", "success");
+      onChanged && onChanged();
+    } finally {
+      setWorking(false);
+    }
+  }
+  async function toggleHistory(p) {
+    const open = !histOpen[p.sku];
+    setHistOpen(prev => ({ ...prev, [p.sku]: open }));
+    if (!open || histData[p.sku]) return;
+    setHistData(prev => ({ ...prev, [p.sku]: { loading: true, movements: [] } }));
+    const r = await api("adminGetStockMovements", { productId: p.productId || "", sku: p.sku, limit: 20 });
+    setHistData(prev => ({
+      ...prev,
+      [p.sku]: r.ok
+        ? { loading: false, movements: r.movements || [], total: r.total || 0 }
+        : { loading: false, movements: [], error: r.error || "Failed to load history" }
+    }));
+  }
   // v92 — Archived section: fetched fresh (includeArchived bypasses the
   // products cache server-side) so the grid list stays archive-free.
   const [archivedList, setArchivedList] = useState(null);
@@ -16487,7 +16569,9 @@ function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
       let success = 0;
       for (const [sku, delta] of deltas) {
         const prod = (products || []).find(p => p.sku === sku);
-        const r = await api("posAdjustStock", { productId: prod && prod.productId ? prod.productId : "", sku: sku, delta: parseInt(delta) });
+        // v100 — the optional note rides along and lands in the movement
+        // row's Ref_Id; the server stamps the Actor from the staff PIN.
+        const r = await api("posAdjustStock", { productId: prod && prod.productId ? prod.productId : "", sku: sku, delta: parseInt(delta), note: adjustNote.trim() });
         if (r.ok) success++;
       }
       for (const [sku, v] of reorderChanges) {
@@ -16498,6 +16582,8 @@ function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
       showToast(`Updated ${success} change${success === 1 ? "" : "s"}`, "success");
       setAdjustments({});
       setReorders({});
+      setAdjustNote("");
+      setHistData({});   // v100 — force a fresh history fetch after new movements
       onChanged && onChanged();
     } finally {
       setWorking(false);
@@ -16509,10 +16595,24 @@ function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
       <div className="modal" style={{ maxWidth: 600 }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
-            <div className="kicker">Stock adjustments</div>
+            <div className="kicker">{mode === "stocktake" ? "Physical count" : "Stock adjustments"}</div>
             <h2>Manage Stock</h2>
           </div>
           <button className="x" onClick={onClose} aria-label="Close">×</button>
+        </div>
+
+        {/* v101 — mode switch. ADJUST takes a ± delta (restock, damage);
+            STOCKTAKE takes the number physically on the shelf and lets the
+            server work out the variance. */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          {[["adjust", "Adjust ±"], ["stocktake", "Stocktake"]].map(([m, label]) => (
+            <button key={m}
+              className={"btn " + (mode === m ? "primary" : "ghost")}
+              style={{ flex: 1 }}
+              onClick={() => { setMode(m); setStResult(null); }}>
+              {label}
+            </button>
+          ))}
         </div>
 
         {/* v78 — duplicate-SKU warning: the grid dedupes defensively (first
@@ -16532,47 +16632,138 @@ function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
         )}
 
         <div style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.12em", opacity: 0.6, marginBottom: 12 }}>
-          Adjust: a positive number adds stock (restock), negative for shrinkage/damage.
-          Reorder ≤: the low-stock alert threshold — ⚠ shows once stock drops to it. Blank = leave unchanged.
+          {mode === "stocktake" ? (
+            <span>
+              Count what's physically on the shelf and type it in — stock is SET to that number
+              and the variance is logged. Leave a product blank to skip it (blank ≠ zero).
+            </span>
+          ) : (
+            <span>
+              Adjust: a positive number adds stock (restock), negative for shrinkage/damage.
+              Reorder ≤: the low-stock alert threshold — ⚠ shows once stock drops to it. Blank = leave unchanged.
+            </span>
+          )}
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr auto 84px 84px", gap: 10, alignItems: "center", padding: "0 0 6px", fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.14em", textTransform: "uppercase", opacity: 0.5 }}>
           <span>Product</span>
-          <span style={{ textAlign: "right" }}>In stock</span>
-          <span style={{ textAlign: "center" }}>Adjust</span>
-          <span style={{ textAlign: "center" }}>Reorder ≤</span>
+          <span style={{ textAlign: "right" }}>{mode === "stocktake" ? "System" : "In stock"}</span>
+          <span style={{ textAlign: "center" }}>{mode === "stocktake" ? "Counted" : "Adjust"}</span>
+          <span style={{ textAlign: "center" }}>{mode === "stocktake" ? "Variance" : "Reorder ≤"}</span>
         </div>
         <div style={{ maxHeight: 400, overflowY: "auto" }}>
           {(products || []).map(p => (
-            <div key={p.sku} style={{
+            <div key={p.sku} style={{ borderBottom: "1px solid rgba(26,26,26,0.08)" }}>
+            <div style={{
               display: "grid", gridTemplateColumns: "1fr auto 84px 84px", gap: 10, alignItems: "center",
-              padding: "10px 0", borderBottom: "1px solid rgba(26,26,26,0.08)"
+              padding: "10px 0"
             }}>
               <div>
                 <div style={{ fontFamily: "var(--sans)", fontWeight: 600, fontSize: 13 }}>{p.name}</div>
                 <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.1em", opacity: 0.55 }}>
                   {p.sku} · {p.category}
+                  {" · "}
+                  <button onClick={() => toggleHistory(p)}
+                    title="Stock movement history — every sale, adjustment, restock and void logged in Stock_Movements"
+                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer",
+                             fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.1em",
+                             textDecoration: "underline", color: "inherit", opacity: 0.9 }}>
+                    {histOpen[p.sku] ? "hide history" : "history"}
+                  </button>
                 </div>
               </div>
               <div style={{ fontFamily: "var(--mono)", fontSize: 13, fontWeight: 700, minWidth: 44, textAlign: "right" }}>
                 {p.stock} {p.reorderLevel > 0 && p.stock <= p.reorderLevel && <span style={{ color: "var(--clay)" }}> ⚠</span>}
               </div>
-              <input
-                type="number"
-                placeholder="+/−"
-                style={{ width: 84, padding: "6px 8px", border: "1.5px solid var(--ink)", borderRadius: 4, fontFamily: "var(--mono)", textAlign: "center" }}
-                value={adjustments[p.sku] || ""}
-                onChange={(e) => setAdjustments(prev => ({ ...prev, [p.sku]: e.target.value }))}
-              />
-              <input
-                type="number"
-                min="0"
-                title="Low-stock alert threshold"
-                placeholder={String(p.reorderLevel || 0)}
-                style={{ width: 84, padding: "6px 8px", border: "1.5px solid rgba(26,26,26,0.35)", borderRadius: 4, fontFamily: "var(--mono)", textAlign: "center" }}
-                value={reorders[p.sku] !== undefined ? reorders[p.sku] : (p.reorderLevel != null ? String(p.reorderLevel) : "")}
-                onChange={(e) => setReorders(prev => ({ ...prev, [p.sku]: e.target.value }))}
-              />
+              {/* v101 — count input (stocktake) or delta input (adjust). The
+                  count placeholder is the SYSTEM qty so the shelf number can
+                  be compared at a glance, but it stays BLANK until typed —
+                  a prefilled count would silently "confirm" uncounted rows. */}
+              {mode === "stocktake" ? (
+                <input
+                  type="number"
+                  min="0"
+                  title="Physical count on the shelf"
+                  placeholder={String(parseInt(p.stock) || 0)}
+                  style={{ width: 84, padding: "6px 8px", border: "1.5px solid var(--ink)", borderRadius: 4, fontFamily: "var(--mono)", textAlign: "center" }}
+                  value={counts[p.sku] !== undefined ? counts[p.sku] : ""}
+                  onChange={(e) => setCounts(prev => ({ ...prev, [p.sku]: e.target.value }))}
+                />
+              ) : (
+                <input
+                  type="number"
+                  placeholder="+/−"
+                  style={{ width: 84, padding: "6px 8px", border: "1.5px solid var(--ink)", borderRadius: 4, fontFamily: "var(--mono)", textAlign: "center" }}
+                  value={adjustments[p.sku] || ""}
+                  onChange={(e) => setAdjustments(prev => ({ ...prev, [p.sku]: e.target.value }))}
+                />
+              )}
+              {mode === "stocktake" ? (
+                (() => {
+                  const raw = counts[p.sku];
+                  const typed = raw !== undefined && String(raw).trim() !== "";
+                  const counted = typed ? parseInt(raw, 10) : NaN;
+                  if (!typed || isNaN(counted) || counted < 0) {
+                    return <div style={{ textAlign: "center", fontFamily: "var(--mono)", fontSize: 11, opacity: 0.3 }}>—</div>;
+                  }
+                  const v = counted - (parseInt(p.stock) || 0);
+                  return (
+                    <div style={{
+                      textAlign: "center", fontFamily: "var(--mono)", fontSize: 11, fontWeight: 700,
+                      padding: "4px 6px", borderRadius: 3, letterSpacing: "0.06em",
+                      background: v === 0 ? "rgba(26,26,26,0.06)" : v > 0 ? "rgba(63,122,79,0.14)" : "rgba(198,79,58,0.14)",
+                      color: v === 0 ? "inherit" : v > 0 ? "var(--moss, #3F7A4F)" : "var(--clay)"
+                    }} title={v === 0 ? "Matches the system" : (v > 0 ? "More on the shelf than the system says" : "Short — shrinkage/unlogged sale")}>
+                      {v > 0 ? "+" + v : String(v)}
+                    </div>
+                  );
+                })()
+              ) : (
+                <input
+                  type="number"
+                  min="0"
+                  title="Low-stock alert threshold"
+                  placeholder={String(p.reorderLevel || 0)}
+                  style={{ width: 84, padding: "6px 8px", border: "1.5px solid rgba(26,26,26,0.35)", borderRadius: 4, fontFamily: "var(--mono)", textAlign: "center" }}
+                  value={reorders[p.sku] !== undefined ? reorders[p.sku] : (p.reorderLevel != null ? String(p.reorderLevel) : "")}
+                  onChange={(e) => setReorders(prev => ({ ...prev, [p.sku]: e.target.value }))}
+                />
+              )}
+            </div>
+            {/* v100 — per-product movement history (last 20, newest first):
+                time · ±delta · reason · ref · actor, straight off the
+                Stock_Movements ledger via adminGetStockMovements. */}
+            {histOpen[p.sku] && (
+              <div style={{ padding: "0 0 10px 10px", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.06em" }}>
+                {!histData[p.sku] || histData[p.sku].loading ? (
+                  <div style={{ opacity: 0.55 }}>Loading history…</div>
+                ) : histData[p.sku].error ? (
+                  <div style={{ color: "var(--clay)" }}>{histData[p.sku].error}</div>
+                ) : histData[p.sku].movements.length === 0 ? (
+                  <div style={{ opacity: 0.55 }}>No movements yet — stock predates the ledger (changes are logged from v100 onward).</div>
+                ) : (
+                  <div>
+                    {histData[p.sku].movements.map((m, mi) => (
+                      <div key={mi} style={{ display: "flex", gap: 8, padding: "3px 0", borderBottom: "1px dotted rgba(26,26,26,0.08)", alignItems: "baseline" }}>
+                        <span style={{ opacity: 0.55, whiteSpace: "nowrap" }}>{m.timestamp}</span>
+                        <span style={{ fontWeight: 700, minWidth: 34, textAlign: "right", color: m.delta < 0 ? "var(--clay)" : "inherit" }}>
+                          {m.delta > 0 ? "+" + m.delta : String(m.delta)}
+                        </span>
+                        <span style={{ opacity: 0.8 }}>→ {m.newStock}</span>
+                        <span style={{ textTransform: "uppercase", letterSpacing: "0.12em", opacity: 0.7 }}>{m.reason}</span>
+                        {m.refId ? <span style={{ opacity: 0.55, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 150 }} title={m.refId}>{m.refId}</span> : null}
+                        <span style={{ marginLeft: "auto", opacity: 0.55, whiteSpace: "nowrap" }}>{m.actor}</span>
+                      </div>
+                    ))}
+                    {histData[p.sku].total > histData[p.sku].movements.length && (
+                      <div style={{ opacity: 0.5, paddingTop: 3 }}>
+                        …{histData[p.sku].total - histData[p.sku].movements.length} older movement(s) in the Stock_Movements sheet
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             </div>
           ))}
         </div>
@@ -16604,10 +16795,105 @@ function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
           </div>
         )}
 
-        <div className="actions">
-          <button className="btn ghost" onClick={onClose}>Close</button>
-          <button className="btn primary" onClick={applyAll} disabled={working}>{working ? "Applying…" : "Apply all"}</button>
-        </div>
+        {/* v101 — STOCKTAKE result panel: what the count actually changed,
+            straight off the server response (per-product variance + the
+            shrinkage figure), with the ledger reference. */}
+        {mode === "stocktake" && stResult && stResult.ok && (
+          <div style={{
+            marginTop: 14, border: "1.5px solid var(--ink)", borderRadius: 4, padding: "10px 12px"
+          }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase", opacity: 0.6, marginBottom: 8 }}>
+              Stocktake applied · {stResult.stocktakeId}
+            </div>
+            {(stResult.products || []).filter(r => r.variance !== 0).length === 0 ? (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11 }}>
+                All {stResult.totals ? stResult.totals.items : 0} counted product(s) matched the system — no variance.
+              </div>
+            ) : (
+              <div style={{ maxHeight: 180, overflowY: "auto" }}>
+                {(stResult.products || []).filter(r => r.variance !== 0).map(r => (
+                  <div key={r.sku} style={{
+                    display: "grid", gridTemplateColumns: "1fr 60px 60px 70px", gap: 8,
+                    fontFamily: "var(--mono)", fontSize: 11, padding: "3px 0",
+                    borderBottom: "1px dotted rgba(26,26,26,0.1)"
+                  }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+                    <span style={{ textAlign: "right", opacity: 0.6 }}>{r.system}→{r.counted}</span>
+                    <span style={{ textAlign: "right", fontWeight: 700, color: r.variance < 0 ? "var(--clay)" : "var(--moss, #3F7A4F)" }}>
+                      {r.variance > 0 ? "+" + r.variance : String(r.variance)}
+                    </span>
+                    <span style={{ textAlign: "right", color: r.value < 0 ? "var(--clay)" : "inherit" }}>
+                      ${Math.abs(r.value).toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 700, marginTop: 8 }}>
+              Shrinkage value: <span style={{ color: "var(--clay)" }}>${(stResult.totals ? stResult.totals.valueShort : 0).toFixed(2)}</span>
+              {stResult.totals && stResult.totals.valueOver > 0 && (
+                <span style={{ fontWeight: 400, opacity: 0.7 }}>{"  ·  over: $" + stResult.totals.valueOver.toFixed(2)}</span>
+              )}
+            </div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.06em", opacity: 0.6, marginTop: 6 }}>
+              {stResult.totals ? stResult.totals.items : 0} counted · {stResult.totals ? stResult.totals.unitsShort : 0} unit(s) short ·
+              {" "}{stResult.totals ? stResult.totals.unitsOver : 0} unit(s) over — one movement per product was logged to
+              stock history (reason "stocktake", ref {stResult.stocktakeId}).
+            </div>
+          </div>
+        )}
+
+        {mode === "stocktake" ? (
+          <React.Fragment>
+            {/* Running variance/shrinkage total across everything typed so far. */}
+            {(() => {
+              const lines = stocktakeLines();
+              const short = lines.filter(l => l.variance < 0).reduce((s, l) => s - l.value, 0);
+              const over = lines.filter(l => l.variance > 0).reduce((s, l) => s + l.value, 0);
+              const unitsShort = lines.filter(l => l.variance < 0).reduce((s, l) => s - l.variance, 0);
+              const unitsOver = lines.filter(l => l.variance > 0).reduce((s, l) => s + l.variance, 0);
+              return (
+                <div style={{
+                  marginTop: 12, padding: "8px 10px", borderRadius: 4,
+                  background: "rgba(26,26,26,0.05)", fontFamily: "var(--mono)", fontSize: 11,
+                  display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8
+                }}>
+                  <span>{lines.length} counted · {unitsShort} short · {unitsOver} over</span>
+                  <span style={{ fontWeight: 700 }}>
+                    Shrinkage value: <span style={{ color: short > 0 ? "var(--clay)" : "inherit" }}>${short.toFixed(2)}</span>
+                    {over > 0 && <span style={{ fontWeight: 400, opacity: 0.7 }}>{"  ·  over $" + over.toFixed(2)}</span>}
+                  </span>
+                </div>
+              );
+            })()}
+            <div className="field" style={{ marginTop: 12 }}>
+              <div className="field-label">Stocktake note (optional · saved to stock history)</div>
+              <input type="text" value={stNote} placeholder="e.g. month-end count, Aug 1"
+                onChange={(e) => setStNote(e.target.value)} />
+            </div>
+            <div className="actions">
+              <button className="btn ghost" onClick={onClose}>Close</button>
+              <button className="btn primary" onClick={applyStocktake} disabled={working}>
+                {working ? "Applying…" : "Apply stocktake"}
+              </button>
+            </div>
+          </React.Fragment>
+        ) : (
+          <React.Fragment>
+            {/* v100 — optional note for this batch of adjustments; logged to the
+                Stock_Movements ledger (Ref_Id column) alongside the staff name. */}
+            <div className="field" style={{ marginTop: 12 }}>
+              <div className="field-label">Adjustment note (optional · saved to stock history)</div>
+              <input type="text" value={adjustNote} placeholder="e.g. shelf recount, damaged case, supplier delivery"
+                onChange={(e) => setAdjustNote(e.target.value)} />
+            </div>
+
+            <div className="actions">
+              <button className="btn ghost" onClick={onClose}>Close</button>
+              <button className="btn primary" onClick={applyAll} disabled={working}>{working ? "Applying…" : "Apply all"}</button>
+            </div>
+          </React.Fragment>
+        )}
       </div>
     </div>
   );
