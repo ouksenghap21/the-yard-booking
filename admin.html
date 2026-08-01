@@ -4814,6 +4814,7 @@ var MUTATING_ACTIONS = new Set([
   "adminRenewMember",
   "adminSendReceiptSms",
   "adminMarkWalkInPlayerPaid","adminMarkCoachingSessionsPaid","adminPayCoach","adminRefundCoachingSession",
+  "adminUncancelCoachingSession",
   "adminUpdateOpenPlayPlayer","adminRemoveOpenPlayPlayer","adminAddOpenPlayPlayer","adminUpdateOpenPlaySession","adminMoveOpenPlaySessionCourt",
   "adminCreateSponsorship","adminUpdateSponsorship","adminCancelSponsorship",
   "adminMarkSponsorshipInstallmentPaid","adminUnmarkSponsorshipInstallmentPaid",
@@ -4981,7 +4982,7 @@ function _invalidateForMutation(action, result) {
     /^(adminCreateWalkInBlock|adminCloseWalkInBlock|adminAddWalkInPlayer|adminRemoveWalkInPlayer|adminMarkWalkInPlayerPaid|adminUpdateWalkInBlock)/.test(action)
   );
   const isCoachingMutation = (
-    /^(adminCreateCoachingSession|adminCancelCoachingSession|adminUpdateCoachingSession|adminMoveCoachingSessionCourt|adminMarkCoachingSessionsPaid|adminPayCoach|adminRefundCoachingSession|adminCreateCoach|adminUpdateCoach|adminDeleteCoach|tabAttachCoachingSession|tabDetachCoachingSession|posVoidSale)/.test(action)
+    /^(adminCreateCoachingSession|adminCancelCoachingSession|adminUncancelCoachingSession|adminUpdateCoachingSession|adminMoveCoachingSessionCourt|adminMarkCoachingSessionsPaid|adminPayCoach|adminRefundCoachingSession|adminCreateCoach|adminUpdateCoach|adminDeleteCoach|tabAttachCoachingSession|tabDetachCoachingSession|posVoidSale)/.test(action)
   );
   const isOpenPlayMutation = (
     /^(adminCreateOpenPlaySession|adminCancelOpenPlaySession|adminUpdateOpenPlaySession|adminMoveOpenPlaySessionCourt|adminAddOpenPlayPlayer|registerForOpenPlay|cancelMyOpenPlayRegistration|adminUpdateOpenPlayPlayer|adminRemoveOpenPlayPlayer)/.test(action)
@@ -11864,6 +11865,10 @@ function ScreenCoaching() {
   const [sessDateTo, setSessDateTo] = useState(weekFromNow);
   const [sessCoachFilter, setSessCoachFilter] = useState("");
   const [sessPaymentFilter, setSessPaymentFilter] = useState("");
+  // v103: cancelled sessions are hidden by default, but they must be
+  // REACHABLE — that's the only way to open one and press Uncancel (and the
+  // only way to see a cancelled-but-paid row the validator is flagging).
+  const [sessShowCancelled, setSessShowCancelled] = useState(false);
   const [sessions, setSessions] = useState(null);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [payments, setPayments] = useState(null);
@@ -11882,7 +11887,8 @@ function ScreenCoaching() {
   async function loadSessions() {
     const params = {
       dateFrom: sessDateFrom, dateTo: sessDateTo,
-      coachId: sessCoachFilter, paymentStatus: sessPaymentFilter
+      coachId: sessCoachFilter, paymentStatus: sessPaymentFilter,
+      includeCancelled: sessShowCancelled ? "true" : ""
     };
     // Sync cache hit — show instantly while we re-fetch
     const cached = getCachedApi("adminListCoachingSessions", params);
@@ -11923,7 +11929,7 @@ function ScreenCoaching() {
   // Re-fetch sessions when filters change OR when sessions tab is opened for first time
   useEffect(() => {
     if (tab === "sessions") loadSessions();
-  }, [tab, sessDateFrom, sessDateTo, sessCoachFilter, sessPaymentFilter]);
+  }, [tab, sessDateFrom, sessDateTo, sessCoachFilter, sessPaymentFilter, sessShowCancelled]);
 
   // Fetch payments when the Collect or Pay Coaches tab is opened for first time
   useEffect(() => {
@@ -11976,6 +11982,7 @@ function ScreenCoaching() {
           dateTo={sessDateTo} setDateTo={setSessDateTo}
           coachFilter={sessCoachFilter} setCoachFilter={setSessCoachFilter}
           paymentFilter={sessPaymentFilter} setPaymentFilter={setSessPaymentFilter}
+          showCancelled={sessShowCancelled} setShowCancelled={setSessShowCancelled}
           reload={loadSessions}
           autoOpenAdd={fabPendingCreate}
           onAutoOpenHandled={() => setFabPendingCreate(false)}
@@ -12253,7 +12260,7 @@ function CoachModal({ coach, onClose, onSaved }) {
 
 /* ----- Sessions subview ----- */
 
-function SessionsView({ coaches, sessions, loading, dateFrom, setDateFrom, dateTo, setDateTo, coachFilter, setCoachFilter, paymentFilter, setPaymentFilter, reload, autoOpenAdd, onAutoOpenHandled }) {
+function SessionsView({ coaches, sessions, loading, dateFrom, setDateFrom, dateTo, setDateTo, coachFilter, setCoachFilter, paymentFilter, setPaymentFilter, showCancelled, setShowCancelled, reload, autoOpenAdd, onAutoOpenHandled }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editSession, setEditSession] = useState(null);
 
@@ -12301,6 +12308,11 @@ function SessionsView({ coaches, sessions, loading, dateFrom, setDateFrom, dateT
           <option value="paid">Paid</option>
           <option value="waived">Waived</option>
         </select>
+        <label style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, cursor: "pointer" }}
+          title="Include cancelled sessions — open one to un-cancel it">
+          <input type="checkbox" checked={!!showCancelled} onChange={(e) => setShowCancelled && setShowCancelled(e.target.checked)} />
+          Show cancelled
+        </label>
         <button className="btn primary" style={{ marginLeft: "auto" }}
           onClick={() => setShowAdd(true)}
           disabled={coaches.filter(c => c.status === "Active").length === 0}
@@ -12371,6 +12383,23 @@ function SessionsView({ coaches, sessions, loading, dateFrom, setDateFrom, dateT
                       border: "1px dashed var(--clay)", borderRadius: 3, padding: "1px 5px"
                     }}>
                     ON TAB
+                  </span>
+                )}
+                {/* v103: a cancelled session that was already PAID is the
+                    money-losing shape — revenue unrecognised and the coach's
+                    cut withheld. Call it out loudly in the list. */}
+                {s.cancelled && (
+                  <span title={(String(s.paymentStatus || "").toLowerCase() === "paid" || s.posSaleId)
+                    ? "Cancelled but PAID — money collected, revenue not recognised, coach's cut withheld. Open it and Uncancel, or refund/void the sale."
+                    : "Cancelled — open it to un-cancel"}
+                    style={{
+                      marginLeft: 6, fontFamily: "var(--mono)", fontSize: 9, fontWeight: 700,
+                      letterSpacing: "0.06em",
+                      color: (String(s.paymentStatus || "").toLowerCase() === "paid" || s.posSaleId) ? "var(--clay)" : "inherit",
+                      opacity: (String(s.paymentStatus || "").toLowerCase() === "paid" || s.posSaleId) ? 1 : 0.6,
+                      border: "1px solid currentColor", borderRadius: 3, padding: "1px 5px"
+                    }}>
+                    {(String(s.paymentStatus || "").toLowerCase() === "paid" || s.posSaleId) ? "CANCELLED · PAID ⚠" : "CANCELLED"}
                   </span>
                 )}
               </div>
@@ -12672,8 +12701,45 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
     }
   }
 
+  // v103 — why Cancel is blocked for this session ("" = cancellable).
+  // Mirrors the server-side money guard in adminCancelCoachingSession so the
+  // staff never sees a dead-end error toast: a session whose money is already
+  // collected (or that is a line on a live tab) must be reversed through the
+  // money path, not silently un-booked.
+  const cancelBlockedReason = (() => {
+    if (!session || isNew) return "";
+    if (session.posSaleId) return "Paid via POS sale " + session.posSaleId + " — void that sale to reverse the payment first";
+    if (String(session.paymentStatus || "").toLowerCase() === "paid") return "Already paid — refund it first to reverse the payment";
+    if (session.onOpenTab) return "On open tab " + session.tabId + " — detach or settle the tab first";
+    return "";
+  })();
+
+  // v103 — restore a cancelled session: flips Cancelled back to FALSE and
+  // re-reserves the REMAINING (future) court cells atomically. Refuses with
+  // the blocker named if a needed cell was given away in the meantime.
+  async function uncancelSession() {
+    if (submitting) return;
+    const ok = await confirmAction({
+      title: "Un-cancel this coaching session?",
+      message: "Coach " + (session.coachName || "?") + " · " + session.date + " " + session.time + " · C·" + session.courtNumbers,
+      consequence: "The session goes back on the books — its remaining court slots are re-reserved, its revenue is recognised again, and the coach's cut reappears in what you owe them. Past slots are left alone.",
+      confirmLabel: "Yes, restore session"
+    });
+    if (!ok) return;
+    setSubmitting(true);
+    const r = await api("adminUncancelCoachingSession", { sessionId: session.sessionId });
+    setSubmitting(false);
+    if (r.ok) {
+      showToast("Session restored" + (r.fullyPast ? " (past session — no courts re-reserved)" : r.reservedSlots ? " · " + r.reservedSlots + " slot(s) re-reserved" : ""), "success");
+      onSaved && onSaved();
+    } else {
+      showToast(r.error || "Un-cancel failed", "error");
+    }
+  }
+
   async function cancelSession() {
     if (submitting) return;  // double-tap guard
+    if (cancelBlockedReason) { showToast(cancelBlockedReason, "error"); return; }
     const ok = await confirmAction({
       title: "Cancel this coaching session?",
       message: "Coach " + (session.coachName || "?") + " · " + session.date + " " + session.time + " · C·" + session.courtNumbers,
@@ -13075,13 +13141,30 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
         </div>
 
         <div className="actions">
-          {!isNew && (
+          {!isNew && session.cancelled && (
             <button
               className="btn ghost"
-              style={{ color: "var(--clay)", marginRight: "auto" }}
-              onClick={cancelSession}
+              style={{ marginRight: "auto" }}
+              onClick={uncancelSession}
               disabled={submitting}
-            >Cancel session</button>
+              title="Put this cancelled session back on the books and re-reserve its remaining courts"
+            >Uncancel session</button>
+          )}
+          {!isNew && !session.cancelled && (
+            <div style={{ marginRight: "auto" }}>
+              <button
+                className="btn ghost"
+                style={{ color: "var(--clay)", opacity: cancelBlockedReason ? 0.45 : 1 }}
+                onClick={cancelSession}
+                disabled={submitting || !!cancelBlockedReason}
+                title={cancelBlockedReason || "Release the courts and mark this session cancelled"}
+              >Cancel session</button>
+              {cancelBlockedReason && (
+                <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.7, maxWidth: 300, lineHeight: 1.4, marginTop: 4 }}>
+                  Can't cancel — {cancelBlockedReason}.
+                </div>
+              )}
+            </div>
           )}
           <button className="btn ghost" onClick={onClose} disabled={submitting}>Close</button>
           <button className="btn primary" onClick={submit} disabled={submitting || !form.coachId || (isNew && form.courts.length === 0)}>
