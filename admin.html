@@ -4803,7 +4803,7 @@ function cacheApi(action, params, data) {
 /* Actions that create/modify records get an idempotency key so a transport
    retry can't create a duplicate (server dedupes on clientRequestId). */
 var MUTATING_ACTIONS = new Set([
-  "adminCreateBooking","adminCancelBooking","adminUncancelBooking","adminExtendBooking","adminMoveBookingCourt","adminReleaseBookingCourts","adminMarkPaid",
+  "adminCreateBooking","adminCancelBooking","adminUncancelBooking","adminExtendBooking","adminRepriceBooking","adminMoveBookingCourt","adminReleaseBookingCourts","adminMarkPaid",
   "adminMarkRefunded","adminFlagNoShow","adminNoShowAndRelease","adminConfirmArrival",
   "adminCreateMember","adminUpdateMember","adminSetPricingRules","adminSetPromo",
   "adminSetPosSettings","adminSetGoals","adminSetLandingConfig","adminSetFairUse",
@@ -4975,7 +4975,7 @@ function _invalidateForMutation(action, result) {
   // never wiped after a POS attach-settle and the UI kept showing "unpaid" even
   // though the sheet said Paid (the owner's "POS doesn't mark paid" report).
   const isBookingMutation = (
-    /^(adminCreateBooking|createBooking|adminCancelBooking|cancelBooking|adminExtendBooking|adminMoveBookingCourt|adminReleaseBookingCourts|adminMarkPaid|adminMarkRefunded|adminMarkNoShow|adminConfirmArrival|adminFlagNoShow|adminNoShowAndRelease|adminUndoCancellation|adminUpdateBooking|adminUpdateNotes|adminSettleCombined|tabClose)/.test(action)
+    /^(adminCreateBooking|createBooking|adminCancelBooking|cancelBooking|adminExtendBooking|adminRepriceBooking|adminMoveBookingCourt|adminReleaseBookingCourts|adminMarkPaid|adminMarkRefunded|adminMarkNoShow|adminConfirmArrival|adminFlagNoShow|adminNoShowAndRelease|adminUndoCancellation|adminUpdateBooking|adminUpdateNotes|adminSettleCombined|tabClose)/.test(action)
   );
   const isWalkInMutation = (
     /^(adminCreateWalkInBlock|adminCloseWalkInBlock|adminAddWalkInPlayer|adminRemoveWalkInPlayer|adminMarkWalkInPlayerPaid|adminUpdateWalkInBlock)/.test(action)
@@ -8800,6 +8800,7 @@ function ScreenBookings() {
       {detailBooking && (
         <BookingDetailModal
           booking={detailBooking}
+          peers={dayAllEntries}
           onClose={() => setDetailBooking(null)}
           onAction={() => { load(); setDetailBooking(null); }}
         />
@@ -9311,7 +9312,7 @@ function BookingRow({ booking, onAction, onOpen }) {
   );
 }
 
-function BookingDetailModal({ booking, onClose, onAction }) {
+function BookingDetailModal({ booking, onClose, onAction, peers }) {
   const [acting, setActing] = useState(false);
   const [payAsk, setPayAsk] = useState(null);
   // Standalone receipt modal (reprint/text) — null when closed. Offered right
@@ -9403,6 +9404,83 @@ function BookingDetailModal({ booking, onClose, onAction }) {
   // paid changes). Client preview scales linearly (price is per-court linear
   // for rack, member %, promo and corporate rates), server total is final.
   const [releaseOpen, setReleaseOpen] = useState(false);
+  // v102 — Reprice at current rates: the customer joined (or their
+  // membership lapsed) AFTER this unpaid booking was made. The server
+  // recomputes the price from scratch through the same engine
+  // createBooking uses, so the member discount / corporate rate / promo /
+  // fair-use that apply TODAY land on the row. The panel always shows a
+  // SERVER preview (adminPreviewReprice) — never a client guess — so the
+  // "$60.00 → $42.00" on screen is by construction what Confirm writes.
+  const [repriceOpen, setRepriceOpen] = useState(false);
+  const [repricePreview, setRepricePreview] = useState(null);   // null = loading
+  const [repriceErr, setRepriceErr] = useState("");
+  // Bulk: other UNPAID bookings for the SAME phone that are already loaded
+  // in the list behind this modal. Ticked ones are repriced sequentially by
+  // a client loop on confirm (one confirm, one summary toast) — no new
+  // server action, so nothing extra can go wrong server-side.
+  const [repriceAlsoSel, setRepriceAlsoSel] = useState({});
+  const REPRICEABLE = ["awaiting", "at_risk", "checked_in", "completed", "no_show_kept", "no_show_freed"];
+  const repricePeers = (peers || []).filter(p =>
+    p && p.entryType !== "coaching" && p.entryType !== "walkin" && p.entryType !== "openplay" &&
+    p.bookingId !== booking.bookingId &&
+    String(p.phone || "") === String(booking.phone || "") && String(booking.phone || "") !== "" &&
+    REPRICEABLE.indexOf(p.derivedStatus) >= 0
+  );
+  const repriceAlsoChosen = repricePeers.filter(p => !!repriceAlsoSel[p.bookingId]);
+
+  useEffect(() => {
+    if (!repriceOpen) { setRepricePreview(null); setRepriceErr(""); return; }
+    let stale = false;
+    setRepricePreview(null);
+    setRepriceErr("");
+    api("adminPreviewReprice", { bookingId: booking.bookingId }, { bypassCache: true })
+      .then(r => {
+        if (stale) return;
+        if (r && r.ok) setRepricePreview(r);
+        else setRepriceErr((r && r.error) || "Couldn't price this booking");
+      })
+      .catch(() => { if (!stale) setRepriceErr("Couldn't reach the server"); });
+    return () => { stale = true; };
+  }, [repriceOpen, booking.bookingId]);
+
+  async function doReprice() {
+    if (acting) return;
+    setActing(true);
+    const targets = [booking.bookingId].concat(repriceAlsoChosen.map(p => p.bookingId));
+    let changed = 0, same = 0, failed = 0;
+    let firstOld = 0, firstNew = 0, firstReason = "";
+    let lastErr = "";
+    for (const bid of targets) {
+      // Sequential on purpose — each reprice takes the script lock, and the
+      // fair-use day-position math reads the rows the previous one wrote.
+      const r = await api("adminRepriceBooking", { bookingId: bid });
+      if (!r || !r.ok) { failed++; lastErr = (r && r.error) || "failed"; continue; }
+      if (r.changed) {
+        changed++;
+        if (changed === 1) {
+          firstOld = (r.current && r.current.total) || 0;
+          firstNew = (r["new"] && r["new"].total) || 0;
+          firstReason = (r.reasons || []).join(" · ");
+        }
+      } else same++;
+    }
+    setActing(false);
+    if (targets.length === 1) {
+      if (failed) showToast(lastErr || "Couldn't reprice — please retry", "error");
+      else if (changed) showToast("Repriced · " + fmtMoney(firstOld) + " → " + fmtMoney(firstNew) + (firstReason ? " (" + firstReason + ")" : ""), "success");
+      else showToast("Already at current rates — nothing changed", "default");
+    } else {
+      showToast(
+        "Repriced " + changed + " of " + targets.length + " booking" + (targets.length > 1 ? "s" : "") +
+        (same ? " · " + same + " already at current rates" : "") +
+        (failed ? " · " + failed + " failed (" + lastErr + ")" : ""),
+        failed ? "error" : (changed ? "success" : "default")
+      );
+    }
+    onAction && onAction();
+    if (changed || failed) onClose && onClose();
+  }
+
   // v72 — Waive (comp): owner comps an unpaid booking as goodwill. Reason is
   // required (≤120 chars, stamped into Notes); the server flips the status to
   // Waived, writes NO ledger row, and every revenue/receivable rollup skips it.
@@ -9928,6 +10006,77 @@ function BookingDetailModal({ booking, onClose, onAction }) {
           </div>
         )}
 
+        {/* v102 — Reprice panel: SERVER preview (adminPreviewReprice), then
+            Confirm applies exactly that. "Already at current rates" means the
+            confirm is disabled and nothing is ever written. */}
+        {repriceOpen && (
+          <div style={{
+            padding: "12px 14px", marginBottom: 12,
+            background: "rgba(26,26,26,0.03)", borderRadius: 4,
+            border: "1.5px solid var(--wood)"
+          }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", opacity: 0.7, marginBottom: 8 }}>
+              Reprice at current rates
+            </div>
+            {repriceErr ? (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 12, marginBottom: 10, color: "var(--clay)" }}>{repriceErr}</div>
+            ) : !repricePreview ? (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 12, marginBottom: 10 }}>Pricing…</div>
+            ) : !repricePreview.changed ? (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 12, marginBottom: 10 }}>
+                Already at current rates — <strong>{fmtMoney(repricePreview.current.total)}</strong> is correct
+                <span style={{ opacity: 0.6 }}> ({(repricePreview.reasons || []).join(" · ")})</span>
+              </div>
+            ) : (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 13, marginBottom: 10 }}>
+                Now <strong>{fmtMoney(repricePreview.current.total)}</strong> → <strong style={{ color: (repricePreview.deltas.total || 0) < 0 ? "var(--green)" : "var(--clay)" }}>{fmtMoney(repricePreview["new"].total)}</strong>
+                <span> ({(repricePreview.reasons || []).join(" · ")})</span>
+                <div style={{ fontSize: 11, opacity: 0.65, marginTop: 4 }}>
+                  Subtotal {fmtMoney(repricePreview.current.subtotal)} → {fmtMoney(repricePreview["new"].subtotal)} ·
+                  discount {repricePreview.current.discountPct}% → {repricePreview["new"].discountPct}%
+                  {repricePreview["new"].memberTier !== repricePreview.current.memberTier && (
+                    <span> · member {repricePreview.current.memberTier || "none"} → {repricePreview["new"].memberTier || "none"}</span>
+                  )}
+                </div>
+              </div>
+            )}
+            {/* Bulk: the same customer's other unpaid bookings visible in the
+                list behind this modal (the owner's exact case — two unpaid
+                rack bookings, one membership bought at the counter). */}
+            {repricePeers.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.6, marginBottom: 5 }}>
+                  Also reprice this customer's other unpaid bookings on screen
+                </div>
+                {repricePeers.map(p => (
+                  <label key={p.bookingId} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "var(--mono)", fontSize: 11, cursor: "pointer", marginBottom: 3 }}>
+                    <input
+                      type="checkbox"
+                      checked={!!repriceAlsoSel[p.bookingId]}
+                      onChange={(e) => setRepriceAlsoSel({ ...repriceAlsoSel, [p.bookingId]: e.target.checked })}
+                      disabled={acting}
+                    />
+                    {p.bookingId} · {p.date} {p.time} · C·{p.courtNumbers} · {fmtMoney(p.total || 0)}
+                  </label>
+                ))}
+              </div>
+            )}
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.6, lineHeight: 1.4, marginBottom: 8 }}>
+              Price only — date, time, courts and availability never change. Unpaid bookings only. A birthday session is never granted retroactively.
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                className="btn primary"
+                onClick={doReprice}
+                disabled={acting || !repricePreview || (!repricePreview.changed && repriceAlsoChosen.length === 0)}
+              >
+                {acting ? "Repricing…" : (repriceAlsoChosen.length > 0 ? "Confirm reprice (" + (repriceAlsoChosen.length + 1) + ")" : "Confirm reprice")}
+              </button>
+              <button className="btn ghost" onClick={() => setRepriceOpen(false)} disabled={acting}>Cancel</button>
+            </div>
+          </div>
+        )}
+
         {/* v72 — Waive (comp) panel: reason required, confirm spells out the
             goodwill write-off. Unpaid bookings only (see button gating). */}
         {waiveOpen && (
@@ -10010,6 +10159,18 @@ function BookingDetailModal({ booking, onClose, onAction }) {
               onClick={() => setPayAsk(() => (mth) => doAction("adminMarkPaid", undefined, mth))}
               disabled={acting}
             >Mark paid</button>
+          )}
+          {/* v102 — Reprice: UNPAID only (no-shows included — they can still
+              be collected, so the number asked for must be the current one).
+              Paid / waived / POS-settled / on-a-tab / cancelled are refused
+              server-side too; the button is simply hidden for them. */}
+          {(d === "awaiting" || d === "at_risk" || d === "checked_in" || d === "completed" || d === "no_show_kept" || d === "no_show_freed") && !booking.isBirthdaySession && (
+            <button
+              className="btn"
+              style={{ color: "var(--wood)" }}
+              onClick={() => { setRepriceAlsoSel({}); setRepriceOpen(v => !v); }}
+              disabled={acting}
+            >Reprice</button>
           )}
           {/* v72 — Waive (comp): UNPAID plain bookings only. Paid/POS/tab/
               cancelled/no-show are refused server-side too; the button is
