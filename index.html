@@ -3404,6 +3404,52 @@ const STRINGS = {
     m_fairuse_3: "The first {k} discounted courts each day get the full member discount; additional discounted courts add ${x} per hour on top of the discounted rate.",
     m_fairuse_4: "Please cancel at least 2 hours before your session, the member must be one of the players, and memberships are personal — they can't be shared.",
 
+    /* ================================================================
+       v112 — PUBLIC FAIR USE POLICY PAGE (#fairuse)
+       ----------------------------------------------------------------
+       Scope is FAIR USE ONLY — this is not a general T&C and not house
+       rules. The owner's official bilingual wording, verbatim.
+       ACTIVE/INACTIVE RENDERING RULE: §2 (daily cap + surcharge) and the
+       worked example carry NUMBERS, so they render ONLY when
+       config.fairUse && config.fairUse.active. When the policy is off the
+       numbers are HIDDEN — the page shows only the always-true clauses
+       (standard-play-only, events, member-must-play, no-sharing,
+       cancellations, private events) with no cap/surcharge wording at all.
+       ================================================================ */
+    fu_link: "Membership Fair Use Policy",
+    fu_kicker: "FAIR USE",
+    fu_title: "Membership Fair Use Policy",
+    fu_effective: "In effect from {d}",
+    fu_close: "Close",
+    fu_whats_this: "What's this?",
+    fu_intro: "Our Founding and Standard memberships reward our most dedicated players with real savings on court time. To keep courts fairly available to everyone — members and drop-in players alike, especially at peak hours — the following fair-use guidelines apply to every membership discount.",
+
+    fu_s1_h: "Where your discount applies",
+    fu_s1_standard: "Standard play only. Membership discounts apply to standard recreational court bookings. They do not apply to private events, facility buyouts, tournaments, leagues, or any booking involving outside vendors (DJ, bar, catering).",
+    fu_s1_events: "Events. A member hosting a private event may apply their discount only to the court-time portion of the booking, and only up to the daily limit below. A separate Private Event Fee covers exclusive facility use, vendor coordination, and post-event deep cleaning.",
+
+    fu_s2_h: "Daily booking limits & extra courts",
+    fu_s2_cap: "Up to {N} courts per day. Your member discount applies to a maximum of {N} courts per day, so courts stay available for the wider community.",
+    fu_s2_full: "First {K} courts — full member discount. Your first {K} courts get your full member discount: 50% off for Founding, 30% off for Standard — no matter which court numbers you play on.",
+    fu_s2_extra: "Additional courts. Any court beyond your first {K} still gets your member discount, plus a ${S} per hour, per court surcharge.",
+
+    fu_member_play: "Member must play. The member holding the membership must be present and playing for the discount to apply.",
+    fu_no_share: "No sharing or transfer. Memberships cannot be shared, transferred, or used to book on behalf of non-members.",
+
+    fu_ex_h: "How it adds up — a Founding member booking {N} courts for 2 hours at peak (discounted rate ${x}/hr)",
+    fu_ex_sub: "",
+    fu_ex_l1: "First {k} courts — {k} × 2h × ${x}/hr",
+    fu_ex_l2: "Additional {n} courts — {n} × 2h × (${x} + ${s})/hr",
+    fu_ex_total: "Total",
+
+    fu_s3_h: "Cancellations & no-shows",
+    fu_s3_cancel: "Cancel at least 2 hours ahead. As a courtesy to other players, please cancel any unwanted discounted booking at least 2 hours in advance.",
+    fu_s3_noshow: "Repeated no-shows. Repeated no-shows or late cancellations on discounted courts may lead to a temporary hold on booking privileges.",
+
+    fu_s4_h: "Private & corporate events",
+    fu_s4_body: "Planning something bigger — a private party, a corporate buyout, a tournament, or anything with a DJ, bar, or outside vendors? We'd love to host it. Message us and we'll put together a custom quote for you.",
+    fu_s4_contact: "Telegram @thepickleballyard · 016 22 68 68",
+
     // Generic
     loading: "Loading…",
     error: "Something went wrong",
@@ -3651,6 +3697,43 @@ const STRINGS = {
     m_fairuse_2: "ការបញ្ចុះតម្លៃ គ្របដណ្តប់រហូតដល់ {n} តារាង ក្នុងមួយសមាជិក ក្នុងមួយថ្ងៃ។ តារាងបន្ថែមទៀត គិតតាមតម្លៃធម្មតា។",
     m_fairuse_3: "តារាងបញ្ចុះតម្លៃ {k} ដំបូងក្នុងមួយថ្ងៃ ទទួលបានការបញ្ចុះតម្លៃសមាជិកពេញ។ តារាងបញ្ចុះតម្លៃបន្ថែមទៀត គិតបន្ថែម ${x} ក្នុងមួយម៉ោង លើតម្លៃសមាជិកដែលបានបញ្ចុះរួច។",
     m_fairuse_4: "សូមបោះបង់ការកក់យ៉ាងហោចណាស់ ២ ម៉ោងមុនម៉ោងលេង។ សមាជិកត្រូវតែជាអ្នកលេងម្នាក់ក្នុងក្រុម ហើយសមាជិកភាពជារបស់ផ្ទាល់ខ្លួន មិនអាចចែករំលែកបានទេ។",
+
+    /* v112 — PUBLIC FAIR USE POLICY PAGE (#fairuse), owner's official
+       Khmer wording, verbatim. Same active/inactive rendering rule as EN. */
+    fu_link: "គោលការណ៍ប្រើប្រាស់សមរម្យ សម្រាប់សមាជិក",
+    fu_kicker: "ការប្រើប្រាស់សមរម្យ",
+    fu_title: "គោលការណ៍ប្រើប្រាស់សមរម្យ សម្រាប់សមាជិក",
+    fu_effective: "មានប្រសិទ្ធភាពចាប់ពី {d}",
+    fu_close: "បិទ",
+    fu_whats_this: "នេះជាអ្វី?",
+    fu_intro: "Membership Founding និង Standard របស់យើង ជាការតបស្នងជូនអ្នកលេងដែលស្រឡាញ់ និងគាំទ្រ The Yard ពិតៗ ដោយផ្តល់ការបញ្ចុះតម្លៃពិតប្រាកដលើម៉ោង court។ ដើម្បីឲ្យ court នៅតែទំនេរគ្រប់គ្រាន់សម្រាប់មនុស្សគ្រប់គ្នា — ទាំងសមាជិក និងអ្នក drop-in ជាពិសេសនៅម៉ោង peak — សូមអនុវត្តតាមគោលការណ៍ខាងក្រោមនេះ ចំពោះការបញ្ចុះតម្លៃ membership គ្រប់ប្រភេទ។",
+
+    fu_s1_h: "ការបញ្ចុះតម្លៃ អនុវត្តលើអ្វីខ្លះ",
+    fu_s1_standard: "សម្រាប់ការលេងធម្មតាតែប៉ុណ្ណោះ។ ការបញ្ចុះតម្លៃ membership អនុវត្តតែលើការ book court លេងធម្មតា។ វាមិនអនុវត្តលើ private events, facility buyouts, tournaments, leagues ឬការ book ណាដែលពាក់ព័ន្ធនឹង vendor ខាងក្រៅ (DJ, bar, catering) នោះទេ។",
+    fu_s1_events: "សម្រាប់ Events។ សមាជិកដែលចង់រៀបចំ private event អាចប្រើការបញ្ចុះតម្លៃរបស់ខ្លួន តែលើផ្នែកម៉ោង court ប៉ុណ្ណោះ ហើយក្នុងកម្រិតកំណត់ប្រចាំថ្ងៃ (ខាងក្រោម)។ រីឯ Private Event Fee ដាច់ដោយឡែក គឺគ្របដណ្តប់លើការប្រើ facility ទាំងមូល ការសម្របសម្រួល vendor និងការសម្អាតឡើងវិញក្រោយ event។",
+
+    fu_s2_h: "កម្រិត book ប្រចាំថ្ងៃ និង court បន្ថែម",
+    fu_s2_cap: "អតិបរមា {N} court/ថ្ងៃ។ ការបញ្ចុះតម្លៃ membership របស់អ្នក អនុវត្តបានត្រឹម {N} court ក្នុងមួយថ្ងៃ ដើម្បីទុក court ឲ្យអ្នកលេងឯទៀតបានលេងផងដែរ។",
+    fu_s2_full: "{K} court ដំបូង — បញ្ចុះតម្លៃពេញលេញ។ court {K} ដំបូងទទួលបានការបញ្ចុះតម្លៃ membership ពេញលេញ៖ 50% សម្រាប់ Founding និង 30% សម្រាប់ Standard — មិនសំខាន់ថាជា court លេខប៉ុន្មានទេ។",
+    fu_s2_extra: "Court បន្ថែម។ រាល់ court ដែលលើសពី {K} court ដំបូង នៅតែទទួលបានការបញ្ចុះតម្លៃ membership ដដែល ប៉ុន្តែត្រូវបូក surcharge បន្ថែម ${S}/ម៉ោង ក្នុងមួយ court។",
+
+    fu_member_play: "សមាជិកត្រូវលេងផ្ទាល់។ ម្ចាស់ membership ត្រូវមានវត្តមាន និងលេងផ្ទាល់ ទើបការបញ្ចុះតម្លៃមានប្រសិទ្ធភាព។",
+    fu_no_share: "ហាមចែក ឬផ្ទេរសិទ្ធិ។ Membership មិនអាចយកទៅចែក ផ្ទេរ ឬ book ជំនួសឲ្យអ្នកមិនមែនសមាជិកបានទេ។",
+
+    fu_ex_h: "គិតតម្លៃយ៉ាងម៉េច?",
+    fu_ex_sub: "សមាជិក Founding book {N} court រយៈពេល 2 ម៉ោង នៅម៉ោង peak (តម្លៃក្រោយបញ្ចុះ ${x}/ម៉ោង)",
+    fu_ex_l1: "court {k} ដំបូង — {k} × 2 ម៉ោង × ${x}/ម៉ោង",
+    fu_ex_l2: "court បន្ថែម {n} — {n} × 2 ម៉ោង × (${x} + ${s})/ម៉ោង",
+    fu_ex_total: "សរុប",
+
+    fu_s3_h: "ការលុប booking និង no-show",
+    fu_s3_cancel: "សូមលុបយ៉ាងតិច 2 ម៉ោងជាមុន។ ដើម្បីគួរសមចំពោះអ្នកលេងឯទៀត សូមលុប booking ដែលអ្នកលែងត្រូវការ យ៉ាងតិច 2 ម៉ោង មុនពេលលេង។",
+    fu_s3_noshow: "បើ no-show ញឹកញាប់។ ការ no-show ឬលុប booking យឺតៗ ម្តងហើយម្តងទៀត អាចធ្វើឲ្យសិទ្ធិ book របស់អ្នកត្រូវផ្អាកបណ្តោះអាសន្ន។",
+
+    fu_s4_h: "Private & Corporate Events",
+    fu_s4_body: "មានគម្រោងធំជាងនេះមែនទេ? — party ឯកជន, corporate buyout, tournament ឬអ្វីៗដែលមាន DJ, bar ឬ vendor ខាងក្រៅ? យើងរីករាយនឹងទទួលរៀបចំជូន។ គ្រាន់តែ message មកកាន់យើង យើងនឹងធ្វើ quote ជាក់លាក់មួយជូនអ្នក។",
+    fu_s4_contact: "Telegram @thepickleballyard · 016 22 68 68",
+
     loading: "កំពុងផ្ទុក…",
     error: "មានបញ្ហាអ្វីមួយមិនប្រក្រតី",
     retry: "ព្យាយាមម្តងទៀត",
@@ -5582,6 +5665,25 @@ function ScreenBooking({ state, setState, go, lang, config }) {
                     {pricingShown.fairUse && pricingShown.fairUse.maxCourtsPerDay > 0
                       ? t("b_fairuse_disc", { n: pricingShown.fairUse.maxCourtsPerDay }, lang)
                       : (isFounding ? t("b_founding_disc", null, lang) : t("b_member_disc", null, lang))}
+                    {/* v112 — ENTRY POINT (c): a quiet "ⓘ what's this?" next to
+                        the fair-use discount line, straight to the policy page.
+                        Only rendered when the line IS the fair-use line, which
+                        only happens while the policy is active. */}
+                    {pricingShown.fairUse && (
+                      <button
+                        className="fairuse-info-link"
+                        onClick={() => go("fairuse")}
+                        aria-label={t("fu_link", null, lang)}
+                        style={{
+                          background: "none", border: "none", cursor: "pointer",
+                          font: "inherit", color: "inherit", opacity: 0.7,
+                          padding: "0 0 0 6px", textDecoration: "underline",
+                          textUnderlineOffset: 2, whiteSpace: "nowrap"
+                        }}
+                      >
+                        ⓘ {t("fu_whats_this", null, lang)}
+                      </button>
+                    )}
                   </span>
                   <span className="v" key={"v-disc-" + pricingShown.discountAmount}>${pricingShown.discountAmount.toFixed(2)}</span>
                 </div>
@@ -6873,6 +6975,27 @@ function ScreenMembership({ state, setState, go, lang, config }) {
         </div>
       )}
 
+      {/* v112 — ENTRY POINT (a): the Membership section always links to the
+          full public Fair Use Policy page, whether or not the numeric
+          policy is switched on. When it is off the page simply shows the
+          always-true clauses with no cap/surcharge wording. */}
+      <button
+        className="fairuse-membership-link"
+        onClick={() => go("fairuse")}
+        style={{
+          marginTop: 14, width: "100%", cursor: "pointer",
+          background: "transparent", color: "var(--ink)",
+          border: "1.5px solid var(--ink)", borderRadius: 6,
+          padding: "13px 14px", textAlign: "left",
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          fontFamily: "var(--mono)", fontWeight: 600, fontSize: 12,
+          letterSpacing: "0.1em", textTransform: "uppercase"
+        }}
+      >
+        <span>{t("fu_link", null, lang)}</span>
+        <span aria-hidden="true">→</span>
+      </button>
+
       <div className="footer-note" style={{ marginTop: 18 }}>
         {t("m_visit", null, lang)}
       </div>
@@ -7814,6 +7937,313 @@ function FAQList({ lang }) {
 }
 
 /* ====================================================================
+   v112 — MEMBERSHIP FAIR USE POLICY (public page, #fairuse)
+   ====================================================================
+
+   SCOPE: fair use ONLY. Not a general T&C, not house rules.
+
+   THE ACTIVE / INACTIVE RENDERING RULE
+   ------------------------------------
+   getConfig exposes `fairUse` ONLY while the owner has the policy
+   switched on (backend `_fairUsePublicConfig()` returns undefined when
+   FAIRUSE_ACTIVE !== "true", and JSON.stringify drops the key). So:
+
+     config.fairUse && config.fairUse.active  → the full policy, including
+       §2 "Daily booking limits & extra courts" and the worked example.
+     otherwise                                → HIDE THE NUMBERS. Only the
+       always-true clauses render (standard-play-only, events,
+       member-must-play, no-sharing, cancellations, private events) and
+       NO cap/surcharge wording appears anywhere on the page.
+
+   Every number on this page comes from live config — the daily cap, the
+   full-discount count and the surcharge from `config.fairUse`, the peak
+   rack rate from `config.pricingRules`, the Founding percentage from
+   `config.discountFounding`. Nothing is hard-coded, so the page cannot
+   drift from what the booking engine actually charges.
+
+   Reachable from THREE places:
+     (a) ScreenMembership — "Read the full policy" link (always present)
+     (b) the site footer   — on every screen (SiteFooter, below)
+     (c) the booking price breakdown — a "ⓘ what's this?" link next to the
+         fair-use discount line (which only appears when the policy is
+         active anyway)
+   …plus the direct deep link #fairuse, so the owner can send it as a URL.
+   ==================================================================== */
+
+/** The peak rack rate from the live pricing table. The worked example is
+ *  quoted "at peak", so it uses the highest configured hourly rate. */
+function fairUsePeakRate(config) {
+  const rules = (config && config.pricingRules) || [];
+  let best = 0;
+  for (const r of rules) { const v = parseFloat(r.rate) || 0; if (v > best) best = v; }
+  return best || 15;
+}
+
+/**
+ * v112 ANTI-DRIFT GUARANTEE.
+ *
+ * The worked example is computed with the SAME arithmetic the backend
+ * uses, mirrored line for line from `_fairUseApply()` + `calculatePrice()`:
+ *
+ *   base           = courts × hours × rate                  (rack subtotal)
+ *   allowance      = cap > 0 ? cap − alreadyUsed : courts
+ *   discounted     = min(courts, allowance)
+ *   K              = S > 0 ? min(discounted, fullDiscountCourts) : discounted
+ *   surcharge      = round(surchargedCourts × hours × S × 100) / 100
+ *   discountAmount = round(base × (discounted / courts) × pct) / 100
+ *   total          = base + surcharge − discountAmount
+ *
+ * Scenario: a FOUNDING member on a fresh day (alreadyUsed = 0) booking N
+ * courts for 2 hours at the peak rack rate — exactly the owner's example.
+ * tests/v112_fairuse_page_test.js runs this function and the real
+ * extracted `_fairUseApply` over the same inputs and asserts the totals
+ * are identical, so the page can never quote a price the engine would
+ * not charge.
+ */
+function fairUseWorkedExample(fairUse, peakRate, discountPct) {
+  const hours = 2;
+  const S = Math.max(0, Number(fairUse.surchargePerHour) || 0);
+  const cap = Math.max(0, parseInt(fairUse.maxCourtsPerDay, 10) || 0);
+  const kCfg = Math.max(0, parseInt(fairUse.fullDiscountCourts, 10) || 0);
+  // N = the daily cap. Capless (0) → one court past the full-discount tier,
+  // so the example still demonstrates what the extra court costs.
+  const N = cap > 0 ? cap : Math.max(1, kCfg + 1);
+  const allowance = cap > 0 ? cap : N;          // alreadyUsed = 0 on a fresh day
+  const discountedCourts = Math.min(N, allowance);
+  const K = S > 0 ? Math.min(discountedCourts, kCfg) : discountedCourts;
+  const surchargedCourts = discountedCourts - K;
+  const base = N * hours * peakRate;
+  const discountAmount = Math.round(base * (discountedCourts / N) * discountPct) / 100;
+  const surcharge = Math.round(surchargedCourts * hours * S * 100) / 100;
+  const total = Math.round((base + surcharge - discountAmount) * 100) / 100;
+  // Display-side per-hour rate a member actually pays on a full-discount court.
+  const discRate = Math.round(peakRate * (100 - discountPct)) / 100;
+  const l1 = Math.round(K * hours * discRate * 100) / 100;
+  // Line 2 is deliberately the REMAINDER, so the printed lines always sum
+  // to the engine-exact total even when a fractional rate rounds oddly.
+  const l2 = Math.round((total - l1) * 100) / 100;
+  return {
+    hours, N, K, S, surchargedCourts, peakRate, discRate,
+    base, surcharge, discountAmount, total, l1, l2
+  };
+}
+
+/** One policy clause — the owner's verbatim wording, set as body copy in
+ *  a bordered paper card with a mono index numeral. */
+function FairUseClause({ n, text }) {
+  return (
+    <div style={{
+      display: "flex", gap: 10, alignItems: "flex-start",
+      padding: "12px 0", borderTop: "1px solid rgba(26,26,26,0.14)"
+    }}>
+      <span style={{
+        fontFamily: "var(--mono)", fontSize: 11, fontWeight: 600,
+        letterSpacing: "0.1em", opacity: 0.45, lineHeight: 1.9,
+        flex: "0 0 auto", minWidth: 18
+      }} aria-hidden="true">{n}</span>
+      <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.75 }}>{text}</p>
+    </div>
+  );
+}
+
+/** A section heading — mono kicker + serif display title. */
+function FairUseHeading({ num, children }) {
+  return (
+    <div style={{ marginTop: 26, marginBottom: 2 }}>
+      <div style={{
+        fontFamily: "var(--mono)", fontSize: 10.5, fontWeight: 600,
+        letterSpacing: "0.2em", textTransform: "uppercase", opacity: 0.5
+      }}>{num}</div>
+      <h2 className="serif" style={{
+        fontFamily: "var(--serif)", fontWeight: 400, fontStyle: "italic",
+        fontSize: 25, lineHeight: 1.25, margin: "4px 0 0"
+      }}>{children}</h2>
+    </div>
+  );
+}
+
+function ScreenFairUse({ state, go, lang, config }) {
+  // config.fairUse exists ONLY while the policy is switched on — this
+  // single expression is the active/inactive gate for the whole page.
+  const fairUse = (config && config.fairUse && config.fairUse.active) ? config.fairUse : null;
+  const discountPct = (config && config.discountFounding) || 50;
+  const peakRate = fairUsePeakRate(config);
+  const ex = fairUse ? fairUseWorkedExample(fairUse, peakRate, discountPct) : null;
+  // Optional "In effect from …" — omitted entirely when the owner has not
+  // set FAIRUSE_EFFECTIVE_DATE (the backend drops the key when blank).
+  const effectiveDate = fairUse && fairUse.effectiveDate ? fairUse.effectiveDate : "";
+
+  const money = (v) => "$" + Number(v).toFixed(2);
+
+  return (
+    <div className="screen scr-pad-top" style={{ paddingBottom: 40 }}>
+      <button className="back-link" onClick={() => go(state.token ? "booking" : "phone")}>
+        ← {t("fu_close", null, lang)}
+      </button>
+
+      <div className="row-between" style={{ marginBottom: 12 }}>
+        <Lockup size={0.92} onClick={() => go(state.token ? "booking" : "phone")} />
+        <span className="pill">{t("fu_kicker", null, lang)}</span>
+      </div>
+
+      <h1 className="h-display" style={{ fontSize: 40, lineHeight: 1.1, margin: "10px 0 8px" }}>
+        {t("fu_title", null, lang)}
+      </h1>
+
+      {effectiveDate && (
+        <div style={{
+          fontFamily: "var(--mono)", fontSize: 11, fontWeight: 500,
+          letterSpacing: "0.14em", textTransform: "uppercase", opacity: 0.55,
+          marginBottom: 14
+        }}>
+          {t("fu_effective", { d: effectiveDate }, lang)}
+        </div>
+      )}
+
+      <p style={{ fontSize: 14.5, lineHeight: 1.75, margin: "10px 0 4px", opacity: 0.9 }}>
+        {t("fu_intro", null, lang)}
+      </p>
+
+      {/* ── §1 Where your discount applies ─────────────────────────── */}
+      <FairUseHeading num="01">{t("fu_s1_h", null, lang)}</FairUseHeading>
+      <FairUseClause n="1" text={t("fu_s1_standard", null, lang)} />
+      <FairUseClause n="2" text={t("fu_s1_events", null, lang)} />
+      {/* When the numbers are hidden these two always-true clauses live
+          here instead of in §2 — §2 does not render at all. */}
+      {!fairUse && <FairUseClause n="3" text={t("fu_member_play", null, lang)} />}
+      {!fairUse && <FairUseClause n="4" text={t("fu_no_share", null, lang)} />}
+
+      {/* ── §2 Daily booking limits & extra courts — NUMERIC.
+             Renders ONLY while the policy is active. ──────────────── */}
+      {fairUse && (
+        <>
+          <FairUseHeading num="02">{t("fu_s2_h", null, lang)}</FairUseHeading>
+          {fairUse.maxCourtsPerDay > 0 && (
+            <FairUseClause n="1" text={t("fu_s2_cap", { N: fairUse.maxCourtsPerDay }, lang)} />
+          )}
+          <FairUseClause n="2" text={t("fu_s2_full", { K: fairUse.fullDiscountCourts }, lang)} />
+          {fairUse.surchargePerHour > 0 && (
+            <FairUseClause
+              n="3"
+              text={t("fu_s2_extra", { K: fairUse.fullDiscountCourts, S: fairUse.surchargePerHour }, lang)}
+            />
+          )}
+          <FairUseClause n="4" text={t("fu_member_play", null, lang)} />
+          <FairUseClause n="5" text={t("fu_no_share", null, lang)} />
+        </>
+      )}
+
+      {/* ── Worked example — computed live from config + the real peak
+             rate, using the engine's own arithmetic. Active only. ─── */}
+      {fairUse && ex && (
+        <div style={{
+          marginTop: 22, padding: "14px 15px",
+          border: "1.5px solid var(--ink)", borderRadius: 6,
+          background: "rgba(26,26,26,0.035)"
+        }}>
+          <div className="serif" style={{
+            fontFamily: "var(--serif)", fontStyle: "italic", fontWeight: 400,
+            fontSize: 17, lineHeight: 1.35, marginBottom: 4
+          }}>
+            {t("fu_ex_h", { N: ex.N, x: ex.discRate.toFixed(2) }, lang)}
+          </div>
+          {t("fu_ex_sub", { N: ex.N, x: ex.discRate.toFixed(2) }, lang) !== "" && (
+            <div style={{ fontSize: 13, lineHeight: 1.6, opacity: 0.8, marginBottom: 6 }}>
+              {t("fu_ex_sub", { N: ex.N, x: ex.discRate.toFixed(2) }, lang)}
+            </div>
+          )}
+          <div style={{ fontFamily: "var(--mono)", fontSize: 12.5, lineHeight: 2, marginTop: 6 }}>
+            {ex.K > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                <span style={{ opacity: 0.85 }}>
+                  {t("fu_ex_l1", { k: ex.K, x: ex.discRate.toFixed(2) }, lang)}
+                </span>
+                <span style={{ fontVariantNumeric: "tabular-nums" }}>{money(ex.l1)}</span>
+              </div>
+            )}
+            {ex.surchargedCourts > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                <span style={{ opacity: 0.85 }}>
+                  {t("fu_ex_l2", {
+                    n: ex.surchargedCourts,
+                    x: ex.discRate.toFixed(2),
+                    s: ex.S.toFixed(2)
+                  }, lang)}
+                </span>
+                <span style={{ fontVariantNumeric: "tabular-nums" }}>{money(ex.l2)}</span>
+              </div>
+            )}
+            <div style={{
+              display: "flex", justifyContent: "space-between", gap: 10,
+              marginTop: 4, paddingTop: 6, fontWeight: 700,
+              borderTop: "1px dashed rgba(26,26,26,0.3)"
+            }}>
+              <span>{t("fu_ex_total", null, lang)}</span>
+              <span style={{ fontVariantNumeric: "tabular-nums" }}>{money(ex.total)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── §3 Cancellations & no-shows — ALWAYS SHOWN ─────────────── */}
+      <FairUseHeading num={fairUse ? "03" : "02"}>{t("fu_s3_h", null, lang)}</FairUseHeading>
+      <FairUseClause n="1" text={t("fu_s3_cancel", null, lang)} />
+      <FairUseClause n="2" text={t("fu_s3_noshow", null, lang)} />
+
+      {/* ── §4 Private & corporate events — ALWAYS SHOWN ───────────── */}
+      <FairUseHeading num={fairUse ? "04" : "03"}>{t("fu_s4_h", null, lang)}</FairUseHeading>
+      <p style={{
+        fontSize: 14.5, lineHeight: 1.75, margin: "12px 0 10px",
+        paddingTop: 12, borderTop: "1px solid rgba(26,26,26,0.14)"
+      }}>
+        {t("fu_s4_body", null, lang)}
+      </p>
+      <div style={{
+        fontFamily: "var(--mono)", fontSize: 12.5, fontWeight: 600,
+        letterSpacing: "0.06em", padding: "10px 12px",
+        border: "1.5px solid var(--ink)", borderRadius: 4, display: "inline-block"
+      }}>
+        {t("fu_s4_contact", null, lang)}
+      </div>
+
+      <div className="footer-note" style={{ marginTop: 26 }}>
+        {t("p_footer", null, lang)}
+      </div>
+    </div>
+  );
+}
+
+/* ====================================================================
+   v112 — SiteFooter: the fair-use policy link on EVERY screen.
+   Entry point (b) of three. Rendered by App below the active screen
+   body, so it is present regardless of sign-in state or which screen is
+   showing. Deliberately quiet — a single mono link, no chrome.
+   ==================================================================== */
+function SiteFooter({ go, lang, screen }) {
+  if (screen === "fairuse") return null;   // already here
+  return (
+    <div style={{
+      padding: "18px 0 10px", textAlign: "center",
+      borderTop: "1px solid rgba(26,26,26,0.12)", margin: "24px 18px 0"
+    }}>
+      <button
+        className="fairuse-footer-link"
+        onClick={() => go("fairuse")}
+        style={{
+          background: "none", border: "none", cursor: "pointer",
+          fontFamily: "var(--mono)", fontSize: 10.5, fontWeight: 600,
+          letterSpacing: "0.16em", textTransform: "uppercase",
+          color: "var(--ink)", opacity: 0.6, padding: "6px 4px",
+          textDecoration: "underline", textUnderlineOffset: 3
+        }}
+      >
+        {t("fu_link", null, lang)}
+      </button>
+    </div>
+  );
+}
+
+/* ====================================================================
    ScreenAbout — public-facing about page.
 
    Houses the founder note and FAQ accordion previously embedded on
@@ -8266,7 +8696,9 @@ function App() {
         }));
         // Skip phone+otp screens; jump straight to booking
         const hash = (location.hash || "").replace("#", "");
-        const validHashes = ["phone", "otp", "booking", "myBookings", "membership", "confirm", "openplay", "about"];
+        // v112: "fairuse" is a PUBLIC deep-link target — the owner sends the
+        // #fairuse URL directly, so it must survive the boot-time redirect.
+        const validHashes = ["phone", "otp", "booking", "myBookings", "membership", "confirm", "openplay", "about", "fairuse"];
         // Authenticated users: phone/otp don't make sense; redirect to booking
         const target = validHashes.includes(hash) ? hash : "booking";
         const SIGNIN_SCREENS = new Set(["phone", "otp"]);
@@ -8313,12 +8745,14 @@ function App() {
   useEffect(() => {
     function onHashChange() {
       const hash = (location.hash || "").replace("#", "");
-      const validHashes = ["phone", "otp", "booking", "myBookings", "membership", "confirm", "openplay", "about"];
+      const validHashes = ["phone", "otp", "booking", "myBookings", "membership", "confirm", "openplay", "about", "fairuse"];
       // Auth gate: if no token, unauth-only screens are forbidden. Force
       // back to "phone" if they try to land on booking/myBookings/openplay/
-      // confirm without authenticating. Public screens (membership/about)
-      // are always allowed.
-      const PUBLIC_SCREENS = new Set(["phone", "otp", "membership", "about"]);
+      // confirm without authenticating. Public screens (membership/about/
+      // fairuse) are always allowed — v112: the Fair Use Policy page is
+      // PUBLIC by design, so a signed-out visitor opening the #fairuse link
+      // the owner sent them reads the policy instead of a sign-in prompt.
+      const PUBLIC_SCREENS = new Set(["phone", "otp", "membership", "about", "fairuse"]);
       const target = validHashes.includes(hash) ? hash : (state.token ? "booking" : "phone");
       if (!state.token && !PUBLIC_SCREENS.has(target)) {
         // Force to phone screen and rewrite URL so Back works properly.
@@ -8410,6 +8844,8 @@ function App() {
   else if (effectiveScreen === "membership") body = <ScreenMembership state={state} setState={setState} go={go} lang={lang} config={config} />;
   else if (effectiveScreen === "openplay") body = <ScreenOpenPlay state={state} setState={setState} go={go} lang={lang} config={config} />;
   else if (effectiveScreen === "about") body = <ScreenAbout state={state} setState={setState} go={go} lang={lang} />;
+  // v112 — public Fair Use Policy page, deep-linkable at #fairuse.
+  else if (effectiveScreen === "fairuse") body = <ScreenFairUse state={state} go={go} lang={lang} config={config} />;
   else body = <ScreenPhone state={state} setState={setState} go={go} lang={lang} />;
 
   return (
@@ -8423,6 +8859,10 @@ function App() {
       </div>
 
       {body}
+
+      {/* v112 — ENTRY POINT (b): the Fair Use Policy link sits in the site
+          footer on EVERY screen, signed in or not. */}
+      <SiteFooter go={go} lang={lang} screen={effectiveScreen} />
 
       {/* Sponsor strip — continuous-scroll logo banner. Appears at the
           bottom of every screen, above the foot-nav (which is fixed-pos
