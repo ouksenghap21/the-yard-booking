@@ -4821,7 +4821,44 @@ var MUTATING_ACTIONS = new Set([
   "adminCreateCorporateAccount","adminUpdateCorporateAccount",
   "adminCreateStaff","adminUpdateStaff",
   "adminStocktake",
-  "adminRefreshCache"
+  "adminRefreshCache",
+  /* v106 FLOW-AUDIT — NETWORK FAILURE MID-MUTATION.
+   *
+   * Membership of this Set is the ONLY thing that makes _doFetchRaw attach a
+   * clientRequestId, and the server's 2-minute dedupe window (route(), H2)
+   * only fires when that parameter is present. Every action below is already
+   * treated as a mutation SERVER-side, but the client never sent an id — so
+   * the classic flow "tap → 25s abort / 'Network error, retry' → tap again"
+   * could land the write TWICE when the first request actually succeeded and
+   * only the response was lost.
+   *
+   * What that costs in a real day: two identical walk-in players on one block
+   * (double charge), a duplicated coaching session holding a court that isn't
+   * really booked, two stock adjustments for one recount, two tournament
+   * revenue/expense lines, two coaches created. Each id is freshly random per
+   * call, so genuinely repeating an action (adding a second real player) is
+   * never mistaken for a duplicate. */
+  "adminAddWalkInPlayer","adminRemoveWalkInPlayer","adminCreateWalkInBlock",
+  "adminCancelWalkInBlock","adminCloseWalkInBlock",
+  "adminCreateCoachingSession","adminUpdateCoachingSession","adminCancelCoachingSession",
+  "adminMoveCoachingSessionCourt",
+  "adminCreateCoach","adminUpdateCoach",
+  "adminCreateOpenPlaySession","adminCancelOpenPlaySession",
+  "adminWaiveBooking","adminUnwaiveBooking",
+  "posCreateProduct","posUpdateProduct","posAdjustStock","posVoidSale",
+  "adminCreateTournament","adminUpdateTournament","adminCancelTournament",
+  "adminAddTournamentPlayer","adminUpdateTournamentPlayer","adminRemoveTournamentPlayer",
+  "adminAddTournamentRevenue","adminUpdateTournamentRevenue","adminDeleteTournamentRevenue",
+  "adminAddTournamentExpense","adminUpdateTournamentExpense","adminDeleteTournamentExpense",
+  "adminApplyValidationFixes","adminRepairDataIntegrity","adminRepairCourtCells",
+  "adminFixLegacyTimeCells"
+  /* Deliberately NOT listed: adminDuplicateCoachingSession,
+     adminBroadcastTournamentSms, adminGenerateRoundRobin,
+     adminClearAvailabilityValidation. The SERVER does not classify those as
+     mutations (route()'s isMutation misses Duplicate/Broadcast/Generate/
+     Clear), so it would ignore a clientRequestId and sending one would only
+     look like protection. They need a backend MUTATION_ACTIONS entry first —
+     see the ranked recommendations. */
 ]);
 function genRequestId(){
   try { if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID(); } catch(e){}
@@ -6025,6 +6062,29 @@ function EmptyState({ icon, title, hint, action, secondary }) {
   );
 }
 
+/* v106 FLOW-AUDIT — LoadFailed.
+ *
+ * Several whole tabs were written as `const r = await api(...); if (r.ok)
+ * setData(r);` with NO else branch. Their render then did `if (!data) return
+ * <BouncingBall/>`. So on any failed first load — flat wifi, cold Apps Script
+ * start, expired PIN — the tab sat on an animated ball FOREVER: no error, no
+ * retry, no timeout. Non-technical staff read that as "the system is broken"
+ * and the only real escape was a browser reload they don't know to do.
+ *
+ * This is the shared recovery card: says what failed, says what to do, and
+ * gives a Retry button that re-runs the same loader.
+ */
+function LoadFailed({ what, error, onRetry }) {
+  return (
+    <EmptyState
+      icon="⚠"
+      title={"Couldn't load " + (what || "this")}
+      hint={(error ? String(error) + " — " : "") + "Nothing is broken and no data was lost. Check the tablet's internet, then tap Retry. If it keeps failing, reload the page."}
+      action={onRetry ? { label: "Retry", onClick: onRetry } : undefined}
+    />
+  );
+}
+
 /* ====================================================================
    LOGIN SCREEN
    ==================================================================== */
@@ -7111,6 +7171,7 @@ function ScreenDashboard() {
                   "Membership new":        { label: "New memberships", hint: "in takings, not in operational revenue" },
                   "Membership renewal":    { label: "Membership renewals", hint: "in takings, not in operational revenue" },
                   "Tournament":            { label: "Tournament fees", hint: "" },
+                  "Tournament refund":     { label: "Tournament refunds", hint: "entry fee returned — player removed, un-marked paid, or event cancelled" },
                   "Refund":                { label: "Refunds",         hint: "money returned to customers" }
                 };
                 return (
@@ -7638,15 +7699,36 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
   // bookkeeping action — it does NOT move money. The actual cash refund
   // happens out-of-band (till, ABA, bank). We stamp [REFUNDED date] into
   // the booking's Notes so it stops showing up in this queue.
-  async function markRefunded(bookingId) {
+  async function markRefunded(bookingId, row) {
     const _k = "refund:" + bookingId;
     if (actingRef.current.has(_k)) return;
+    // v106 FLOW-AUDIT — DESTRUCTIVE ACTION WITH NO CONFIRM. This button sits
+    // one tap away in a scrolling dashboard card and permanently declares that
+    // cash left the till. A fat-finger dropped the row out of the "Refunds
+    // owed" queue with no undo and no trace anywhere that says it was a
+    // mistake — the customer simply never gets their money.
+    const _ok = await confirmAction({
+      title: "Confirm you have handed the money back?",
+      message: (row && row.name ? row.name + " · " : "") + bookingId +
+               (row && row.total ? " · " + fmtMoney(row.total) : ""),
+      // v111 COPY vs CODE. This line used to claim the action was bookkeeping
+      // only and left the ledger alone — the exact opposite of what the server
+      // does. adminMarkRefunded writes a negative "Refund" row into the
+      // Payments ledger for the booking's full total, on the method it was
+      // collected with, and adminPaymentBreakdown subtracts it from the day's
+      // takings. Staff who believed the old wording would go and reverse the
+      // same money a second time through POS.
+      consequence: "The full amount is reversed out of today's Cash/ABA takings automatically, on the method it came in on. Hand the cash back at the counter — do NOT also void or refund it through POS. Tick it only AFTER the money has actually left the till. There is no undo.",
+      confirmLabel: "Yes, refund was paid out",
+      destructive: true
+    });
+    if (!_ok) return;
     actingRef.current.add(_k);
     try {
       setOptimisticRefunded(prev => new Set([...prev, bookingId]));
       const r = await api("adminMarkRefunded", { bookingId: bookingId });
       if (r.ok) {
-        showToast("Marked refunded — out of the queue", "success");
+        showToast("Refunded " + (row && row.total ? fmtMoney(row.total) : "") + " — reversed in today's takings", "success");
         onMarkPaid && onMarkPaid();
       } else {
         setOptimisticRefunded(prev => {
@@ -8002,7 +8084,7 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
                     {r.cancelledAt ? " · cancelled " + r.cancelledAt : ""}
                   </div>
                 </div>
-                <button className="btn-sm primary" onClick={() => markRefunded(r.bookingId)}>
+                <button className="btn-sm primary" onClick={() => markRefunded(r.bookingId, r)}>
                   Mark refunded
                 </button>
               </div>
@@ -9577,6 +9659,55 @@ function BookingDetailModal({ booking, onClose, onAction, peers }) {
     }
   }
 
+  /* v106 FLOW-AUDIT — RECOVERY DEAD-END. adminUncancelBooking has existed for
+     many versions but its ONLY call site was the undo toast fired straight
+     after adminCancelBooking (see doAction). Once that toast expired — or if
+     the cancel happened yesterday, from the customer site, or on another
+     device — the cancelled booking opened with NO action but Close, so staff
+     could not put it back on the books from the panel at all. Same shape as
+     the v103 cancelled-coaching-session bug. This mirrors coaching's
+     uncancelSession: confirm first, and on failure KEEP THE MODAL OPEN so the
+     server's actionable reason ("Court 3 at slot 1 was rebooked. Cannot undo.")
+     stays on screen instead of vanishing with the modal. */
+  async function doUncancel() {
+    if (acting) return;
+    const ok = await confirmAction({
+      title: "Put this booking back on the books?",
+      message: booking.name + " · C·" + booking.courts + " · " + booking.date + " " + booking.time,
+      // v110 REFIX — v109 CHANGED WHAT THIS SERVER CALL DOES AND LEFT THE COPY
+      // BEHIND. adminUncancelBooking restores the pre-cancellation payment
+      // state ONLY while the booking still carries its "[PRIOR:…]" marker at
+      // the head of Notes. Once the booking has been marked refunded that
+      // marker is no longer at the head (adminMarkRefunded prepends
+      // "[REFUNDED <date>]"), so the restore falls through to PENDING — which
+      // is correct, the cash really left the till — and v109 additionally
+      // retires the spent stamp to "[PAST-REFUND …]" so the money can be
+      // collected and refunded again in this booking's next life. Telling
+      // staff it "returns to its pre-cancellation payment state" now reads,
+      // on the one booking where it matters, as "it's still Paid" — so nobody
+      // re-collects and the customer plays on money we already handed back.
+      consequence: "The courts are re-reserved (only if still free). The booking returns to its pre-cancellation payment state — EXCEPT one already marked refunded: that cash really left the till, so it comes back UNPAID (Pending) and you must collect again. If any court was given away since, nothing is written and you'll be told which one.",
+      confirmLabel: "Yes, restore booking",
+      destructive: false
+    });
+    if (!ok) return;
+    setActing(true);
+    const r = await api("adminUncancelBooking", { bookingId: booking.bookingId });
+    setActing(false);
+    if (r.ok) {
+      // Say the restored state out loud, and say what it means for the till.
+      showToast(
+        "Booking restored" + (r.status ? " · " + r.status : "") +
+        (String(r.status || "") === "Pending" ? " — not paid, collect at the counter" : ""),
+        "success"
+      );
+      onAction && onAction();
+      onClose && onClose();
+    } else {
+      showToast(r.error || "Couldn't restore — please retry", "error");
+    }
+  }
+
   async function doMoveCourt(fromCourt) {
     const toCourt = parseInt(moveTo[fromCourt]);
     if (acting || !toCourt) return;
@@ -9651,13 +9782,22 @@ function BookingDetailModal({ booking, onClose, onAction, peers }) {
     }
 
     if (confirmMsg) {
-      const isDestructive = /NoShow|Release|Void|Delete|Reset/.test(action);
+      // v111: adminMarkRefunded moves real money (a negative Payments row for
+      // the booking total, subtracted from the day's takings) — it was falling
+      // through to the bare browser confirm() because the pattern below did not
+      // name it, so the one action in this modal that reverses cash had the
+      // weakest confirmation of all of them.
+      const isDestructive = /NoShow|Release|Void|Delete|Reset|MarkRefunded/.test(action);
       if (isDestructive) {
         const ok = await confirmAction({
-          title: action.includes("Release") || action.includes("NoShow") ? "Release this court?" : "Confirm action?",
+          title: action.includes("MarkRefunded") ? "Confirm you have handed the money back?"
+               : action.includes("Release") || action.includes("NoShow") ? "Release this court?" : "Confirm action?",
           message: booking.name + " · C·" + booking.courts + " · " + booking.date + " " + booking.time,
-          consequence: confirmMsg.replace(/^[^?]+\?\s*/, "").trim() || confirmMsg,
-          confirmLabel: action.includes("Release") || action.includes("NoShow") ? "Yes, release court" : "Confirm",
+          consequence: action.includes("MarkRefunded")
+            ? "The full amount is reversed out of today's Cash/ABA takings automatically, on the method it came in on. Hand the cash back at the counter — do NOT also void or refund it through POS. There is no undo."
+            : (confirmMsg.replace(/^[^?]+\?\s*/, "").trim() || confirmMsg),
+          confirmLabel: action.includes("MarkRefunded") ? "Yes, refund was paid out"
+            : action.includes("Release") || action.includes("NoShow") ? "Yes, release court" : "Confirm",
           destructive: true
         });
         if (!ok) return;
@@ -10215,6 +10355,18 @@ function BookingDetailModal({ booking, onClose, onAction, peers }) {
               onClick={() => doAction("adminCancelBooking")}
               disabled={acting}
             >Cancel booking</button>
+          )}
+          {/* v106 — the one exit from the cancelled state. Without it a
+              cancelled booking had zero recoverable actions once the undo
+              toast expired (see doUncancel). */}
+          {d === "cancelled" && (
+            <button
+              className="btn"
+              style={{ color: "var(--green)" }}
+              onClick={doUncancel}
+              disabled={acting}
+              title="Put this cancelled booking back on the books and re-reserve its courts"
+            >Uncancel booking</button>
           )}
           {booking.refundable && (
             <button
@@ -10980,17 +11132,38 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
     }
   }
 
+  /* v106 FLOW-AUDIT — the remove "×" used to render ONLY for players whose
+     paymentStatus was already Paid, so a player added by mistake (typo, wrong
+     block, walked out before paying) could never be deleted. The only way out
+     was to Mark paid — inventing revenue that was never collected — and then
+     remove, which then wrote a matching negative "Walk-in refund" row. Two
+     phantom ledger rows to undo a typo. adminRemoveWalkInPlayer has always
+     handled unpaid rows (wasPaid=false → plain deleteRow, no ledger row), so
+     the gate was purely a UI inversion. The confirm now names the player and
+     states exactly whether money is reversed. */
   async function removePlayer(playerId) {
-    if (!confirm("Remove this player from the block?")) return;
+    const p = (players || []).find(x => x.playerId === playerId) || {};
+    const wasPaid = String(p.paymentStatus || "").toLowerCase() === "paid";
+    const amt = parseFloat(p.amountPaid) || 0;
+    const ok = await confirmAction({
+      title: "Remove this player?",
+      message: (p.name || playerId) + " · Court " + block.courtNumber + " · " + block.date,
+      consequence: wasPaid
+        ? "They already paid " + fmtMoney(amt) + " — a matching refund is written to the takings ledger. Hand the cash back at the counter."
+        : "They have not paid, so no money moves and nothing is written to the ledger.",
+      confirmLabel: "Yes, remove",
+      destructive: true
+    });
+    if (!ok) return;
     setWorking(true);
     const r = await api("adminRemoveWalkInPlayer", { playerId: playerId });
     setWorking(false);
     if (r.ok) {
-      showToast("Removed", "success");
+      showToast(r.refunded ? "Removed · " + fmtMoney(r.refunded) + " refund recorded" : "Removed", "success");
       refresh();
       onChanged && onChanged();
     } else {
-      showToast(r.error || "Failed", "error");
+      showToast(r.error || "Couldn't remove — please retry", "error");
     }
   }
 
@@ -11013,7 +11186,16 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
     const ok = await confirmAction({
       title: "Cancel this walk-in block?",
       message: "Court " + (block.courtNumber || "?") + " · " + block.date + " " + block.time + " · " + (block.playerCount || 0) + " player" + ((block.playerCount || 0) === 1 ? "" : "s"),
-      consequence: "The court will be freed up for booking and all attached players removed from the roster. Players who already paid are NOT automatically refunded.",
+      // v109 REFIX — this text stated the OPPOSITE of what the server does.
+      // adminCancelWalkInBlock has reversed the takings since FINAL-QA: every
+      // player whose status is Paid gets a negative "Walk-in refund" ledger
+      // row, their Payment_Status is set to "Refund_Due", and the call returns
+      // refundsDue / refundsTotal. Telling staff "players who already paid are
+      // NOT automatically refunded" invites them to reverse it a SECOND time
+      // through POS — a double reversal, real cash out the door. The toast
+      // also threw away refundsDue/refundsTotal, so nobody learned who was
+      // owed money.
+      consequence: "The court is freed and all attached players leave the roster. Any player who already PAID has their money reversed out of the takings ledger automatically and is marked Refund_Due — hand that cash back at the counter. Do NOT also refund them through POS.",
       confirmLabel: "Yes, cancel block",
       destructive: true
     });
@@ -11022,7 +11204,14 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
     const r = await api("adminCancelWalkInBlock", { blockId: block.blockId });
     setWorking(false);
     if (r.ok) {
-      showToast("Block cancelled", "success");
+      const _n = r.refundsDue || 0;
+      showToast(
+        _n > 0
+          ? "Block cancelled · " + _n + " paid player" + (_n === 1 ? "" : "s") +
+            " owed " + fmtMoney(r.refundsTotal || 0) + " back — hand it over at the counter"
+          : "Block cancelled",
+        _n > 0 ? "error" : "success"
+      );
       onChanged && onChanged();
       onClose && onClose();
     } else {
@@ -11122,9 +11311,9 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
                   {!isPaid && (
                     <button className="btn-sm primary" onClick={() => setPayAsk(() => (mth) => markPaid(p.playerId, mth))} disabled={working}>Mark paid</button>
                   )}
-                  {isPaid && (
-                    <button className="btn-sm ghost" onClick={() => removePlayer(p.playerId)} disabled={working} title="Remove">×</button>
-                  )}
+                  {/* v106 — always offer Remove. Gating it on isPaid meant a
+                      mistakenly-added UNPAID player had no delete path at all. */}
+                  <button className="btn-sm ghost" onClick={() => removePlayer(p.playerId)} disabled={working} title="Remove player">×</button>
                 </div>
               );
             })}
@@ -12709,10 +12898,76 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
   const cancelBlockedReason = (() => {
     if (!session || isNew) return "";
     if (session.posSaleId) return "Paid via POS sale " + session.posSaleId + " — void that sale to reverse the payment first";
-    if (String(session.paymentStatus || "").toLowerCase() === "paid") return "Already paid — refund it first to reverse the payment";
+    // v111: this used to say "refund it first" while the refund action itself
+    // demanded the session already be cancelled — a dead-end with no door out.
+    // Refund now reverses AND cancels in one step, so point straight at it.
+    if (String(session.paymentStatus || "").toLowerCase() === "paid") return "Already paid — use “Refund & cancel” to reverse the payment and take it off the books";
     if (session.onOpenTab) return "On open tab " + session.tabId + " — detach or settle the tab first";
     return "";
   })();
+
+  // v111 — the standalone REFUND door, and why it has to exist.
+  // Before v111 adminRefundCoachingSession was only ever called from INSIDE
+  // cancelSession(), after a successful cancel. The v103 money guard then made
+  // cancel refuse every PAID session ("refund it first"), so that call site
+  // became unreachable — and the refund action itself refused an un-cancelled
+  // session ("Cancel the session first"). Each guard demanded the other go
+  // first: a lesson collected in plain Cash/ABA could never be reversed.
+  // adminRefundCoachingSession now accepts a paid session in EITHER state and
+  // does reverse-then-cancel atomically; this is the button that reaches it.
+  // null  → not applicable (new/unpaid session, nothing to give back)
+  // {blocked:""} → offer it; {blocked:"…"} → show it disabled + say why.
+  const refundInfo = (() => {
+    if (!session || isNew) return null;
+    if (String(session.paymentStatus || "").toLowerCase() !== "paid") return null;
+    if (/\[REFUNDED\b/i.test(String(session.notes || ""))) return { blocked: "Already refunded — the money is back in your reconciliation" };
+    if (session.posSaleId) return { blocked: "Settled via POS sale " + session.posSaleId + " — void that sale to refund, not here" };
+    if (session.onOpenTab) return { blocked: "On open tab " + session.tabId + " — detach or settle the tab first" };
+    return { blocked: "" };
+  })();
+  const refundAmount = session && !isNew ? sessionCollectAmount(session) : 0;
+
+  // v111 — SILENT NO-OP, CLOSED. adminUpdateCoachingSession gates every money
+  // write behind `!_isPaid` (lesson fee, facility/coach split, manual override,
+  // payment method, payment date) and still returns { ok: true }. So on an
+  // already-collected session the modal happily accepted a corrected fee or a
+  // Cash→ABA fix, showed a green "Saved", and wrote nothing — while the stale
+  // figure kept driving the Collect amount, the Pay-Coaches payout and the
+  // finance rollups. The Payment STATUS control was already made read-only for
+  // this reason; these are the ones that got missed. Lock them at the source
+  // and say why, so the only way to change collected money stays the one that
+  // actually moves it: Refund & cancel.
+  const moneyLocked = !isNew && !!session && String(session.paymentStatus || "").toLowerCase() === "paid";
+
+  async function refundSession() {
+    if (submitting || !refundInfo || refundInfo.blocked) return;
+    const amt = parseFloat(refundAmount) || 0;
+    const reclaim = session.coachPaidOut ? (parseFloat(session.coachTakes) || 0) : 0;
+    const willCancel = !session.cancelled;
+    const ok = await confirmAction({
+      title: willCancel ? "Refund $" + amt.toFixed(2) + " and cancel this session?" : "Refund $" + amt.toFixed(2) + "?",
+      message: "Coach " + (session.coachName || "?") + " · " + session.date + " " + session.time + " · C·" + session.courtNumbers
+        + (session.paymentMethod ? " · collected " + session.paymentMethod : ""),
+      consequence: (willCancel
+          ? "Reverses the payment in your Cash/ABA reconciliation AND cancels the session — its remaining court slots are released for new bookings."
+          : "Reverses the payment in your Cash/ABA reconciliation. The session is already cancelled.")
+        + (reclaim > 0 ? " You'll also reclaim $" + reclaim.toFixed(2) + " already paid to the coach." : ""),
+      confirmLabel: "Yes, refund $" + amt.toFixed(2),
+      destructive: true
+    });
+    if (!ok) return;
+    setSubmitting(true);
+    const r = await api("adminRefundCoachingSession", { sessionId: session.sessionId });
+    setSubmitting(false);
+    if (r.ok) {
+      showToast("Refunded $" + (r.studentRefunded || 0).toFixed(2)
+        + (r.cancelledNow ? " · session cancelled" : "")
+        + (r.coachReclaimed > 0 ? " · reclaimed $" + r.coachReclaimed.toFixed(2) + " from coach" : ""), "success");
+      onSaved && onSaved();
+    } else {
+      showToast(r.error || "Refund failed", "error");
+    }
+  }
 
   // v103 — restore a cancelled session: flips Cancelled back to FALSE and
   // re-reserves the REMAINING (future) court cells atomically. Refuses with
@@ -12756,38 +13011,12 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
       return;
     }
 
-    // If the student had already paid, offer to refund right now — otherwise a
-    // cancelled session leaves the collected money sitting in the reconciliation.
-    const wasPaid = String(session.paymentStatus || "").toLowerCase() === "paid";
-    if (wasPaid) {
-      const fee = parseFloat(session.lessonFee) || 0;
-      const reclaim = session.coachPaidOut ? (parseFloat(session.coachTakes) || 0) : 0;
-      const doRefund = await confirmAction({
-        title: "Refund the student $" + fee.toFixed(2) + "?",
-        message: "This session was already collected" + (session.paymentMethod ? " (" + session.paymentMethod + ")" : "") + "."
-          + (reclaim > 0 ? " You'll also reclaim $" + reclaim.toFixed(2) + " already paid to the coach." : ""),
-        consequence: "Reverses the payment in your Cash/ABA reconciliation so your books stay correct. Choose Skip if you're keeping the money.",
-        confirmLabel: "Yes, refund $" + fee.toFixed(2),
-        cancelLabel: "Skip refund"
-      });
-      if (doRefund) {
-        const rf = await api("adminRefundCoachingSession", { sessionId: session.sessionId });
-        setSubmitting(false);
-        if (rf.ok) {
-          showToast("Cancelled & refunded $" + (rf.studentRefunded || 0).toFixed(2)
-            + (rf.coachReclaimed > 0 ? " · reclaimed $" + rf.coachReclaimed.toFixed(2) + " from coach" : ""), "success");
-        } else {
-          showToast("Cancelled, but refund failed: " + (rf.error || "try again from the session"), "error");
-        }
-        onSaved && onSaved();
-        return;
-      }
-      showToast("Cancelled — money kept (no refund)", "success");
-      setSubmitting(false);
-      onSaved && onSaved();
-      return;
-    }
-
+    // v111: there used to be a "the student already paid — refund now?" prompt
+    // here. It has been UNREACHABLE since the v103 money guard: a paid session
+    // is stopped by cancelBlockedReason above (and by the server) long before
+    // this line, so the prompt only ever advertised a refund that could not
+    // happen. Reversing a paid lesson is now one action — the "Refund & cancel"
+    // button — which does the ledger reversal and the cancel under one lock.
     setSubmitting(false);
     showToast("Cancelled", "success");
     onSaved && onSaved();
@@ -12970,6 +13199,7 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
               min="0"
               step="0.5"
               value={form.lessonFee}
+              disabled={moneyLocked}
               onChange={(e) => { setFeeAuto(false); setForm({ ...form, lessonFee: parseFloat(e.target.value) || 0 }); }}
               placeholder={isFlatRent ? "What the coach pays you for the court" : "Coach's standard total fee"}
             />
@@ -12987,11 +13217,21 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
               max="100"
               step="1"
               value={form.discountPct}
+              disabled={moneyLocked}
               onChange={(e) => setForm({ ...form, discountPct: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) })}
               placeholder="0"
             />
           </div>
         </div>
+        {moneyLocked && (
+          <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.05em", color: "var(--clay)", marginTop: 6, marginBottom: 4, lineHeight: 1.5 }}>
+            Money is locked — this session has already been collected. Fee, discount, split and payment method can't change once the cash is in your reconciliation.
+            {session && session.posSaleId
+              ? " To correct it, void POS sale " + session.posSaleId + " and re-collect."
+              : " To correct it, use Refund & cancel below, then re-book at the right price."}
+            {" "}Everything else on this form still saves.
+          </div>
+        )}
         <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.05em", opacity: 0.65, marginTop: 6, marginBottom: 4, lineHeight: 1.5 }}>
           {isFlatRent ? (
             <>
@@ -13066,6 +13306,7 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
                 <input
                   type="checkbox"
                   id="override"
+                  disabled={moneyLocked}
                   checked={form.manualOverride}
                   onChange={(e) => setForm({
                     ...form,
@@ -13082,12 +13323,12 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
                 <div className="field-row" style={{ marginTop: 10 }}>
                   <div className="field">
                     <div className="field-label">Facility earns</div>
-                    <input type="number" step="0.5" value={form.facilityEarnsOverride}
+                    <input type="number" step="0.5" value={form.facilityEarnsOverride} disabled={moneyLocked}
                       onChange={(e) => setForm({ ...form, facilityEarnsOverride: parseFloat(e.target.value) || 0 })} />
                   </div>
                   <div className="field">
                     <div className="field-label">Coach takes</div>
-                    <input type="number" step="0.5" value={form.coachTakesOverride}
+                    <input type="number" step="0.5" value={form.coachTakesOverride} disabled={moneyLocked}
                       onChange={(e) => setForm({ ...form, coachTakesOverride: parseFloat(e.target.value) || 0 })} />
                   </div>
                 </div>
@@ -13122,7 +13363,7 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
           </div>
           <div className="field">
             <div className="field-label">Payment method</div>
-            <select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
+            <select value={form.paymentMethod} disabled={moneyLocked} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
               <option value="">—</option>
               <option value="Cash">Cash</option>
               <option value="Bank Transfer">Bank Transfer</option>
@@ -13162,6 +13403,26 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
               {cancelBlockedReason && (
                 <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.7, maxWidth: 300, lineHeight: 1.4, marginTop: 4 }}>
                   Can't cancel — {cancelBlockedReason}.
+                </div>
+              )}
+            </div>
+          )}
+          {!isNew && refundInfo && (
+            /* sits next to Cancel/Uncancel — one of those always renders for an
+               existing session and already carries the marginRight:auto push. */
+            <div>
+              <button
+                className="btn ghost"
+                style={{ color: "var(--clay)", opacity: refundInfo.blocked ? 0.45 : 1 }}
+                onClick={refundSession}
+                disabled={submitting || !!refundInfo.blocked}
+                title={refundInfo.blocked || (session.cancelled
+                  ? "Reverse the collected payment in your reconciliation"
+                  : "Reverse the collected payment AND cancel the session, releasing its remaining courts")}
+              >{session.cancelled ? "Refund $" + (parseFloat(refundAmount) || 0).toFixed(2) : "Refund & cancel · $" + (parseFloat(refundAmount) || 0).toFixed(2)}</button>
+              {refundInfo.blocked && (
+                <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.7, maxWidth: 300, lineHeight: 1.4, marginTop: 4 }}>
+                  Can't refund — {refundInfo.blocked}.
                 </div>
               )}
             </div>
@@ -14606,10 +14867,15 @@ function ScreenPOS() {
 function OpenTabsModal({ onClose, onSelect, onChanged }) {
   const [tabs, setTabs] = useState(null);
   const [showNewTab, setShowNewTab] = useState(false);
+  const [loadErr, setLoadErr] = useState(null);   // v106 — see load()
 
   async function load() {
     const r = await api("tabListOpen");
-    if (r.ok) setTabs(r.tabs || []);
+    if (r.ok) { setTabs(r.tabs || []); setLoadErr(null); }
+    // v106 FLOW-AUDIT — a failed load left tabs===null and the modal spun
+    // forever. Staff could not see, settle or even find a running tab, and
+    // an open tab is unsettled money.
+    else setLoadErr(r.error || "No response from the server");
   }
   useEffect(() => { load(); }, []);
 
@@ -14626,12 +14892,14 @@ function OpenTabsModal({ onClose, onSelect, onChanged }) {
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <div style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.14em", opacity: 0.6 }}>
-            {tabs === null ? "Loading…" : tabs.length + " open"}
+            {tabs === null ? (loadErr ? "Couldn't load" : "Loading…") : tabs.length + " open"}
           </div>
           <button className="btn primary" onClick={() => setShowNewTab(true)}>+ New Tab</button>
         </div>
 
-        {tabs === null ? (
+        {tabs === null && loadErr ? (
+          <LoadFailed what="open tabs" error={loadErr} onRetry={() => { setLoadErr(null); load(); }} />
+        ) : tabs === null ? (
           <div style={{ padding: 40, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
         ) : tabs.length === 0 ? (
           <EmptyState
@@ -14867,43 +15135,68 @@ function TabDetailModal({ tabId, products, onClose }) {
     setWorking(true);
     const r = await api("tabRemoveItem", { tabId: tabId, itemId: itemId });
     setWorking(false);
-    if (r.ok) load();
+    if (r.ok) {
+      // v107 — apply the fresh detail the server already computed under its
+      // write lock instead of firing a second blocking round-trip. Same
+      // fallback shape as the v99 add-item path: no detail → refetch.
+      if (r.detail && r.detail.ok) setData(r.detail); else load();
+    }
     else showToast(r.error || "Failed", "error");
   }
 
   async function detachBooking(bookingId) {
     if (!confirm("Detach this booking from the tab? It will go back to Pending (needs separate payment).")) return;
     setWorking(true);
-    const r = await api("tabDetachBooking", { bookingId: bookingId });
+    const r = await api("tabDetachBooking", { bookingId: bookingId, tabId: tabId });
     setWorking(false);
-    if (r.ok) load();
+    if (r.ok) {
+      // v107 — apply the fresh detail the server already computed under its
+      // write lock instead of firing a second blocking round-trip. Same
+      // fallback shape as the v99 add-item path: no detail → refetch.
+      if (r.detail && r.detail.ok) setData(r.detail); else load();
+    }
     else showToast(r.error || "Failed", "error");
   }
 
   async function detachPlayer(playerId) {
     if (!confirm("Detach this walk-in player from the tab?")) return;
     setWorking(true);
-    const r = await api("tabDetachWalkInPlayer", { playerId: playerId });
+    const r = await api("tabDetachWalkInPlayer", { playerId: playerId, tabId: tabId });
     setWorking(false);
-    if (r.ok) load();
+    if (r.ok) {
+      // v107 — apply the fresh detail the server already computed under its
+      // write lock instead of firing a second blocking round-trip. Same
+      // fallback shape as the v99 add-item path: no detail → refetch.
+      if (r.detail && r.detail.ok) setData(r.detail); else load();
+    }
     else showToast(r.error || "Failed", "error");
   }
 
   async function detachOpenPlay(registrationId) {
     if (!confirm("Detach this walk-in player from the tab?")) return;
     setWorking(true);
-    const r = await api("tabDetachOpenPlayPlayer", { registrationId: registrationId });
+    const r = await api("tabDetachOpenPlayPlayer", { registrationId: registrationId, tabId: tabId });
     setWorking(false);
-    if (r.ok) load();
+    if (r.ok) {
+      // v107 — apply the fresh detail the server already computed under its
+      // write lock instead of firing a second blocking round-trip. Same
+      // fallback shape as the v99 add-item path: no detail → refetch.
+      if (r.detail && r.detail.ok) setData(r.detail); else load();
+    }
     else showToast(r.error || "Failed", "error");
   }
 
   async function detachCoaching(sessionId) {
     if (!confirm("Detach this coaching session from the tab?")) return;
     setWorking(true);
-    const r = await api("tabDetachCoachingSession", { sessionId: sessionId });
+    const r = await api("tabDetachCoachingSession", { sessionId: sessionId, tabId: tabId });
     setWorking(false);
-    if (r.ok) load();
+    if (r.ok) {
+      // v107 — apply the fresh detail the server already computed under its
+      // write lock instead of firing a second blocking round-trip. Same
+      // fallback shape as the v99 add-item path: no detail → refetch.
+      if (r.detail && r.detail.ok) setData(r.detail); else load();
+    }
     else showToast(r.error || "Failed", "error");
   }
 
@@ -15844,6 +16137,7 @@ function SaleHistoryModal({ onClose }) {
   const [total, setTotal] = useState(0);
   const [selected, setSelected] = useState(null);  // sale being viewed in detail
   const [working, setWorking] = useState(false);
+  const [loadErr, setLoadErr] = useState(null);    // v106 — see load()
 
   function rangeDates(r) {
     const now = new Date();
@@ -15882,14 +16176,21 @@ function SaleHistoryModal({ onClose }) {
       if (r.ok) {
         setSales(r.sales || []);
         setTotal(r.total || 0);
+        setLoadErr(null);      // v106
       } else {
-        // On error, keep empty list rather than spinning forever
+        // On error, keep empty list rather than spinning forever.
+        // v106 FLOW-AUDIT — but ALSO record WHY. Previously a failed fetch
+        // rendered the ordinary "No sales in this range" empty state, so a
+        // dead connection was indistinguishable from a genuinely quiet day.
+        // Staff would conclude the shop took $0 and stop looking.
         setSales([]);
         setTotal(0);
+        setLoadErr(r.error || "No response from the server");
       }
     } catch (err) {
       setSales([]);
       setTotal(0);
+      setLoadErr((err && err.message) || "Network error");   // v106
     }
   }
 
@@ -15932,7 +16233,10 @@ function SaleHistoryModal({ onClose }) {
     const r = await api("posVoidSale", { saleId: saleId });
     setWorking(false);
     if (r.ok) {
-      showToast("Sale voided", "success");
+      // v111: render the server's summary — it names the attached bookings /
+      // walk-ins / coaching sessions reversed to Pending and any coach payout
+      // reclaimed, none of which the flat "Sale voided" ever mentioned.
+      showToast(r.message || "Sale voided", "success");
       setSelected(null);
       load();
     } else {
@@ -16009,6 +16313,9 @@ function SaleHistoryModal({ onClose }) {
         {/* Sales list */}
         {sales === null ? (
           <div style={{ padding: 40, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
+        ) : loadErr ? (
+          /* v106 — a failed fetch is NOT an empty day. Say so. */
+          <LoadFailed what="the sales log" error={loadErr} onRetry={() => { setLoadErr(null); load(); }} />
         ) : filtered.length === 0 ? (
           <EmptyState
             icon="—"
@@ -16811,22 +17118,54 @@ function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
     setWorking(true);
     try {
       let success = 0;
+      // v106 FLOW-AUDIT — this loop counted successes only. When every
+      // posAdjustStock call failed (offline, PIN expired, 500) staff still got
+      // a GREEN "Updated 0 changes" toast, the typed deltas were wiped, and
+      // stock was never touched. Silent wrong-thing on the one screen that
+      // decides what inventory the shop believes it has. Now failures are
+      // counted and named, and on ANY failure the typed work is KEPT so it can
+      // simply be retried.
+      const failed = [];
+      const okSkus = {};
       for (const [sku, delta] of deltas) {
         const prod = (products || []).find(p => p.sku === sku);
         // v100 — the optional note rides along and lands in the movement
         // row's Ref_Id; the server stamps the Actor from the staff PIN.
         const r = await api("posAdjustStock", { productId: prod && prod.productId ? prod.productId : "", sku: sku, delta: parseInt(delta), note: adjustNote.trim() });
-        if (r.ok) success++;
+        if (r.ok) { success++; okSkus["a:" + sku] = 1; }
+        else failed.push(sku + " (" + (r.error || "no response") + ")");
       }
       for (const [sku, v] of reorderChanges) {
         const prod = (products || []).find(p => p.sku === sku);
         const r = await api("posUpdateProduct", { productId: prod && prod.productId ? prod.productId : "", sku: sku, reorderLevel: parseInt(v) });
-        if (r.ok) success++;
+        if (r.ok) { success++; okSkus["r:" + sku] = 1; }
+        else failed.push(sku + " reorder level (" + (r.error || "no response") + ")");
       }
-      showToast(`Updated ${success} change${success === 1 ? "" : "s"}`, "success");
-      setAdjustments({});
-      setReorders({});
-      setAdjustNote("");
+      if (failed.length > 0) {
+        showToast(
+          success + " saved · " + failed.length + " FAILED and stock is unchanged for: " +
+          failed.slice(0, 3).join("; ") + (failed.length > 3 ? " …" : "") +
+          " — the failed numbers are still in the boxes, fix or retry.",
+          "error"
+        );
+        // Keep only what did NOT save so a retry can't double-apply the ones
+        // that already landed.
+        setAdjustments(prev => {
+          const next = {};
+          for (const k in prev) if (!okSkus["a:" + k]) next[k] = prev[k];
+          return next;
+        });
+        setReorders(prev => {
+          const next = {};
+          for (const k in prev) if (!okSkus["r:" + k]) next[k] = prev[k];
+          return next;
+        });
+      } else {
+        showToast(`Updated ${success} change${success === 1 ? "" : "s"}`, "success");
+        setAdjustments({});
+        setReorders({});
+        setAdjustNote("");
+      }
       setHistData({});   // v100 — force a fresh history fetch after new movements
       onChanged && onChanged();
     } finally {
@@ -21065,6 +21404,7 @@ function ScreenOpenPlay() {
   const [detailId, setDetailId] = useState(null);
   const [filter, setFilter] = useState("upcoming");
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [loadErr, setLoadErr] = useState(null);   // v106 — see load()
 
   // FAB integration — listen for "yard:open-create" with target="openplay"
   useEffect(() => {
@@ -21093,12 +21433,24 @@ function ScreenOpenPlay() {
     const r = await api("adminListOpenPlaySessions");
     if (r.ok) {
       setData(r);
+      setLoadErr(null);       // v106
       setLastUpdated(Date.now());
+    } else {
+      setLoadErr(r.error || "No response from the server");  // v106 — never hang on the skeleton
     }
   }
   useEffect(() => { load(); }, []);
 
   if (!data) {
+    // v106 FLOW-AUDIT — a failed first load used to sit on this skeleton
+    // forever with no error and no retry.
+    if (loadErr) {
+      return (
+        <div className="main">
+          <LoadFailed what="walk-in sessions" error={loadErr} onRetry={() => { setLoadErr(null); load(); }} />
+        </div>
+      );
+    }
     return (
       <div className="main">
         <BookingsPageSkeleton />
@@ -21883,14 +22235,41 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
   }
 
   async function cancelSession() {
-    if (!confirm("Cancel this whole session? Court slots will be freed back to the booking grid. Players keep their record but the session won't run.")) return;
+    // v110 REFIX — v109 FIXED THE TOAST HERE AND LEFT THE CONFIRM SILENT.
+    // adminCancelOpenPlaySession reverses EVERY paid registration out of the
+    // takings ledger (a negative "Open play refund" row each) and returns
+    // refundsDue / refundsTotal. Its two sibling cancels — walk-in block and
+    // tournament — both got that warning on the CONFIRM in v109, because the
+    // moment to learn that hundreds of dollars are about to leave the day's
+    // reconciliation (and that customers are owed cash at the counter) is
+    // BEFORE you commit, not in a toast after. Silence here also invites the
+    // exact double-reversal the walk-in copy was fixed to prevent: staff who
+    // are not told the ledger already reversed go and refund through POS too.
+    if (!await confirmAction({
+      title: "Cancel this whole session?",
+      message: "Court slots are freed back to the booking grid. Players keep their record but the session won't run.",
+      consequence: "Any registrant who already PAID has their money reversed out of the takings ledger automatically — hand that cash back at the counter. Do NOT also refund them through POS.",
+      confirmLabel: "Yes, cancel session",
+      destructive: true
+    })) return;
     // Optimistic: close immediately so the action feels instant. The cancel +
     // list refresh run in the background; on failure we surface an error and
     // refresh so the session reappears in its real state.
     onClose();
     const r = await api("adminCancelOpenPlaySession", { sessionId: sessionId });
     if (r.ok) {
-      showToast("Session cancelled · " + r.slotsFreed + " slots freed", "success");
+      // v109 REFIX — same omission as the walk-in / tournament cancels:
+      // adminCancelOpenPlaySession reverses every PAID registration into the
+      // Payments ledger and returns refundsDue / refundsTotal, and this toast
+      // reported only the freed slots. Money owed back to customers must be
+      // the loudest thing on screen.
+      const _n = r.refundsDue || 0;
+      showToast(
+        "Session cancelled · " + r.slotsFreed + " slots freed" +
+        (_n > 0 ? " · " + _n + " paid player" + (_n === 1 ? "" : "s") +
+                  " owed " + fmtMoney(r.refundsTotal || 0) + " back — refund at the counter" : ""),
+        _n > 0 ? "error" : "success"
+      );
       onChanged();
     } else {
       showToast((r.error || "Failed to cancel session") + " — refreshing", "error");
@@ -22307,6 +22686,7 @@ function ScreenTournaments() {
   const [detailId, setDetailId] = useState(null);              // tournamentId for detail modal
   const [filter, setFilter] = useState("all");                 // all | upcoming | in-progress | past | cancelled
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [loadErr, setLoadErr] = useState(null);   // v106 — see load()
 
   // FAB integration — listen for "yard:open-create" with target="tournaments"
   useEffect(() => {
@@ -22334,12 +22714,23 @@ function ScreenTournaments() {
     const r = await api("adminListTournaments");
     if (r.ok) {
       setData(r);
+      setLoadErr(null);       // v106
       setLastUpdated(Date.now());
+    } else {
+      setLoadErr(r.error || "No response from the server");  // v106 — never hang on the spinner
     }
   }
   useEffect(() => { load(); }, []);
 
   if (!data) {
+    // v106 FLOW-AUDIT — a failed first load used to spin forever.
+    if (loadErr) {
+      return (
+        <div className="main">
+          <LoadFailed what="tournaments" error={loadErr} onRetry={() => { setLoadErr(null); load(); }} />
+        </div>
+      );
+    }
     return (
       <div className="main">
         <div style={{ padding: 60, display: "flex", justifyContent: "center" }}>
@@ -22933,14 +23324,33 @@ function TournamentDetailModal({ tournamentId, onClose, onChanged, onEdit }) {
     if (!await confirmAction({
       title: "Cancel tournament?",
       message: "All reserved court slots will be freed.",
-      consequence: "Players, revenue lines, and expenses are preserved for audit/refund purposes. This can't be undone.",
+      // v109 REFIX — v105 made adminCancelTournament REVERSE the takings for
+      // every registrant who already paid (a negative "Tournament refund"
+      // ledger row each, Paid flipped back to FALSE, the roster row stamped
+      // "[REFUND DUE $X …]") and return refundsDue / refundsTotal. None of
+      // that reached the screen: the confirm implied money was untouched and
+      // the toast said a flat "Tournament cancelled", so staff could pull
+      // hundreds of dollars out of the day's Cash/ABA reconciliation and
+      // never learn that any customer was owed cash back. Both ends now say
+      // it, and the toast names the amount.
+      consequence: "Any registrant who already PAID has their entry fee reversed out of the takings ledger and is marked REFUND DUE on the roster — you must hand that cash back at the counter. Players, revenue lines, and expenses are preserved for audit. This can't be undone.",
       destructive: true,
       confirmLabel: "Cancel tournament"
     })) return;
     setBusy(true);
     const r = await api("adminCancelTournament", { tournamentId: t.id });
     setBusy(false);
-    if (r.ok) { showToast("Tournament cancelled", "success"); refresh(); }
+    if (r.ok) {
+      const _n = r.refundsDue || 0;
+      showToast(
+        _n > 0
+          ? "Tournament cancelled · " + _n + " paid player" + (_n === 1 ? "" : "s") +
+            " owed " + fmtMoney(r.refundsTotal || 0) + " back — hand it over at the counter"
+          : "Tournament cancelled",
+        _n > 0 ? "error" : "success"
+      );
+      refresh();
+    }
     else showToast(r.error || "Failed", "error");
   }
 
@@ -23955,6 +24365,7 @@ function ScreenSponsorships() {
   const [showAdd, setShowAdd] = useState(false);
   const [editBanner, setEditBanner] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [loadErr, setLoadErr] = useState(null);   // v106 — see load()
 
   // FAB integration
   useEffect(() => {
@@ -23971,11 +24382,20 @@ function ScreenSponsorships() {
       setData(cached);
     }
     const r = await api("adminListSponsorships");
-    if (r.ok) setData(r);
+    if (r.ok) { setData(r); setLoadErr(null); }
+    else setLoadErr(r.error || "No response from the server");  // v106 — never hang on the spinner
   }
   useEffect(() => { load(); }, []);
 
   if (!data) {
+    // v106 FLOW-AUDIT — a failed first load used to spin forever.
+    if (loadErr) {
+      return (
+        <div className="main">
+          <LoadFailed what="sponsorships" error={loadErr} onRetry={() => { setLoadErr(null); load(); }} />
+        </div>
+      );
+    }
     return (
       <div className="main">
         <div style={{ padding: 60, display: "flex", justifyContent: "center" }}>
@@ -24707,13 +25127,15 @@ function ScreenSmsLog() {
   const [entries, setEntries] = useState(null);
   const [typeFilter, setTypeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [loadErr, setLoadErr] = useState(null);   // v106 — see load()
 
   async function load() {
     const params = { type: typeFilter, status: statusFilter, limit: 200 };
     const cached = getCachedApi("adminListSmsLog", params);
     if (cached && cached.ok) setEntries(cached.entries || []);
     const r = await api("adminListSmsLog", params);
-    if (r.ok) setEntries(r.entries || []);
+    if (r.ok) { setEntries(r.entries || []); setLoadErr(null); }
+    else setLoadErr(r.error || "No response from the server");  // v106 — never hang on the spinner
   }
   useEffect(() => { load(); }, [typeFilter, statusFilter]);
 
@@ -24775,7 +25197,10 @@ function ScreenSmsLog() {
         </select>
       </div>
 
-      {entries === null ? (
+      {/* v106 FLOW-AUDIT — a failed load used to leave entries===null and spin forever. */}
+      {entries === null && loadErr ? (
+        <LoadFailed what="the SMS log" error={loadErr} onRetry={() => { setLoadErr(null); load(); }} />
+      ) : entries === null ? (
         <div style={{ padding: 40, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>
       ) : entries.length === 0 ? (
         <EmptyState
@@ -24998,11 +25423,15 @@ function StaffAccountsCard() {
   const [editing, setEditing] = useState(null);      // staff object being edited
   const [showAdd, setShowAdd] = useState(false);
   const [denied, setDenied] = useState(false);
+  const [loadErr, setLoadErr] = useState(null);   // v106 — see load()
 
   async function load() {
     const r = await api("adminListStaff", {}, { bypassCache: true });
-    if (r.ok) setStaff(r.staff || []);
+    if (r.ok) { setStaff(r.staff || []); setLoadErr(null); }
     else if (/Owner PIN/i.test(r.error || "")) setDenied(true);
+    // v106 FLOW-AUDIT — any OTHER failure used to be swallowed, leaving the
+    // card on an endless spinner with no error and no retry.
+    else setLoadErr(r.error || "No response from the server");
   }
   useEffect(() => { if (!isStaffUser) load(); }, []);
 
@@ -25018,7 +25447,9 @@ function StaffAccountsCard() {
         they take is logged under their name in the Payments ledger.
       </div>
 
-      {staff === null ? (
+      {staff === null && loadErr ? (
+        <LoadFailed what="staff accounts" error={loadErr} onRetry={() => { setLoadErr(null); load(); }} />
+      ) : staff === null ? (
         <div style={{ padding: 16 }}><BouncingBall size="sm" /></div>
       ) : staff.length === 0 ? (
         <div style={{ padding: "14px 0", fontFamily: "var(--mono)", fontSize: 11, opacity: 0.6 }}>
