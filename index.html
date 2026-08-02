@@ -3301,7 +3301,8 @@ const STRINGS = {
 
     // v71 — member fair-use policy (shown only while the policy is active)
     b_fairuse_disc: "Member discount (first {n} courts/day)",
-    b_fairuse_premium: "Premium court +${x}/hr (C{list})",
+    b_fairuse_full: "{n} court(s) · full member discount",
+    b_fairuse_surch: "{n} court(s) · discount + ${x}/hr surcharge",
     b_fairuse_used: "{u} of {n} discounted courts used today",
     b_fairuse_rack: "{r} court(s) at standard rate (daily cap)",
 
@@ -3400,7 +3401,7 @@ const STRINGS = {
     m_fairuse_sub: "How member pricing stays fair for everyone",
     m_fairuse_1: "Member discounts apply to standard recreational court bookings only — tournaments, corporate events and coaching are priced separately.",
     m_fairuse_2: "The discount covers up to {n} courts per member per day; additional courts are charged at the standard rate.",
-    m_fairuse_3: "Premium courts (C{list}) add ${x} per hour on top of the discounted member rate.",
+    m_fairuse_3: "The first {k} discounted courts each day get the full member discount; additional discounted courts add ${x} per hour on top of the discounted rate.",
     m_fairuse_4: "Please cancel at least 2 hours before your session, the member must be one of the players, and memberships are personal — they can't be shared.",
 
     // Generic
@@ -3557,7 +3558,8 @@ const STRINGS = {
 
     // v71 — គោលការណ៍ប្រើប្រាស់សមរម្យ (member fair use)
     b_fairuse_disc: "បញ្ចុះតម្លៃសមាជិក ({n} តារាងដំបូងក្នុងមួយថ្ងៃ)",
-    b_fairuse_premium: "តារាងពិសេស +${x}/ម៉ោង (C{list})",
+    b_fairuse_full: "{n} តារាង · បញ្ចុះតម្លៃសមាជិកពេញ",
+    b_fairuse_surch: "{n} តារាង · បញ្ចុះតម្លៃ + ${x}/ម៉ោង បន្ថែម",
     b_fairuse_used: "ថ្ងៃនេះបានប្រើ {u} ក្នុងចំណោម {n} តារាងបញ្ចុះតម្លៃ",
     b_fairuse_rack: "{r} តារាង គិតតាមតម្លៃធម្មតា (លើសកំណត់ប្រចាំថ្ងៃ)",
     g_kicker: "សប្តាហ៍ខួបកំណើត",
@@ -3647,7 +3649,7 @@ const STRINGS = {
     m_fairuse_sub: "របៀបរក្សាតម្លៃសមាជិកឱ្យយុត្តិធម៌សម្រាប់គ្រប់គ្នា",
     m_fairuse_1: "ការបញ្ចុះតម្លៃសមាជិក អនុវត្តតែចំពោះការកក់តារាងលេងកម្សាន្តធម្មតាប៉ុណ្ណោះ — ការប្រកួត កម្មវិធីក្រុមហ៊ុន និងវគ្គបង្រៀន មានតម្លៃដាច់ដោយឡែក។",
     m_fairuse_2: "ការបញ្ចុះតម្លៃ គ្របដណ្តប់រហូតដល់ {n} តារាង ក្នុងមួយសមាជិក ក្នុងមួយថ្ងៃ។ តារាងបន្ថែមទៀត គិតតាមតម្លៃធម្មតា។",
-    m_fairuse_3: "តារាងពិសេស (C{list}) គិតបន្ថែម ${x} ក្នុងមួយម៉ោង លើតម្លៃសមាជិកដែលបានបញ្ចុះរួច។",
+    m_fairuse_3: "តារាងបញ្ចុះតម្លៃ {k} ដំបូងក្នុងមួយថ្ងៃ ទទួលបានការបញ្ចុះតម្លៃសមាជិកពេញ។ តារាងបញ្ចុះតម្លៃបន្ថែមទៀត គិតបន្ថែម ${x} ក្នុងមួយម៉ោង លើតម្លៃសមាជិកដែលបានបញ្ចុះរួច។",
     m_fairuse_4: "សូមបោះបង់ការកក់យ៉ាងហោចណាស់ ២ ម៉ោងមុនម៉ោងលេង។ សមាជិកត្រូវតែជាអ្នកលេងម្នាក់ក្នុងក្រុម ហើយសមាជិកភាពជារបស់ផ្ទាល់ខ្លួន មិនអាចចែករំលែកបានទេ។",
     loading: "កំពុងផ្ទុក…",
     error: "មានបញ្ហាអ្វីមួយមិនប្រក្រតី",
@@ -5093,15 +5095,15 @@ function ScreenBooking({ state, setState, go, lang, config }) {
     });
   }, [config, isMember, member, bdayEligible, bdayClaimed, date, time, slots, pickedCourts.length]);
 
-  /* v71 FAIR-USE server quote. When the policy is active (config.fairUse
+  /* v76 FAIR-USE server quote. When the policy is active (config.fairUse
      exists only then) and a member is booking, the client estimate can't
-     know how much of today's discounted-court cap is already used, nor
-     which courts the server will assign for the premium surcharge — so ask
-     the SERVER (the same calculatePrice createBooking charges with, using
-     the same requestedCourts resolution) for the authoritative quote,
-     debounced. The instant client estimate shows first, then upgrades.
-     Policy OFF (or guest / birthday booking) → this does nothing: zero UI
-     change. */
+     know how many discounted courts the member already used today (count
+     model: first K of the day at full discount, then discount + surcharge
+     up to the cap, then rack — court numbers are irrelevant) — so ask the
+     SERVER (the same calculatePrice createBooking charges with) for the
+     authoritative quote, debounced. The instant client estimate shows
+     first, then upgrades. Policy OFF (or guest / birthday booking) → this
+     does nothing: zero UI change. */
   const [fairQuote, setFairQuote] = useState(null);
   useEffect(() => {
     setFairQuote(null);
@@ -5284,13 +5286,52 @@ function ScreenBooking({ state, setState, go, lang, config }) {
         if (isSessionError(r.error)) { handleSessionExpiry(setState, go, lang); return; }
         // H2: a conflict (slot just taken) — re-fetch availability for the
         // selected date so the wheel reflects reality, then ask them to retry.
-        showToast(
-          lang === "km"
-            ? "ពេល​នេះ​ត្រូវ​បាន​កក់​រួច — ភាព​ទំនេរ​ត្រូវ​បាន​ផ្ទុក​ឡើង​វិញ សូម​ជ្រើស​ម្ដង​ទៀត។"
-            : "That slot was just taken — availability refreshed, please pick again.",
-          "error"
-        );
-        loadAvailability(date);
+        //
+        // v106 FLOW-AUDIT — this branch used to be UNCONDITIONAL. createBooking
+        // refuses for many reasons that have nothing to do with a race:
+        // "Booking ends after closing", "Bookings open N days ahead", "Minimum
+        // booking is 60 minutes", "That time has already started", fair-use
+        // caps, "System busy. Try again." — and every one of them was reported
+        // to the customer as "that slot was just taken, please pick again".
+        // Picking again cannot fix any of those, so the customer re-picks the
+        // same impossible booking in a loop and eventually gives up. Only
+        // claim a race when the server actually described one; otherwise show
+        // what the server really said.
+        //
+        // v109 REFIX — the v106 pattern matched almost NOTHING the customer
+        // app can actually receive, so the fix inverted the bug it fixed.
+        // "Court N is no longer available…" is the ONLY courts-race string the
+        // old pattern caught, and createBooking emits it exclusively on the
+        // `courtList` branch — the ADMIN hard-fail path. index.html sends
+        // `requestedCourts` (best-effort, falls back to auto-assign) and never
+        // sends courtList, so a customer whose slot was taken between loading
+        // the wheel and tapping Book gets one of:
+        //   • "Not enough courts available for that time and duration"
+        //   • "No courts available at HH:MM for N min"
+        //   • "Slot conflict: Coaching CS-0012, …"  (the defensive
+        //     cross-entity check — a coaching/walk-in/open-play/tournament
+        //     claim landed on the slot after the Availability read)
+        // …none of which the v106 pattern matched. Result: the customer was
+        // shown a raw server string AND the availability wheel was never
+        // reloaded, so it kept offering the slot that is already gone and the
+        // next tap failed identically. Every string below is harvested
+        // verbatim from createBooking; the validation refusals it must NOT
+        // swallow (closing time, booking window, 30-min grid, minimum
+        // duration, past start, fair-use, "System busy") share no wording
+        // with any of them.
+        const _err = String(r.error || "");
+        const _isConflict = /no longer available|just (been )?(taken|booked)|already booked|not free|slot not found|fully booked|not enough courts available|no courts available|slot conflict/i.test(_err);
+        if (_isConflict) {
+          showToast(
+            lang === "km"
+              ? "ពេល​នេះ​ត្រូវ​បាន​កក់​រួច — ភាព​ទំនេរ​ត្រូវ​បាន​ផ្ទុក​ឡើង​វិញ សូម​ជ្រើស​ម្ដង​ទៀត។"
+              : "That slot was just taken — availability refreshed, please pick again.",
+            "error"
+          );
+          loadAvailability(date);
+          return;
+        }
+        showToast(_err || t("error", null, lang), "error");
         return;
       }
       // H3: stash the client quote so the confirm screen can reconcile it
@@ -5479,9 +5520,9 @@ function ScreenBooking({ state, setState, go, lang, config }) {
         <div className="priceblock">
           {pricingShown ? (
             <>
-              {/* v71: with a fair-use premium surcharge the server folds it
-                  INTO subtotal — itemize base courts + surcharge so the
-                  lines still add up. fairUse is absent while the policy is OFF. */}
+              {/* v76: with a fair-use surcharge the server folds it INTO
+                  subtotal — itemize base courts + surcharge so the lines
+                  still add up. fairUse is absent while the policy is OFF. */}
               {pricingShown.isMixed ? (
                 // Mixed-rate: itemize each bucket
                 pricingShown.breakdown.map(b => (
@@ -5498,27 +5539,37 @@ function ScreenBooking({ state, setState, go, lang, config }) {
                   </div>
                 ))
               ) : (
-                // Single-rate booking (base courts, before any premium surcharge)
+                // Single-rate booking (base courts, before any fair-use surcharge)
                 <div className="price-row">
                   <span className="k">
                     {formatDuration(slots)} × {pickedCourts.length} {pickedCourts.length > 1 ? t("c_courts", null, lang).toLowerCase() : t("c_court", null, lang).toLowerCase()} · {peakLabel.toLowerCase()}
                   </span>
                   <span className="v" key={"v-sub-" + pricingShown.subtotal}>
-                    ${(pricingShown.fairUse ? Math.round((pricingShown.subtotal - pricingShown.fairUse.premiumSurcharge) * 100) / 100 : pricingShown.subtotal).toFixed(2)}
+                    ${(pricingShown.fairUse ? Math.round((pricingShown.subtotal - pricingShown.fairUse.surcharge) * 100) / 100 : pricingShown.subtotal).toFixed(2)}
                   </span>
                 </div>
               )}
 
-              {pricingShown.fairUse && pricingShown.fairUse.premiumSurcharge > 0 && (
-                <div className="price-row">
-                  <span className="k">
-                    {t("b_fairuse_premium", { x: pricingShown.fairUse.premiumPerHour, list: pricingShown.fairUse.premiumCourts.join(", C") }, lang)}
-                  </span>
-                  <span className="v" key={"v-fuprem-" + pricingShown.fairUse.premiumSurcharge}>${pricingShown.fairUse.premiumSurcharge.toFixed(2)}</span>
-                </div>
+              {pricingShown.fairUse && pricingShown.fairUse.surcharge > 0 && (
+                <>
+                  {pricingShown.fairUse.fullDiscountCourts > 0 && (
+                    <div className="price-row">
+                      <span className="k" style={{ opacity: 0.75 }}>
+                        {t("b_fairuse_full", { n: pricingShown.fairUse.fullDiscountCourts }, lang)}
+                      </span>
+                      <span className="v" />
+                    </div>
+                  )}
+                  <div className="price-row">
+                    <span className="k">
+                      {t("b_fairuse_surch", { n: pricingShown.fairUse.surchargedCourts, x: pricingShown.fairUse.surchargePerHour }, lang)}
+                    </span>
+                    <span className="v" key={"v-fusur-" + pricingShown.fairUse.surcharge}>${pricingShown.fairUse.surcharge.toFixed(2)}</span>
+                  </div>
+                </>
               )}
 
-              {(pricingShown.isMixed || (pricingShown.fairUse && pricingShown.fairUse.premiumSurcharge > 0)) && (
+              {(pricingShown.isMixed || (pricingShown.fairUse && pricingShown.fairUse.surcharge > 0)) && (
                 <div className="price-row subtotal-row" style={{ paddingTop: 8, borderTop: "1px dashed rgba(26,26,26,0.18)", marginTop: 2 }}>
                   <span className="k" style={{ fontWeight: 700 }}>{t("b_subtotal", null, lang)}</span>
                   <span className="v" key={"v-mixsub-" + pricingShown.subtotal}>${pricingShown.subtotal.toFixed(2)}</span>
@@ -6001,7 +6052,11 @@ function ScreenMyBookings({ state, setState, go, lang, config }) {
         phone: state.phone || ""
       });
     } else {
-      r = { ok: false, error: "Unknown registration type" };
+      // v106 FLOW-AUDIT — this developer sentinel was rendered verbatim in a
+      // customer-facing toast, English-only, with no way forward.
+      r = { ok: false, error: lang === "km"
+        ? "មិន​អាច​បោះបង់​ការ​ចុះឈ្មោះ​នេះ​នៅ​ទីនេះ​បាន​ទេ — សូម​ទូរស័ព្ទ​មក​ក្រុមហ៊ុន​យើង។"
+        : "This registration can't be cancelled here — please call the front desk and we'll do it for you." };
     }
     setCancelling(false);
     setUniversalCancel(null);
@@ -6627,14 +6682,14 @@ function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, on
             </span>
           </div>
         )}
-        {/* v71 — fair-use detail under the total when the policy shaped it */}
-        {pricing && pricing.fairUse && (pricing.fairUse.rackCourts > 0 || pricing.fairUse.premiumSurcharge > 0) && (
+        {/* v76 — fair-use detail under the total when the policy shaped it */}
+        {pricing && pricing.fairUse && (pricing.fairUse.rackCourts > 0 || pricing.fairUse.surcharge > 0) && (
           <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
             {pricing.fairUse.rackCourts > 0 && (
               <div>· {t("b_fairuse_rack", { r: pricing.fairUse.rackCourts }, lang)} — {t("b_fairuse_used", { u: pricing.fairUse.alreadyUsed, n: pricing.fairUse.maxCourtsPerDay }, lang)}</div>
             )}
-            {pricing.fairUse.premiumSurcharge > 0 && (
-              <div>· {t("b_fairuse_premium", { x: pricing.fairUse.premiumPerHour, list: pricing.fairUse.premiumCourts.join(", C") }, lang)}: ${pricing.fairUse.premiumSurcharge.toFixed(2)}</div>
+            {pricing.fairUse.surcharge > 0 && (
+              <div>· {t("b_fairuse_surch", { n: pricing.fairUse.surchargedCourts, x: pricing.fairUse.surchargePerHour }, lang)}: ${pricing.fairUse.surcharge.toFixed(2)}</div>
             )}
           </div>
         )}
@@ -6808,8 +6863,8 @@ function ScreenMembership({ state, setState, go, lang, config }) {
                 {fairUse.maxCourtsPerDay > 0 && (
                   <li>{t("m_fairuse_2", { n: fairUse.maxCourtsPerDay }, lang)}</li>
                 )}
-                {fairUse.premiumCourts && fairUse.premiumCourts.length > 0 && fairUse.premiumPerHour > 0 && (
-                  <li>{t("m_fairuse_3", { list: fairUse.premiumCourts.join(", C"), x: fairUse.premiumPerHour }, lang)}</li>
+                {fairUse.surchargePerHour > 0 && (fairUse.maxCourtsPerDay === 0 || fairUse.fullDiscountCourts < fairUse.maxCourtsPerDay) && (
+                  <li>{t("m_fairuse_3", { k: fairUse.fullDiscountCourts, x: fairUse.surchargePerHour }, lang)}</li>
                 )}
                 <li>{t("m_fairuse_4", null, lang)}</li>
               </ul>
@@ -7356,7 +7411,12 @@ function OpenPlaySessionModal({ session, myReg, profile, state, setState, go, la
   function fmtSessionDate(s) {
     try {
       const d = new Date(s + "T12:00:00");
-      return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+      // v106 FLOW-AUDIT — was hard-coded "en-US". The parent list
+      // (ScreenOpenPlay's own fmtSessionDate) already honours the language,
+      // so opening a session card flipped the date from Khmer to English
+      // inside the very same journey.
+      return d.toLocaleDateString(lang === "km" ? "km-KH" : "en-US",
+        { weekday: "long", month: "long", day: "numeric" });
     } catch (e) { return s; }
   }
 
