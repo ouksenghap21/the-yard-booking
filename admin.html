@@ -25599,7 +25599,7 @@ function ScreenSettings() {
   // v76 — member fair-use policy (COUNT model: daily discounted-court cap,
   // first K full-discount courts/day, $/hr surcharge on discounted courts
   // beyond K). The server validates + clamps on save.
-  const [fairUse, setFairUse] = useState({ active: false, maxCourtsPerDay: 4, fullDiscountCourts: 2, surchargePerHour: 5 });
+  const [fairUse, setFairUse] = useState({ active: false, maxCourtsPerDay: 4, fullDiscountCourts: 2, surchargePerHour: 5, effectiveDate: "" });
   const [savingFairUse, setSavingFairUse] = useState(false);
   const [posSettings, setPosSettings] = useState({ memberDiscountPct: 10, memberDiscountDefault: 10 });
   const [savingPos, setSavingPos] = useState(false);
@@ -25709,7 +25709,7 @@ function ScreenSettings() {
     const cPr    = getCachedApi("adminGetPricingRules");
     const cLand  = getCachedApi("adminGetLandingConfig");
     if (cPromo && cPromo.ok) setPromo({ active: !!cPromo.active, pct: cPromo.pct || 50, label: cPromo.label || "Soft launch −50%" });
-    if (cFair && cFair.ok && cFair.fullDiscountCourts !== undefined) setFairUse({ active: !!cFair.active, maxCourtsPerDay: cFair.maxCourtsPerDay, fullDiscountCourts: cFair.fullDiscountCourts, surchargePerHour: cFair.surchargePerHour });
+    if (cFair && cFair.ok && cFair.fullDiscountCourts !== undefined) setFairUse({ active: !!cFair.active, maxCourtsPerDay: cFair.maxCourtsPerDay, fullDiscountCourts: cFair.fullDiscountCourts, surchargePerHour: cFair.surchargePerHour, effectiveDate: cFair.effectiveDate || "" });
     if (cPos && cPos.ok) setPosSettings({ memberDiscountPct: cPos.memberDiscountPct, memberDiscountDefault: cPos.memberDiscountDefault });
     if (cGoals && cGoals.ok) setGoals(cGoals.goals);
     if (cSp && cSp.ok) setSponsorSettings({ totalSlots: cSp.totalSlots, totalSlotsDefault: cSp.totalSlotsDefault });
@@ -25751,7 +25751,8 @@ function ScreenSettings() {
         active: !!fu.active,
         maxCourtsPerDay: fu.maxCourtsPerDay,
         fullDiscountCourts: fu.fullDiscountCourts,
-        surchargePerHour: fu.surchargePerHour
+        surchargePerHour: fu.surchargePerHour,
+        effectiveDate: fu.effectiveDate || ""   // v112 — optional, "" = line hidden
       });
     }
     if (ps.ok) {
@@ -25806,7 +25807,8 @@ function ScreenSettings() {
       active: fairUse.active,
       maxCourtsPerDay: fairUse.maxCourtsPerDay,
       fullDiscountCourts: fairUse.fullDiscountCourts,
-      surchargePerHour: fairUse.surchargePerHour
+      surchargePerHour: fairUse.surchargePerHour,
+      effectiveDate: fairUse.effectiveDate || ""   // v112 — blank clears the line
     });
     setSavingFairUse(false);
     if (r.ok) {
@@ -25815,7 +25817,8 @@ function ScreenSettings() {
         active: !!r.active,
         maxCourtsPerDay: r.maxCourtsPerDay,
         fullDiscountCourts: r.fullDiscountCourts,
-        surchargePerHour: r.surchargePerHour
+        surchargePerHour: r.surchargePerHour,
+        effectiveDate: r.effectiveDate || ""
       });
     } else {
       showToast(r.error || "Save failed", "error");
@@ -26363,6 +26366,8 @@ function ScreenSettings() {
           <b> per-hour surcharge</b>; courts beyond the cap price at rack rate.
           Guests, corporate bookings, birthday sessions and coaching are never affected.
           <b> OFF by default</b> — pricing is completely unchanged until you switch it on.
+          The public <b>Membership Fair Use Policy</b> page (the customer site's <b>#fairuse</b> link)
+          shows these numbers while the policy is active, and hides them entirely while it is off.
         </div>
 
         <div className="settings-row">
@@ -26414,6 +26419,20 @@ function ScreenSettings() {
             step="0.5"
             value={fairUse.surchargePerHour}
             onChange={(e) => setFairUse({ ...fairUse, surchargePerHour: e.target.value })}
+          />
+        </div>
+
+        {/* v112 — OPTIONAL display-only effective date for the PUBLIC Fair Use
+            Policy page (index.html #fairuse). Leave blank to hide the line
+            entirely. Never affects pricing; the server rejects anything that
+            is not a real yyyy-MM-dd calendar date. */}
+        <div className="settings-row">
+          <div className="field-label">Policy effective date (optional, yyyy-MM-dd — blank = hide)</div>
+          <input
+            type="date"
+            value={fairUse.effectiveDate || ""}
+            placeholder="yyyy-MM-dd"
+            onChange={(e) => setFairUse({ ...fairUse, effectiveDate: e.target.value })}
           />
         </div>
 
