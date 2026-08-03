@@ -19,7 +19,7 @@
  */
 "use strict";
 
-const CACHE_VERSION = "yard-v112-fairuse-page";
+const CACHE_VERSION = "yard-v118-coachmath";
 const VENDOR_CACHE = "yard-vendor-v1";
 
 // Vendor URLs we know are immutable (include a version in the path)
