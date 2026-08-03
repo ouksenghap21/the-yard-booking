@@ -4508,6 +4508,1194 @@ body::before{
   *, *::before, *::after{ animation:none !important; transition:none !important; }
 }
 
+/* @mobile-ui-css-boundary */
+/* ============================================================
+   MOBILE UI (v119) — SCOPED LAYER
+   ------------------------------------------------------------
+   HARD CONTRACT: every selector between @mobile-ui-begin and
+   @mobile-ui-end starts with `body.ui-mobile`. That class is put
+   on <body> only while uiMode === "mobile" (see setUiMode /
+   _syncUiModeBodyClass in the app script below), so with the
+   toggle OFF not one declaration in this block can match
+   anything — the desktop cascade is exactly what it was.
+
+   Nothing ABOVE the @mobile-ui-css-boundary marker was edited.
+   tests/v119_mobile_ui_test.js §1 pins the SHA-256 of everything
+   above it and re-parses every selector below it to prove both
+   halves of that claim on every run.
+
+   !important appears only where a rule has to beat a React inline
+   style (e.g. .stat-grid's gridTemplateColumns). Because the rule
+   is still scoped to body.ui-mobile it remains inert on desktop.
+   ============================================================ */
+/* @mobile-ui-begin */
+
+/* ---------- 1. Shell ---------------------------------------- */
+body.ui-mobile {
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior-y: none;
+}
+body.ui-mobile .app-shell {
+  display: block;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-bottom: 0;
+}
+body.ui-mobile .sidebar {
+  display: none;
+}
+body.ui-mobile .main {
+  padding: 10px 12px calc(78px + env(safe-area-inset-bottom, 0px));
+  -webkit-overflow-scrolling: touch;
+}
+body.ui-mobile button,
+body.ui-mobile a,
+body.ui-mobile .pos-tile,
+body.ui-mobile .booking-row,
+body.ui-mobile .member-row,
+body.ui-mobile .customer-row {
+  touch-action: manipulation;
+}
+
+/* ---------- 2. Top bar -------------------------------------- */
+body.ui-mobile .uim-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 88;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;
+  background: var(--cream);
+  border-bottom: 1px solid rgba(26,26,26,0.14);
+}
+body.ui-mobile .uim-brand {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+body.ui-mobile .uim-screen {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  margin-left: auto;
+  padding-right: 6px;
+}
+body.ui-mobile .uim-topbar-btn {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 8px 12px;
+  background: transparent;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ---------- 3. Bottom tab bar ------------------------------- */
+body.ui-mobile .uim-tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 90;
+  display: flex;
+  background: var(--cream);
+  border-top: 1.5px solid var(--ink);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+body.ui-mobile .uim-tab {
+  flex: 1 1 0;
+  min-height: 58px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: transparent;
+  border: none;
+  color: var(--ink);
+  cursor: pointer;
+  padding: 6px 2px;
+}
+body.ui-mobile .uim-tab.on {
+  background: var(--paper);
+  box-shadow: inset 0 3px 0 var(--clay);
+}
+body.ui-mobile .uim-tab-ico {
+  width: 21px;
+  height: 21px;
+  display: inline-flex;
+  opacity: 0.7;
+}
+body.ui-mobile .uim-tab.on .uim-tab-ico {
+  opacity: 1;
+}
+body.ui-mobile .uim-tab-ico svg {
+  width: 100%;
+  height: 100%;
+}
+body.ui-mobile .uim-tab-label {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+  opacity: 0.75;
+}
+body.ui-mobile .uim-tab.on .uim-tab-label {
+  opacity: 1;
+}
+
+/* ---------- 4. Full-screen sheets --------------------------- */
+body.ui-mobile .uim-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 470;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  animation: fadeIn 0.16s ease-out;
+}
+body.ui-mobile .uim-sheet-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 14px;
+  background: var(--cream);
+  border-bottom: 1.5px solid var(--ink);
+}
+body.ui-mobile .uim-sheet-title {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 26px;
+  line-height: 1;
+  margin: 0;
+}
+body.ui-mobile .uim-sheet-x {
+  margin-left: auto;
+  min-width: 44px;
+  min-height: 44px;
+  background: transparent;
+  border: none;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--ink);
+  cursor: pointer;
+}
+body.ui-mobile .uim-sheet-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  /* Reserve room under the raised footer while the keyboard is up, and let
+     the browser scroll a focused field clear of it. See --uim-kb below. */
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px) + var(--uim-kb, 0px));
+  scroll-padding-bottom: calc(72px + var(--uim-kb, 0px));
+}
+body.ui-mobile .uim-sheet-foot {
+  position: sticky;
+  /* --uim-kb is the height the iOS software keyboard is covering (0 when it
+     is down, and 0 on every browser without visualViewport). iOS does not
+     move position:fixed / sticky-bottom boxes for the keyboard, so without
+     this the Charge button in the POS cart sheet sits UNDER the keyboard
+     the instant "Cash received" is focused. */
+  bottom: var(--uim-kb, 0px);
+  display: flex;
+  gap: 10px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--cream);
+  border-top: 1.5px solid var(--ink);
+}
+body.ui-mobile .uim-sheet-foot > * {
+  flex: 1;
+}
+
+/* ---------- 5. "More" navigation list ----------------------- */
+body.ui-mobile .uim-nav-group {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  opacity: 0.45;
+  padding: 16px 2px 6px;
+}
+body.ui-mobile .uim-nav-item {
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 6px;
+  background: var(--cream);
+  border: 1.5px solid var(--ink);
+  border-radius: 8px;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+body.ui-mobile .uim-nav-item.on {
+  background: var(--ink);
+  color: var(--cream);
+}
+body.ui-mobile .uim-nav-item .uim-nav-ico {
+  width: 19px;
+  height: 19px;
+  display: inline-flex;
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+body.ui-mobile .uim-nav-item .uim-nav-ico svg {
+  width: 100%;
+  height: 100%;
+}
+body.ui-mobile .uim-who {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  padding: 4px 2px 10px;
+}
+
+/* ---------- 6. UI-mode toggle row --------------------------- */
+body.ui-mobile .uim-toggle-row {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px dashed rgba(26,26,26,0.25);
+}
+body.ui-mobile .uim-toggle-hint {
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.6;
+  letter-spacing: 0.06em;
+  opacity: 0.6;
+  margin-top: 8px;
+}
+
+/* ---------- 7. Screen chrome -------------------------------- */
+body.ui-mobile .main-head {
+  display: block;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+}
+body.ui-mobile .main-head h1 {
+  font-size: 28px;
+}
+body.ui-mobile .main-head .title {
+  font-size: 9px;
+  letter-spacing: 0.2em;
+}
+body.ui-mobile .main-head .meta {
+  text-align: left;
+  margin-top: 8px;
+}
+body.ui-mobile .main-head > div:last-child {
+  margin-top: 12px;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+}
+body.ui-mobile .section-label {
+  margin: 20px 0 12px;
+}
+body.ui-mobile .stat-grid {
+  grid-template-columns: 1fr !important;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+body.ui-mobile .two-col {
+  grid-template-columns: 1fr !important;
+  gap: 12px;
+}
+body.ui-mobile .panel {
+  padding: 16px 14px;
+}
+body.ui-mobile .settings-card {
+  padding: 16px 14px;
+}
+body.ui-mobile .settings-row {
+  display: block;
+}
+body.ui-mobile .settings-row input[type="text"],
+body.ui-mobile .settings-row input[type="number"] {
+  max-width: 100%;
+  width: 100%;
+  margin-top: 6px;
+}
+
+/* ---------- 8. Wide rows become stacked cards --------------- */
+body.ui-mobile .booking-row,
+body.ui-mobile .member-row,
+body.ui-mobile .customer-row,
+body.ui-mobile .sms-row,
+body.ui-mobile .coach-card,
+body.ui-mobile .session-card,
+body.ui-mobile .coach-pay-card,
+body.ui-mobile .action-item {
+  display: block;
+  padding: 14px 14px;
+}
+body.ui-mobile .booking-row > *,
+body.ui-mobile .member-row > *,
+body.ui-mobile .customer-row > *,
+body.ui-mobile .sms-row > *,
+body.ui-mobile .coach-card > *,
+body.ui-mobile .session-card > *,
+body.ui-mobile .coach-pay-card > *,
+body.ui-mobile .action-item > * {
+  margin-bottom: 6px;
+}
+body.ui-mobile .booking-row > *:last-child,
+body.ui-mobile .member-row > *:last-child,
+body.ui-mobile .customer-row > *:last-child,
+body.ui-mobile .sms-row > *:last-child,
+body.ui-mobile .coach-card > *:last-child,
+body.ui-mobile .session-card > *:last-child,
+body.ui-mobile .coach-pay-card > *:last-child,
+body.ui-mobile .action-item > *:last-child {
+  margin-bottom: 0;
+}
+body.ui-mobile .booking-row .actions,
+body.ui-mobile .session-card .amounts,
+body.ui-mobile .customer-row .cust-stats,
+body.ui-mobile .customer-row .cust-last,
+body.ui-mobile .coach-pay-card .owes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  text-align: left !important;
+  min-width: 0 !important;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(26,26,26,0.16);
+}
+body.ui-mobile .booking-row .actions button,
+body.ui-mobile .action-item button {
+  min-height: 44px;
+  flex: 1 1 auto;
+}
+body.ui-mobile .booking-row .when,
+body.ui-mobile .session-card .when {
+  min-width: 0;
+  font-size: 15px;
+}
+body.ui-mobile .booking-row .when .endtime,
+body.ui-mobile .session-card .when .date {
+  display: inline;
+  margin-left: 8px;
+}
+body.ui-mobile .customer-row .cust-stats .lbl,
+body.ui-mobile .customer-row .cust-last .lbl,
+body.ui-mobile .coach-pay-card .owes .label {
+  display: inline;
+  margin: 0 0 0 6px;
+}
+
+/* ---------- 9. Filters + chip strips ------------------------ */
+body.ui-mobile .bookings-toolbar,
+body.ui-mobile .filter-chips,
+body.ui-mobile .date-strip,
+body.ui-mobile .cat-strip,
+body.ui-mobile .coaching-tabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 4px;
+}
+body.ui-mobile .bookings-toolbar::-webkit-scrollbar,
+body.ui-mobile .filter-chips::-webkit-scrollbar,
+body.ui-mobile .date-strip::-webkit-scrollbar,
+body.ui-mobile .cat-strip::-webkit-scrollbar,
+body.ui-mobile .coaching-tabs::-webkit-scrollbar {
+  display: none;
+}
+body.ui-mobile .filter-chip,
+body.ui-mobile .date-pill,
+body.ui-mobile .cat-pill,
+body.ui-mobile .pay-pill,
+body.ui-mobile .disc-pill,
+body.ui-mobile .range-toggle button,
+body.ui-mobile .coaching-tabs button {
+  flex-shrink: 0;
+  min-height: 44px;
+  font-size: 11px;
+}
+body.ui-mobile .range-toggle {
+  margin-left: 0;
+}
+
+/* ---------- 10. Touch targets + iOS keyboards --------------- */
+body.ui-mobile .btn,
+body.ui-mobile .btn-sm {
+  min-height: 44px;
+  padding: 11px 16px;
+}
+body.ui-mobile input:not([type=checkbox]):not([type=radio]),
+body.ui-mobile select,
+body.ui-mobile textarea {
+  font-size: 16px !important;
+  min-height: 44px;
+}
+body.ui-mobile textarea {
+  min-height: 88px;
+}
+
+/* ---------- 11. Modals as full-screen sheets ----------------
+   ONE SCROLL REGION. THIS IS LOAD-BEARING.
+
+   v119 made the .modal a `height:100dvh` flex column with
+   `overflow:hidden`, gave .modal-head and .actions `flex-shrink:0`, and
+   then handed EVERY other direct child `overflow-y:auto`. The direct-child
+   count across the 50 .modal sites in this file is 8-14 — BookingDetailModal
+   alone always renders ~14, ten of which are .modal-detail-row (which
+   section 16 below restyles to stacked display:block, i.e. TALLER).
+
+   A child with `overflow-y:auto` is a scroll container, and a scroll
+   container's automatic minimum size is 0 instead of min-content. So the
+   instant the content exceeded 100dvh — which it does as soon as Extend /
+   Move court / Release / Reprice / Waive expands its panel — flex-shrink
+   distributed the deficit across all ~12 unprotected children and each one
+   became its own few-pixel-tall scroll pane. Every detail row clipped
+   inside its own scroller. Money amounts included, on the most-used screen
+   in the app.
+
+   Fix: the .modal itself is the single scroll region, and no child shrinks.
+   .modal-head (sticky top) and .actions (sticky bottom) stay pinned against
+   that one scroller, which is what sticky positioning is for. Do NOT put
+   `overflow` back on the children, and do NOT take flex-shrink:0 off them.
+   tests/v120_render_test.js asserts both, structurally, on a mounted
+   BookingDetailModal. */
+body.ui-mobile .modal-overlay {
+  padding: 0;
+  align-items: stretch;
+}
+body.ui-mobile .modal {
+  max-width: 100% !important;
+  width: 100%;
+  max-height: none !important;
+  height: 100vh;
+  height: 100dvh;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  /* The one and only scroll region in a mobile modal. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  /* Keep a focused field clear of the sticky action row and of the iOS
+     software keyboard when the browser scrolls it into view. */
+  scroll-padding-bottom: calc(72px + var(--uim-kb, 0px));
+}
+body.ui-mobile .modal > * {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+body.ui-mobile .modal-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex-shrink: 0;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 14px);
+  padding-bottom: 12px;
+  margin-bottom: 0;
+  background: var(--cream);
+}
+body.ui-mobile .modal-head h2 {
+  font-size: 22px;
+}
+body.ui-mobile .modal-head .x {
+  min-width: 44px;
+  min-height: 44px;
+  font-size: 28px;
+}
+/* Every other direct child: full natural height, never squeezed, never a
+   scroll pane of its own. `flex-shrink:0` is the load-bearing declaration —
+   it is what stops the deficit being distributed across the children.
+   `overflow:visible` replaces the v119 `overflow-y:auto` outright, so no
+   direct child is a scroll container and its automatic minimum size goes
+   back to min-content. Nothing else is set here: a `min-height` would
+   collide with the desktop rules for direct-child textareas. */
+body.ui-mobile .modal > *:not(.modal-head):not(.actions) {
+  flex-shrink: 0;
+  overflow: visible;
+}
+body.ui-mobile .modal .actions {
+  position: sticky;
+  /* Lifted clear of the iOS software keyboard — see --uim-kb. 0px whenever
+     the keyboard is down or the browser has no visualViewport. */
+  bottom: var(--uim-kb, 0px);
+  z-index: 2;
+  flex-shrink: 0;
+  justify-content: stretch;
+  margin-top: auto;
+  padding-top: 12px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--cream);
+  border-top: 1.5px solid var(--ink);
+}
+body.ui-mobile .modal .actions > button {
+  flex: 1 1 auto;
+  min-height: 48px;
+}
+/* AddItemToTabModal's product list carries an inline max-height sized for a
+   desktop dialog. On a full-screen sheet let it use the whole sheet, so the
+   multi-add rows and their steppers are big and thumb-reachable. */
+body.ui-mobile .modal > div[style*="max-height: 280px"] {
+  max-height: none !important;
+  flex: 1 1 auto;
+}
+body.ui-mobile .modal > div[style*="max-height: 280px"] .btn-sm {
+  min-width: 48px;
+}
+body.ui-mobile .modal .field-row {
+  grid-template-columns: 1fr;
+}
+body.ui-mobile .modal .field-row.three {
+  grid-template-columns: 1fr;
+}
+body.ui-mobile .court-picker {
+  grid-template-columns: repeat(4, 1fr);
+}
+body.ui-mobile .time-chip {
+  min-height: 48px;
+}
+
+/* ---------- 12. Timeline (mobile chronological list) -------- */
+body.ui-mobile .uim-tl-switch {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+body.ui-mobile .uim-tl-switch button {
+  flex: 1;
+  min-height: 44px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  background: var(--cream);
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  color: var(--ink);
+  cursor: pointer;
+}
+body.ui-mobile .uim-tl-switch button.on {
+  background: var(--ink);
+  color: var(--cream);
+}
+body.ui-mobile .uim-tl-group {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 700;
+  opacity: 0.6;
+  margin: 16px 0 8px;
+  display: flex;
+  justify-content: space-between;
+}
+body.ui-mobile .uim-tl-card {
+  width: 100%;
+  min-height: 64px;
+  display: block;
+  text-align: left;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  color: var(--ink);
+  cursor: pointer;
+}
+body.ui-mobile .uim-tl-card.is-now {
+  border-left: 5px solid var(--clay);
+}
+body.ui-mobile .uim-tl-card.is-coaching {
+  border-left: 5px solid var(--wood);
+}
+body.ui-mobile .uim-tl-card.is-walkin {
+  border-left: 5px solid var(--peach, #D9785C);
+}
+body.ui-mobile .uim-tl-card.is-openplay {
+  border-left: 5px solid var(--green);
+}
+body.ui-mobile .uim-tl-card.is-tournament {
+  border-left: 5px solid var(--warn);
+}
+body.ui-mobile .uim-tl-card.is-past {
+  opacity: 0.55;
+}
+body.ui-mobile .uim-tl-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+body.ui-mobile .uim-tl-time {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+body.ui-mobile .uim-tl-amt {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 700;
+}
+body.ui-mobile .uim-tl-name {
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 600;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+body.ui-mobile .uim-tl-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  opacity: 0.6;
+  margin-top: 4px;
+}
+body.ui-mobile .uim-tl-empty {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.45;
+  padding: 18px 0;
+  text-align: center;
+}
+body.ui-mobile .timeline-wrap {
+  padding: 10px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ---------- 13. POS (mobile) -------------------------------- */
+body.ui-mobile .pos-main .main-head > div:last-child {
+  overflow-x: auto;
+  flex-wrap: nowrap !important;
+  -webkit-overflow-scrolling: touch;
+}
+body.ui-mobile .pos-main .main-head > div:last-child > * {
+  flex-shrink: 0;
+}
+/* The till stacks TWO fixed bars at the bottom — the cart bar sits on top
+   of the tab bar — so the product grid needs to clear both or the last
+   row of tiles is unreachable. */
+body.ui-mobile .pos-main {
+  padding-bottom: calc(148px + env(safe-area-inset-bottom, 0px));
+}
+body.ui-mobile .uim-pos-filters {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--cream);
+  padding: 8px 0;
+  margin-bottom: 10px;
+}
+body.ui-mobile .uim-pos-search {
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--ink);
+  border-radius: 8px;
+  background: var(--paper);
+  font-family: var(--sans);
+}
+body.ui-mobile .uim-pos-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  padding-bottom: 8px;
+}
+body.ui-mobile .uim-pos-tile {
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--cream);
+  border: 1.5px solid var(--ink);
+  border-radius: 8px;
+  padding: 12px 12px 10px;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+}
+body.ui-mobile .uim-pos-tile.in-cart {
+  background: var(--green);
+  color: var(--cream);
+  border-color: var(--green);
+}
+body.ui-mobile .uim-pos-tile.oos {
+  opacity: 0.45;
+  background: var(--concrete);
+}
+body.ui-mobile .uim-pos-tile .t-name {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.2;
+}
+body.ui-mobile .uim-pos-tile .t-price {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 20px;
+  margin-top: auto;
+}
+body.ui-mobile .uim-pos-tile .t-stock {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+body.ui-mobile .uim-pos-tile .t-qty {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--cream);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+body.ui-mobile .uim-cartbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  /* + var(--uim-kb): iOS does not move position:fixed for the software
+     keyboard, so the always-visible Charge button used to disappear behind
+     it as soon as any POS field was focused. */
+  bottom: calc(58px + env(safe-area-inset-bottom, 0px) + var(--uim-kb, 0px));
+  z-index: 89;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--cream);
+  border-top: 1.5px solid var(--ink);
+}
+body.ui-mobile .uim-cartbar-info {
+  flex: 1 1 auto;
+  min-height: 52px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  background: transparent;
+  border: none;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+body.ui-mobile .uim-cartbar-count {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+body.ui-mobile .uim-cartbar-total {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 24px;
+  line-height: 1;
+}
+body.ui-mobile .uim-charge {
+  flex: 0 0 auto;
+  min-width: 150px;
+  min-height: 52px;
+  padding: 12px 18px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 19px;
+  background: var(--green);
+  color: var(--cream);
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  cursor: pointer;
+}
+body.ui-mobile .uim-charge:disabled {
+  opacity: 0.35;
+}
+body.ui-mobile .uim-cart-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px dashed rgba(26,26,26,0.16);
+}
+body.ui-mobile .uim-cart-line .cl-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+body.ui-mobile .uim-cart-line .cl-name {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+}
+body.ui-mobile .uim-cart-line .cl-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  opacity: 0.55;
+  margin-top: 2px;
+}
+body.ui-mobile .uim-step {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--cream);
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  padding: 2px;
+}
+body.ui-mobile .uim-step button {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+body.ui-mobile .uim-step .n {
+  min-width: 30px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+}
+body.ui-mobile .uim-cart-line .cl-total {
+  min-width: 62px;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 700;
+}
+body.ui-mobile .uim-cart-x {
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 22px;
+  cursor: pointer;
+}
+body.ui-mobile .uim-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 700;
+  opacity: 0.55;
+  margin: 18px 0 8px;
+}
+body.ui-mobile .uim-pillrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+body.ui-mobile .uim-pillrow button {
+  flex: 1 1 auto;
+  min-height: 48px;
+  min-width: 68px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  background: var(--cream);
+  border: 1.5px solid var(--ink);
+  border-radius: 8px;
+  color: var(--ink);
+  cursor: pointer;
+}
+body.ui-mobile .uim-pillrow button.on {
+  background: var(--ink);
+  color: var(--cream);
+}
+body.ui-mobile .uim-field {
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--ink);
+  border-radius: 8px;
+  background: var(--paper);
+  font-family: var(--mono);
+}
+body.ui-mobile .uim-totals .row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 6px 0;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+body.ui-mobile .uim-totals .row .k {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+body.ui-mobile .uim-totals .row.total {
+  border-top: 1.5px solid var(--ink);
+  margin-top: 6px;
+  padding-top: 10px;
+}
+body.ui-mobile .uim-totals .row.total .v {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 28px;
+}
+
+/* ---------- 14. Floating controls --------------------------- */
+body.ui-mobile .fab-container {
+  bottom: calc(136px + env(safe-area-inset-bottom, 0px)) !important;
+  right: 12px !important;
+}
+body.ui-mobile .toast,
+body.ui-mobile .undo-toast {
+  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  max-width: calc(100vw - 24px);
+}
+
+/* ---------- 15. Tablet (iPad) refinements ------------------- */
+@media (min-width: 700px) {
+  body.ui-mobile .uim-pos-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  body.ui-mobile .stat-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  body.ui-mobile .main {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+}
+@media (min-width: 960px) {
+  body.ui-mobile .uim-pos-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  body.ui-mobile .two-col {
+    grid-template-columns: 1.4fr 1fr !important;
+  }
+}
+
+/* ---------- 16. Key/value detail rows ----------------------- */
+/* .modal-detail-row is the label+value row used by every detail modal AND
+   by the Finances "Outstanding" lists — where the value cell also carries
+   the Mark-paid button. Side-by-side at 390px squeezes the amount to two
+   characters; stacked it reads, and the button gets a real target. */
+body.ui-mobile .modal-detail-row {
+  display: block;
+}
+body.ui-mobile .modal-detail-row .k {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+body.ui-mobile .modal-detail-row .v {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+body.ui-mobile .modal-detail-row .v .btn-sm {
+  min-height: 44px;
+  flex: 1 1 auto;
+}
+body.ui-mobile .modal-detail-row input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+}
+
+/* ---------- 17. Mobile record card -------------------------- */
+/* Shared shell for the list screens whose desktop rows are inline-styled
+   CSS grids (Walk-in, Tournaments, Sponsorships) and for the POS sale
+   history, whose desktop row is a <tr>. Presentation only: every value on
+   these cards is read from the same record the desktop row reads, and
+   every tap calls the same handler the desktop row calls. */
+body.ui-mobile .uim-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--cream);
+  border: 1.5px solid rgba(26,26,26,0.14);
+  border-left: 5px solid rgba(26,26,26,0.2);
+  border-radius: 8px;
+  padding: 13px 14px;
+  margin-bottom: 10px;
+  color: var(--ink);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+body.ui-mobile .uim-card.is-dim {
+  opacity: 0.55;
+}
+body.ui-mobile .uim-card .c-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+body.ui-mobile .uim-card .c-kicker {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+body.ui-mobile .uim-card .c-amt {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+body.ui-mobile .uim-card .c-title {
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.15;
+  margin-top: 3px;
+}
+body.ui-mobile .uim-card .c-meta {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  opacity: 0.7;
+  margin-top: 5px;
+  line-height: 1.5;
+}
+body.ui-mobile .uim-card .c-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+body.ui-mobile .uim-badge {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: var(--concrete);
+  color: var(--ink);
+}
+body.ui-mobile .uim-card .c-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(26,26,26,0.10);
+  margin-top: 9px;
+  overflow: hidden;
+  position: relative;
+}
+body.ui-mobile .uim-card .c-bar i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  display: block;
+  border-radius: 3px;
+}
+
+/* ---------- 18. Bookings filter sheet ----------------------- */
+/* The launcher renders as a mobile-only SIBLING placed immediately after
+   .main-head, so the general-sibling combinator can retire the desktop
+   date strip and status chips WITHOUT either of them being edited. In
+   desktop mode .uim-filterbar does not exist, so neither rule matches. */
+body.ui-mobile .uim-filterbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+body.ui-mobile .uim-filterbar > button {
+  flex: 1 1 auto;
+  min-height: 44px;
+  padding: 10px 14px;
+  background: var(--cream);
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  cursor: pointer;
+}
+body.ui-mobile .uim-filterbar > button .n {
+  opacity: 0.55;
+  margin-left: 6px;
+}
+body.ui-mobile .uim-filterbar ~ .bookings-toolbar,
+body.ui-mobile .uim-filterbar ~ div > .filter-chips {
+  display: none;
+}
+body.ui-mobile .uim-sheet-body .uim-datefield {
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--ink);
+  border-radius: 8px;
+  background: var(--paper);
+  font-family: var(--mono);
+}
+
+/* ---------- 19. Wide inner blocks that must not push ---------
+   A few panels embed fixed-width or horizontally-laid-out content
+   (charts, the week grid, the month grid). Rather than restyle them —
+   which risks changing numbers on screen — let them scroll sideways
+   inside their own box so the page itself never overflows. */
+body.ui-mobile .week-grid,
+body.ui-mobile .month-grid-v2,
+body.ui-mobile .finance-chart {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+body.ui-mobile .main {
+  overflow-x: hidden;
+}
+
+/* @mobile-ui-end */
+
   </style>
 
   <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
@@ -4563,6 +5751,214 @@ function setStoredPin(v) {
     if (v) sessionStorage.setItem(PIN_KEY, v);
     else sessionStorage.removeItem(PIN_KEY);
   } catch (e) {}
+}
+
+/* ==================================================================
+ * UI MODE — desktop vs mobile  (v119, hardened v120)
+ * ------------------------------------------------------------------
+ * ONE piece of state decides which chrome the admin panel wears. It is
+ * resolved once, at boot, in this order:
+ *
+ *   1. ?ui=desktop / ?ui=mobile in the URL. The URL WINS and it also
+ *      re-persists, so it is a permanent escape hatch: if the mobile UI
+ *      is ever broken beyond use, opening
+ *          .../admin.html?ui=desktop
+ *      restores the known-good desktop layout and makes it stick.
+ *      Nothing in this chain renders a mobile component, so the hatch
+ *      works even when every mobile component is broken.
+ *   2. localStorage["yard.ui.mode"] — the user's own last choice.
+ *      NOTHING overrides this. Not the window width, not zoom, not a
+ *      rotation. Once a mode is stored it is the answer until the user
+ *      (or ?ui=) says otherwise.
+ *   3. FIRST VISIT ONLY — screen width picks a starting layout, and that
+ *      pick is IMMEDIATELY PERSISTED so it becomes a step-2 answer.
+ *
+ * ---- v120: why the width check now runs at most once ----------------
+ * The owner asked for "a toggle button". Auto-detection was never
+ * requested and, before v120, it re-ran on EVERY load and did not
+ * persist — so on the daily-use desktop machine a half-width window or
+ * browser zoom >= 150% (1280 physical px -> 853 CSS px) silently
+ * replaced the desktop panel with the phone layout, with nothing the
+ * owner had touched to explain it. That is the one path that could
+ * change the desktop UI on its own, and constraint #1 ("i can still
+ * always use the desktop interface reliably") makes it unacceptable.
+ *
+ * DESIGN: explicit choice is authoritative; auto-detect is a one-shot
+ * seed for a genuinely first-time visitor and then never speaks again.
+ * On the owner's desktop machine the first load is at desktop width, so
+ * "desktop" is stored on visit one and no amount of zooming, resizing or
+ * window-snapping can flip it afterwards.
+ *
+ * ---- v120: the breakpoint off-by-one --------------------------------
+ * The desktop stylesheet collapses the sidebar to a 64px icon rail at
+ * `@media (max-width: 900px)`, i.e. for w <= 900. This chain used
+ * `w < 900`. At EXACTLY 900 CSS px, first visit, no stored preference,
+ * the app therefore chose DESKTOP while the CSS served the collapsed
+ * rail — a state nobody designed for. The two now use one constant and
+ * one inclusivity: UI_MODE_WIDTH_BREAKPOINT with `<=`, matching
+ * `max-width`. UI_RAIL_COLLAPSE_QUERY is derived from the same constant
+ * so the JS and the CSS cannot drift apart again.
+ *
+ * The <body> carries the class `ui-mobile` while (and only while) mobile
+ * is active. Every mobile CSS rule is scoped under `body.ui-mobile`, so
+ * in desktop mode the whole mobile stylesheet is inert.
+ *
+ * The switch itself is reachable from BOTH layouts: the desktop sidebar
+ * footer ("Mobile layout") and the mobile More sheet ("Switch to desktop
+ * layout") — plus ?ui=desktop / ?ui=mobile from the address bar, and the
+ * crash screen's own "Switch to desktop layout" button.
+ * ================================================================== */
+const UI_MODE_KEY = "yard.ui.mode";
+const UI_MODE_WIDTH_BREAKPOINT = 900;
+/* Must stay in lock-step with the pre-existing `@media (max-width: 900px)`
+ * block in the desktop stylesheet — that is the width at which the sidebar
+ * becomes a 64px icon rail. Built from the constant, never re-typed. */
+const UI_RAIL_COLLAPSE_QUERY = "(max-width: " + UI_MODE_WIDTH_BREAKPOINT + "px)";
+
+function _uiModeFromUrl() {
+  try {
+    const v = new URLSearchParams(window.location.search).get("ui");
+    if (v === "desktop" || v === "mobile") return v;
+  } catch (e) {}
+  return "";
+}
+
+function _uiModeStored() {
+  try {
+    const v = localStorage.getItem(UI_MODE_KEY);
+    if (v === "desktop" || v === "mobile") return v;
+  } catch (e) {}
+  return "";
+}
+
+function _uiModeDefaultForScreen() {
+  try {
+    const w = (window.innerWidth || (window.screen && window.screen.width) || 1280);
+    // `<=` mirrors CSS `max-width: 900px`. See the off-by-one note above.
+    return w <= UI_MODE_WIDTH_BREAKPOINT ? "mobile" : "desktop";
+  } catch (e) {
+    return "desktop";
+  }
+}
+
+function _persistUiMode(mode) {
+  try { localStorage.setItem(UI_MODE_KEY, mode); } catch (e) {}
+}
+
+function initialUiMode() {
+  const forced = _uiModeFromUrl();
+  if (forced) {
+    // The escape hatch re-persists, so one visit with ?ui=desktop is
+    // enough — the user does not have to keep the query string around.
+    _persistUiMode(forced);
+    return forced;
+  }
+  const stored = _uiModeStored();
+  if (stored) return stored;
+  // First visit in this browser profile only. Seed from the width and
+  // WRITE IT DOWN, so from the next load on this is a stored preference
+  // and the width is never consulted again. If storage is unavailable
+  // (private mode, hostile localStorage) _persistUiMode swallows it and
+  // we simply re-seed next load — same behaviour as before, no crash.
+  const seeded = _uiModeDefaultForScreen();
+  _persistUiMode(seeded);
+  return seeded;
+}
+
+let _uiMode = initialUiMode();
+
+function getUiMode() {
+  return _uiMode;
+}
+
+function _syncUiModeBodyClass() {
+  try {
+    document.body.classList.toggle("ui-mobile", _uiMode === "mobile");
+  } catch (e) {}
+}
+
+function setUiMode(mode) {
+  if (mode !== "desktop" && mode !== "mobile") return _uiMode;
+  _uiMode = mode;
+  _persistUiMode(mode);
+  _syncUiModeBodyClass();
+  try {
+    window.dispatchEvent(new CustomEvent("yard:ui-mode", { detail: { mode: mode } }));
+  } catch (e) {}
+  return _uiMode;
+}
+
+_syncUiModeBodyClass();
+
+/* ==================================================================
+ * iOS SOFTWARE KEYBOARD vs position:fixed  (v120)
+ * ------------------------------------------------------------------
+ * iOS does NOT shrink the layout viewport when the software keyboard
+ * comes up, and it does not move `position: fixed` boxes. Both Charge
+ * buttons in the POS flow are in fixed/sticky boxes pinned to the bottom
+ * of the layout viewport (.uim-cartbar is position:fixed, .uim-sheet is
+ * position:fixed inset:0 with a sticky .uim-sheet-foot), so the moment
+ * the cashier tapped "Cash received" and the keyboard slid up, the
+ * button they needed next was underneath it. Same for a mobile modal's
+ * sticky .actions row. That is the flagship counter flow.
+ *
+ * window.visualViewport is the only API that reports the keyboard. We
+ * publish the covered height as `--uim-kb` on <html>; the mobile layer
+ * offsets the three bottom-pinned regions by it. It is read ONLY by
+ * `body.ui-mobile`-scoped rules, and to keep the desktop DOM completely
+ * untouched the property is removed outright whenever the mode is not
+ * mobile — on desktop <html> carries no extra inline style at all.
+ * ================================================================== */
+const UIM_KB_VAR = "--uim-kb";
+/* Safari's collapsing URL bar also changes visualViewport.height by a few
+ * dozen px. Anything under this is toolbar chrome, not a keyboard. */
+const UIM_KB_MIN_PX = 60;
+
+function _uimKeyboardInset() {
+  try {
+    const vv = window.visualViewport;
+    if (!vv) return 0;
+    const covered = Math.round((window.innerHeight || 0) - vv.height - (vv.offsetTop || 0));
+    if (!isFinite(covered) || covered < UIM_KB_MIN_PX) return 0;
+    return covered;
+  } catch (e) {
+    return 0;
+  }
+}
+
+function _uimSyncKeyboardInset() {
+  try {
+    const el = document.documentElement;
+    if (!el || !el.style) return;
+    if (getUiMode() !== "mobile") { el.style.removeProperty(UIM_KB_VAR); return; }
+    el.style.setProperty(UIM_KB_VAR, _uimKeyboardInset() + "px");
+  } catch (e) {}
+}
+
+function _uimInstallKeyboardInsetWatcher() {
+  try {
+    window.addEventListener("yard:ui-mode", _uimSyncKeyboardInset);
+    window.addEventListener("orientationchange", _uimSyncKeyboardInset);
+    const vv = window.visualViewport;
+    if (vv && vv.addEventListener) {
+      vv.addEventListener("resize", _uimSyncKeyboardInset);
+      vv.addEventListener("scroll", _uimSyncKeyboardInset);
+    }
+    _uimSyncKeyboardInset();
+  } catch (e) {}
+}
+
+_uimInstallKeyboardInsetWatcher();
+
+/* Subscribe a component to the current UI mode. Re-renders on toggle. */
+function useUiMode() {
+  const [mode, setMode] = useState(_uiMode);
+  useEffect(() => {
+    const onChange = () => setMode(getUiMode());
+    window.addEventListener("yard:ui-mode", onChange);
+    return () => window.removeEventListener("yard:ui-mode", onChange);
+  }, []);
+  return mode;
 }
 
 /* ====== API ====== */
@@ -6694,6 +8090,7 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
    DASHBOARD
    ==================================================================== */
 function ScreenDashboard() {
+  const uiMode = useUiMode();
   const [data, setData] = useState(null);
   const [bookings, setBookings] = useState(null);
   const [kpiData, setKpiData] = useState(null);
@@ -7380,6 +8777,11 @@ function ScreenDashboard() {
       </div>
       {bookings === null ? (
         <div className="empty"><BouncingBall size="sm" /></div>
+      ) : uiMode === "mobile" ? (
+        /* Phone/tablet: a chronological on-now / up-next list, plus an
+           opt-in horizontally scrollable copy of this very same
+           <Timeline>. Same entries, same onBlockClick, same modals. */
+        <TimelineMobile bookings={bookings} dateStr={today} onBlockClick={handleBlockClick} />
       ) : (
         <Timeline bookings={bookings} dateStr={today} onBlockClick={handleBlockClick} />
       )}
@@ -8487,6 +9889,7 @@ const STATUS_LABELS = {
 };
 
 function ScreenBookings() {
+  const uiMode = useUiMode();
   const [view, setView] = useState("day"); // day | week | month
   const [date, setDate] = useState(todayISO());
   const [statusFilter, setStatusFilter] = useState("all");
@@ -8789,6 +10192,24 @@ function ScreenBookings() {
           <button className="btn primary" onClick={() => setAddBookingFlow("court")}>+ Add booking</button>
         </div>
       </div>
+
+      {/* Phone/tablet only. An ADDITION, not a replacement: it renders
+          nothing at all in desktop mode, and it drives the very same
+          view/date/statusFilter setters the strips below already drive.
+          Its presence lets one `.uim-filterbar ~ …` CSS rule retire the
+          desktop strips on a phone without either of them being edited. */}
+      {uiMode === "mobile" && (
+        <BookingsFilterMobile
+          view={view}
+          setView={setView}
+          date={date}
+          setDate={setDate}
+          statusFilter={statusFilter}
+          setStatusFilter={setStatusFilter}
+          counts={counts}
+          dateLabel={title}
+        />
+      )}
 
       {/* Date strip — visible on Day view, simpler nav on Week/Month */}
       {view === "day" && (
@@ -14360,6 +15781,7 @@ function dedupeProductsBySku(list) {
 }
 
 function ScreenPOS() {
+  const uiMode = useUiMode();
   const [products, setProducts] = useState(null);
   const [category, setCategory] = useState("All");
   const [search, setSearch] = useState("");
@@ -14813,6 +16235,50 @@ function ScreenPOS() {
         </div>
       </div>
 
+      {uiMode === "mobile" ? (
+        /* Phone/tablet till. Every value and every handler below is the
+           one this component already owns — same cart, same totals, same
+           processCharge, same optimistic add. Nothing about the sale is
+           recomputed here. */
+        <PosMobileShell
+          categories={categories}
+          category={category}
+          setCategory={setCategory}
+          search={search}
+          setSearch={setSearch}
+          visibleProducts={visibleProducts}
+          cart={cart}
+          attached={attached}
+          addToCart={addToCart}
+          updateQty={updateQty}
+          removeFromCart={removeFromCart}
+          removeAttached={removeAttached}
+          clearCart={clearCart}
+          onOpenAttach={() => setShowAttachPicker(true)}
+          subtotal={subtotal}
+          memberTier={memberTier}
+          memberDiscountPct={memberDiscountPct}
+          memberDiscountAmount={memberDiscountAmount}
+          computedDiscountAmount={computedDiscountAmount}
+          total={total}
+          change={change}
+          discountPct={discountPct}
+          setDiscountPct={setDiscountPct}
+          discountAmount={discountAmount}
+          setDiscountAmount={setDiscountAmount}
+          paymentMethod={paymentMethod}
+          setPaymentMethod={setPaymentMethod}
+          cashReceived={cashReceived}
+          setCashReceived={setCashReceived}
+          customerPhone={customerPhone}
+          setCustomerPhone={setCustomerPhone}
+          customerName={customerName}
+          setCustomerName={setCustomerName}
+          submitting={submitting}
+          lookingUpTier={lookingUpTier}
+          processCharge={processCharge}
+        />
+      ) : (
       <div className="pos-shell">
         {/* LEFT: products */}
         <div className="pos-products">
@@ -15085,6 +16551,7 @@ function ScreenPOS() {
           )}
         </div>
       </div>
+      )}
 
       {showProductModal && (
         <ProductModal
@@ -16446,6 +17913,7 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
 
 
 function SaleHistoryModal({ onClose }) {
+  const uiMode = useUiMode();
   const [range, setRange] = useState("2w");   // "1w" | "2w" | "1m" | "3m" | "all"
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -16641,6 +18109,10 @@ function SaleHistoryModal({ onClose }) {
             secondary={range !== "all" ? { label: "Show all time", onClick: () => setRange("all") } : null}
           />
         ) : (
+          uiMode === "mobile" ? (
+            /* Same `filtered` array, same order, same setSelected. */
+            <SaleHistoryMobileList sales={filtered} onSelect={setSelected} />
+          ) : (
           <div style={{ maxHeight: 430, overflowY: "auto", border: "1px solid rgba(26,26,26,0.08)", borderRadius: 3 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
@@ -16685,6 +18157,7 @@ function SaleHistoryModal({ onClose }) {
               </tbody>
             </table>
           </div>
+          )
         )}
 
         <div className="actions">
@@ -21794,6 +23267,7 @@ const EXPENSE_CATEGORIES = [
      - Create modal
      - Detail modal (sees the roster, check players in, mark paid, cancel) */
 function ScreenOpenPlay() {
+  const uiMode = useUiMode();
   const [data, setData] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [detailId, setDetailId] = useState(null);
@@ -21990,7 +23464,9 @@ function ScreenOpenPlay() {
         />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {visible.map(s => (
+          {uiMode === "mobile" ? visible.map(s => (
+            <OpenPlayRowMobile key={s.id} session={s} onOpen={() => setDetailId(s.id)} />
+          )) : visible.map(s => (
             <OpenPlayRow key={s.id} session={s} onOpen={() => setDetailId(s.id)} />
           ))}
         </div>
@@ -23089,6 +24565,7 @@ function tournamentStatusPill(when, status) {
 }
 
 function ScreenTournaments() {
+  const uiMode = useUiMode();
   const [data, setData] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [editTournament, setEditTournament] = useState(null);  // tournamentId to edit
@@ -23247,7 +24724,13 @@ function ScreenTournaments() {
         />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {filtered.map(t => (
+          {uiMode === "mobile" ? filtered.map(t => (
+            <TournamentRowMobile
+              key={t.id}
+              t={t}
+              onOpenDetail={() => setDetailId(t.id)}
+            />
+          )) : filtered.map(t => (
             <TournamentRow
               key={t.id}
               t={t}
@@ -24783,6 +26266,7 @@ function ActionRow({ title, description, button, onClick, danger, disabled }) {
 }
 
 function ScreenSponsorships() {
+  const uiMode = useUiMode();
   const [data, setData] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [editBanner, setEditBanner] = useState(null);
@@ -24916,7 +26400,14 @@ function ScreenSponsorships() {
         </div>
       ) : (
         <div className="settings-card" style={{ padding: 0 }}>
-          {filtered.map((b, idx) => (
+          {uiMode === "mobile" ? filtered.map(b => (
+            <SponsorshipRowMobile
+              key={b.bannerId}
+              b={b}
+              onOpen={() => setEditBanner(b)}
+              statusPill={statusPill}
+            />
+          )) : filtered.map((b, idx) => (
             <div
               key={b.bannerId}
               onClick={() => setEditBanner(b)}
@@ -28050,6 +29541,922 @@ function QuickCreateFab({ go, screen, canSee }) {
   );
 }
 
+/* ==================================================================
+ * MOBILE UI (v119) — COMPONENTS
+ * ------------------------------------------------------------------
+ * Everything below is PRESENTATION ONLY. Not one of these components
+ * owns state that money depends on, fetches anything, or does any
+ * arithmetic the desktop layout does not already do:
+ *   - every value is read off the same record the desktop row reads;
+ *   - every tap calls the SAME handler identifier the desktop row
+ *     calls, passed down as a prop from the screen that owns it;
+ *   - there is no second cart, no second total, no second api()
+ *     action name anywhere in this block.
+ * Each is mounted from a `uiMode === "mobile" ? <XMobile …/> : <the
+ * original, untouched desktop expression/>` branch, so with the
+ * toggle off the desktop tree is byte-for-byte what it was.
+ * ================================================================== */
+
+/* The four screens a counter shift actually lives in. Everything else
+ * is one tap away in the More sheet. */
+const MOBILE_PRIMARY_TABS = ["dashboard", "bookings", "pos", "openplay"];
+
+const MOBILE_MORE_ICON = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+    <circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+/* Top bar: brand + current screen + the always-reachable way back to the
+ * desktop layout. */
+function MobileTopBar({ title }) {
+  return (
+    <header className="uim-topbar">
+      <div className="uim-brand">The Yard.</div>
+      <div className="uim-screen">{title}</div>
+      <button
+        className="uim-topbar-btn"
+        onClick={() => setUiMode("desktop")}
+        title="Switch to the desktop layout (also available as ?ui=desktop)"
+      >Desktop</button>
+    </header>
+  );
+}
+
+function MobileTabBar({ tabs, screen, go, canSee, navIcons, onMore, moreOpen }) {
+  /* v120: a staff member whose permissions exclude ALL FOUR default tabs used
+   * to get a bottom bar containing nothing but "More" — every screen they
+   * were allowed to open was two taps away behind a sheet. Only when the
+   * default set is empty do we backfill with the first screens they CAN
+   * reach; anyone who can see even one default tab gets exactly the v119
+   * bar, in the v119 order. */
+  const allowedPrimary = MOBILE_PRIMARY_TABS.filter(id => (!canSee || canSee(id)));
+  const primary = allowedPrimary.length
+    ? allowedPrimary
+    : tabs.filter(t => t.ready !== false && (!canSee || canSee(t.id))).slice(0, 4).map(t => t.id);
+  return (
+    <nav className="uim-tabbar" aria-label="Primary">
+      {primary.map(id => {
+        const t = tabs.find(x => x.id === id);
+        if (!t) return null;
+        const on = screen === id && !moreOpen;
+        return (
+          <button
+            key={id}
+            className={"uim-tab" + (on ? " on" : "")}
+            aria-current={on ? "page" : undefined}
+            onClick={() => go(id)}
+          >
+            <span className="uim-tab-ico">{navIcons[id] || null}</span>
+            <span className="uim-tab-label">{t.label}</span>
+          </button>
+        );
+      })}
+      <button
+        className={"uim-tab" + (moreOpen ? " on" : "")}
+        onClick={onMore}
+        aria-haspopup="dialog"
+        aria-expanded={moreOpen ? "true" : "false"}
+      >
+        <span className="uim-tab-ico">{MOBILE_MORE_ICON}</span>
+        <span className="uim-tab-label">More</span>
+      </button>
+    </nav>
+  );
+}
+
+/* Everything that isn't in the bottom bar, plus who's signed in, the
+ * layout toggle and sign-out. `go` and `onSignOut` are App's own
+ * functions — identical navigation and identical sign-out to desktop. */
+function MobileMoreSheet({ tabs, groups, screen, go, canSee, navIcons, whoLabel, onSignOut, onClose }) {
+  useEffect(() => {
+    function onKey(e) { if (e.key === "Escape") onClose(); }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="uim-sheet" role="dialog" aria-label="More">
+      <div className="uim-sheet-head">
+        <h2 className="uim-sheet-title">More</h2>
+        <button className="uim-sheet-x" onClick={onClose} aria-label="Close">&times;</button>
+      </div>
+      <div className="uim-sheet-body">
+        <div className="uim-who">{whoLabel}</div>
+        {groups.map(g => {
+          const ids = g.ids.filter(id => (!canSee || canSee(id)));
+          if (!ids.length) return null;
+          return (
+            <React.Fragment key={g.label}>
+              <div className="uim-nav-group">{g.label}</div>
+              {ids.map(id => {
+                const t = tabs.find(x => x.id === id);
+                if (!t) return null;
+                return (
+                  <button
+                    key={id}
+                    className={"uim-nav-item" + (screen === id ? " on" : "")}
+                    onClick={() => { onClose(); go(id); }}
+                  >
+                    <span className="uim-nav-ico">{navIcons[id] || null}</span>
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
+            </React.Fragment>
+          );
+        })}
+
+        <div className="uim-toggle-row">
+          <div className="uim-nav-group">Layout</div>
+          <button className="uim-nav-item" onClick={() => { onClose(); setUiMode("desktop"); }}>
+            <span>Switch to desktop layout</span>
+          </button>
+          <div className="uim-toggle-hint">
+            Stuck? Add <b>?ui=desktop</b> to the address and reload — that forces
+            the desktop layout back on and remembers it, without loading any of
+            this mobile screen.
+          </div>
+        </div>
+
+        <div className="uim-toggle-row">
+          <button className="uim-nav-item" onClick={() => { onClose(); onSignOut(); }}>
+            <span>Sign out</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* Is the DESKTOP sidebar currently the collapsed 64px icon rail?
+ *
+ * The desktop stylesheet does that at `@media (max-width: 900px)`. Nothing
+ * in that pre-existing block hides or shrinks the v119 toggle (it lists
+ * `.sidebar .logo .sub`, `.sidebar nav button .label`, `.soon-tag`,
+ * `.sidebar .footer .staff` and `.sidebar .footer .signout span`, none of
+ * which match a bare <button>), so the toggle has to collapse itself.
+ *
+ * Measured with innerWidth against the SAME constant and the SAME
+ * inclusivity the media query uses, so the two cannot disagree; matchMedia
+ * is used only as an extra change signal where it exists, never as the
+ * source of truth, because a headless/JSDOM matchMedia stub reports false
+ * for everything and would silently defeat the check. */
+function _railIsCollapsed() {
+  try {
+    const w = (window.innerWidth || (window.screen && window.screen.width) || 1280);
+    return w <= UI_MODE_WIDTH_BREAKPOINT;
+  } catch (e) {
+    return false;
+  }
+}
+
+function useRailCollapsed() {
+  const [collapsed, setCollapsed] = useState(_railIsCollapsed);
+  useEffect(() => {
+    const onChange = () => setCollapsed(_railIsCollapsed());
+    onChange();
+    window.addEventListener("resize", onChange);
+    window.addEventListener("orientationchange", onChange);
+    let mq = null;
+    try {
+      mq = window.matchMedia ? window.matchMedia(UI_RAIL_COLLAPSE_QUERY) : null;
+      if (mq && mq.addEventListener) mq.addEventListener("change", onChange);
+      else if (mq && mq.addListener) mq.addListener(onChange);
+    } catch (e) { mq = null; }
+    return () => {
+      window.removeEventListener("resize", onChange);
+      window.removeEventListener("orientationchange", onChange);
+      try {
+        if (mq && mq.removeEventListener) mq.removeEventListener("change", onChange);
+        else if (mq && mq.removeListener) mq.removeListener(onChange);
+      } catch (e) {}
+    };
+  }, []);
+  return collapsed;
+}
+
+/* Phone glyph for the collapsed rail. An <svg> at width:100% can never
+ * overflow its content box the way a 45px-wide uppercase word does. */
+const MOBILE_TOGGLE_ICON = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+       aria-hidden="true" focusable="false" preserveAspectRatio="xMidYMid meet"
+       style={{ width: "100%", maxWidth: 18, height: 18, display: "block", margin: "0 auto" }}>
+    <rect x="7" y="2.5" width="10" height="19" rx="2.2" />
+    <line x1="10.6" y1="18.4" x2="13.4" y2="18.4" />
+  </svg>
+);
+
+/* The desktop half of the toggle. Lives in the sidebar footer, ABOVE the
+ * untouched staff line and Sign-out button. Styled with inline styles
+ * only, so it introduces no CSS rule that could reach any existing
+ * element. ?ui=mobile does the same thing from the address bar.
+ *
+ * v120 fixes two defects in the v119 version of this button:
+ *
+ *  1. COLLAPSED-RAIL OVERFLOW. At <= 900px the sidebar is a 64px rail. With
+ *     the global `box-sizing: border-box`, this button's content box there
+ *     is 64 - 32 (.sidebar .footer padding) - 24 (its own padding) - 3
+ *     (its own border) = 5px, while the single unbreakable word "MOBILE"
+ *     at 10px mono + 0.16em tracking is ~45px — so the label spilled out of
+ *     the sidebar and over the main content. That is a DESKTOP regression
+ *     and it did not need the mobile layout to be enabled: `?ui=desktop` on
+ *     an iPad in portrait (834pt) lands there, which is precisely the
+ *     escape-hatch scenario. The button now renders icon-only in the rail,
+ *     and carries overflow:hidden in BOTH forms so no future width can make
+ *     it spill again.
+ *  2. INVISIBLE ON DESKTOP. `.sidebar` is `background: var(--cream)` and
+ *     v119 painted this button `color: var(--cream)` with a
+ *     `rgba(241,234,214,.35)` border — cream on cream, i.e. the toggle the
+ *     owner asked for could not be seen at all. It now uses the same ink /
+ *     rgba(26,26,26,…) pair as the Sign-out button right below it. */
+function MobileUiModeToggle() {
+  const collapsed = useRailCollapsed();
+  const base = {
+    width: "100%",
+    marginBottom: 10,
+    background: "transparent",
+    color: "var(--ink)",
+    border: "1px solid rgba(26,26,26,0.3)",
+    fontFamily: "var(--mono)",
+    fontWeight: 700,
+    cursor: "pointer",
+    // Belt and braces: even at a sidebar width nobody has thought of, the
+    // label is clipped inside the button instead of painted over .main.
+    overflow: "hidden"
+  };
+  const style = collapsed
+    ? Object.assign({}, base, {
+        padding: "8px 2px",
+        minHeight: 34,
+        borderRadius: 6,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        lineHeight: 0
+      })
+    : Object.assign({}, base, {
+        padding: "9px 12px",
+        borderRadius: 999,
+        fontSize: 10,
+        letterSpacing: "0.16em",
+        textTransform: "uppercase",
+        whiteSpace: "nowrap"
+      });
+  return (
+    <button
+      onClick={() => setUiMode("mobile")}
+      aria-label="Mobile layout"
+      title="Switch to the phone/tablet layout (also available as ?ui=mobile). ?ui=desktop always brings you back."
+      style={style}
+    >{collapsed ? MOBILE_TOGGLE_ICON : "Mobile layout"}</button>
+  );
+}
+
+/* ---- Mobile timeline ---------------------------------------------- */
+/* The 8-court x 16-hour grid is unreadable on a phone. These three
+ * helpers are label/format helpers only; the amount mapping mirrors the
+ * desktop Bookings day-list field for field so the same number appears
+ * in both layouts. */
+function _uimEntryAmount(e) {
+  if (e.entryType === "coaching") return e.facilityEarns || 0;
+  if (e.entryType === "openplay") return (e.revenue !== undefined ? e.revenue : e.total) || 0;
+  return e.total || 0;
+}
+function _uimEntryLabel(e) {
+  if (e.entryType === "coaching") return "★ " + (e.coachName || e.name || "—");
+  if (e.entryType === "walkin") return "◉ Walk-in · Court " + (e.courtNumbers || "");
+  if (e.entryType === "openplay") return "◉ " + (e.title || "Walk-in");
+  if (e.entryType === "tournament") return "🏆 " + (e.title || "Tournament");
+  return e.name || "—";
+}
+function _uimEntryMeta(e) {
+  if (e.entryType === "coaching") {
+    return "C·" + e.courtNumbers + " · " + (e.durationHours || "") + "h · " + (e.sessionType || "");
+  }
+  if (e.entryType === "walkin" || e.entryType === "openplay" || e.entryType === "tournament") {
+    return "C·" + e.courtNumbers + " · " + (e.playerCount || 0) +
+      (e.playerCap ? "/" + e.playerCap : "") + " players";
+  }
+  return (e.phone || "") + " · C·" + e.courtNumbers +
+    " · " + ((e.slots || 0) * 0.5) + "h · " + (e.source || "Web");
+}
+
+function TimelineMobileCard({ entry, tone, onClick }) {
+  const isCourtBooking = !entry.entryType || entry.entryType === "booking";
+  const st = entry.derivedStatus || "awaiting";
+  return (
+    <button
+      className={"uim-tl-card" + (tone ? " " + tone : "")}
+      onClick={onClick}
+    >
+      <div className="uim-tl-top">
+        <span className="uim-tl-time">{entry.time} &rarr; {entry.timeEnd}</span>
+        <span className="uim-tl-amt">${_uimEntryAmount(entry).toFixed(2)}</span>
+      </div>
+      <div className="uim-tl-name">
+        {_uimEntryLabel(entry)}
+        {isCourtBooking && (
+          <span className={"status-pill " + st}>{STATUS_LABELS[st] || st}</span>
+        )}
+      </div>
+      <div className="uim-tl-meta">{_uimEntryMeta(entry)}</div>
+    </button>
+  );
+}
+
+function TimelineMobile({ bookings, dateStr, onBlockClick }) {
+  const [showGrid, setShowGrid] = useState(false);
+
+  const groups = useMemo(() => {
+    const toMins = (t) => {
+      const p = String(t || "0:00").split(":").map(Number);
+      return (p[0] || 0) * 60 + (p[1] || 0);
+    };
+    const now = new Date();
+    const nowMins = now.getHours() * 60 + now.getMinutes();
+    const isToday = dateStr === todayISO();
+    const live = [], next = [], done = [];
+    for (const e of (bookings || [])) {
+      const d = e.derivedStatus || "awaiting";
+      // Same exclusion the desktop <Timeline> applies: a released no-show
+      // has given the court back, so it is not "on".
+      if (d === "cancelled" || d === "no_show_freed") continue;
+      if (!isToday) { next.push(e); continue; }
+      const s = toMins(e.time), en = toMins(e.timeEnd);
+      if (nowMins > en) done.push(e);
+      else if (nowMins >= s) live.push(e);
+      else next.push(e);
+    }
+    const byStart = (a, b) => toMins(a.time) - toMins(b.time);
+    live.sort(byStart); next.sort(byStart); done.sort(byStart);
+    return { live: live, next: next, done: done, isToday: isToday };
+  }, [bookings, dateStr]);
+
+  function tone(e, isNow) {
+    if (e.entryType === "coaching") return "is-coaching";
+    if (e.entryType === "walkin") return "is-walkin";
+    if (e.entryType === "openplay") return "is-openplay";
+    if (e.entryType === "tournament") return "is-tournament";
+    return isNow ? "is-now" : "";
+  }
+
+  const section = (label, list, opts) => (
+    <React.Fragment key={label}>
+      <div className="uim-tl-group">
+        <span>{label}</span>
+        <span>{list.length}</span>
+      </div>
+      {list.length === 0 ? (
+        <div className="uim-tl-empty">Nothing {label.toLowerCase()}</div>
+      ) : list.map(e => (
+        <TimelineMobileCard
+          key={(e.entryType || "booking") + ":" + e.bookingId}
+          entry={e}
+          tone={tone(e, !!(opts && opts.now)) + ((opts && opts.past) ? " is-past" : "")}
+          onClick={() => onBlockClick(e)}
+        />
+      ))}
+    </React.Fragment>
+  );
+
+  return (
+    <div>
+      <div className="uim-tl-switch">
+        <button className={showGrid ? "" : "on"} onClick={() => setShowGrid(false)}>List</button>
+        <button className={showGrid ? "on" : ""} onClick={() => setShowGrid(true)}>Court grid</button>
+      </div>
+      {showGrid ? (
+        <Timeline bookings={bookings} dateStr={dateStr} onBlockClick={onBlockClick} />
+      ) : groups.isToday ? (
+        <>
+          {section("On now", groups.live, { now: true })}
+          {section("Up next", groups.next, {})}
+          {section("Earlier today", groups.done, { past: true })}
+        </>
+      ) : (
+        section("Scheduled", groups.next, {})
+      )}
+    </div>
+  );
+}
+
+/* ---- Bookings filter sheet ----------------------------------------
+ * The date strip and the status chips are one horizontal scroll each on
+ * a phone. This collapses both into a single sheet. It drives EXACTLY
+ * the state ScreenBookings already owns (`view`, `date`, `statusFilter`)
+ * through the setters it already owns — no new state, no new fetch: the
+ * screen's existing load effect reacts to the same setters the desktop
+ * chips call. Rendered as a mobile-only SIBLING right after .main-head,
+ * so the desktop toolbar JSX is untouched and simply hidden by the
+ * general-sibling CSS rule while this bar is on screen. */
+function BookingsFilterMobile({ view, setView, date, setDate, statusFilter, setStatusFilter, counts, dateLabel }) {
+  const [open, setOpen] = useState(false);
+  const activeCount = counts ? (counts[statusFilter] || 0) : 0;
+  return (
+    <>
+      <div className="uim-filterbar">
+        <button onClick={() => setOpen(true)}>
+          {dateLabel}
+        </button>
+        <button onClick={() => setOpen(true)}>
+          {STATUS_LABELS[statusFilter] || statusFilter}<span className="n">{activeCount}</span>
+        </button>
+      </div>
+      {open && (
+        <div className="uim-sheet" role="dialog" aria-label="Filters">
+          <div className="uim-sheet-head">
+            <h2 className="uim-sheet-title">Filters</h2>
+            <button className="uim-sheet-x" onClick={() => setOpen(false)} aria-label="Close">&times;</button>
+          </div>
+          <div className="uim-sheet-body">
+            <div className="uim-label">View</div>
+            <div className="uim-pillrow">
+              {["day", "week", "month"].map(v => (
+                <button key={v} className={view === v ? "on" : ""} onClick={() => setView(v)}>{v}</button>
+              ))}
+            </div>
+
+            {/* Step size mirrors the desktop toolbar exactly: the Week and
+                Month toolbars move by 7 and 30 days, the Day strip by one. */}
+            <div className="uim-label">Date</div>
+            <div className="uim-pillrow">
+              <button onClick={() => setDate(todayISO())}>Today</button>
+              <button onClick={() => {
+                const d = new Date(date + "T12:00:00");
+                d.setDate(d.getDate() - (view === "week" ? 7 : view === "month" ? 30 : 1));
+                setDate(d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"));
+              }}>&larr; Prev</button>
+              <button onClick={() => {
+                const d = new Date(date + "T12:00:00");
+                d.setDate(d.getDate() + (view === "week" ? 7 : view === "month" ? 30 : 1));
+                setDate(d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"));
+              }}>Next &rarr;</button>
+            </div>
+            <input
+              type="date"
+              className="uim-datefield"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              aria-label="Pick a date"
+            />
+
+            {view === "day" && (
+              <>
+                <div className="uim-label">Status</div>
+                <div className="uim-pillrow">
+                  {Object.keys(STATUS_LABELS).map(s => (
+                    <button
+                      key={s}
+                      className={statusFilter === s ? "on" : ""}
+                      onClick={() => setStatusFilter(s)}
+                    >{STATUS_LABELS[s]} · {(counts && counts[s]) || 0}</button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <div className="uim-sheet-foot">
+            <button className="btn primary" onClick={() => setOpen(false)}>Done</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/* ---- Walk-in session card ------------------------------------------
+ * Same record, same onOpen, as the desktop <OpenPlayRow>. */
+function OpenPlayRowMobile({ session, onOpen }) {
+  const cap = session.playerCap || 0;
+  const filled = session.registeredCount || 0;
+  const paid = session.paidCount || 0;
+  const pct = cap > 0 ? Math.min(100, (filled / cap) * 100) : 0;
+  const paidPct = cap > 0 ? Math.min(100, (paid / cap) * 100) : (filled > 0 ? (paid / filled) * 100 : 0);
+  const isFull = cap > 0 && filled >= cap;
+  const isPast = session.when === "past";
+  const isCancelled = session.when === "cancelled";
+  const isToday = session.when === "today";
+  const hasDupr = session.minDupr !== null || session.maxDupr !== null;
+
+  const dateLabel = (() => {
+    if (!session.date) return "—";
+    const d = new Date(session.date + "T12:00:00");
+    if (isToday) return "TODAY";
+    return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  })();
+
+  let badgeBg = "var(--concrete)";
+  let badgeColor = "var(--ink)";
+  let badgeText = "Upcoming";
+  if (isCancelled) { badgeBg = "var(--clay)"; badgeColor = "var(--cream)"; badgeText = "Cancelled"; }
+  else if (isPast) { badgeBg = "var(--concrete)"; badgeColor = "var(--ink)"; badgeText = "Past"; }
+  else if (isToday) { badgeBg = "var(--green)"; badgeColor = "var(--cream)"; badgeText = "Today"; }
+  else if (isFull) { badgeBg = "var(--wood)"; badgeColor = "var(--cream)"; badgeText = "Full"; }
+
+  const accentColor = isCancelled ? "var(--clay)"
+    : isToday ? "var(--green)"
+    : isPast ? "rgba(26,26,26,0.2)"
+    : "#5B6BA8";
+
+  return (
+    <button
+      className={"uim-card" + ((isPast || isCancelled) ? " is-dim" : "")}
+      style={{ borderLeftColor: accentColor }}
+      onClick={onOpen}
+    >
+      <div className="c-top">
+        <span className="c-kicker" style={{ color: isToday ? "var(--green)" : undefined, opacity: isToday ? 1 : undefined }}>
+          {dateLabel} · {session.startTime} · {session.durationHours}h
+        </span>
+        <span className="c-amt" style={{ color: session.collectedRevenue > 0 ? "var(--green)" : "var(--ink)" }}>
+          {fmtMoney(session.collectedRevenue || 0)}
+        </span>
+      </div>
+      <div className="c-title">{session.title || "(no title)"}</div>
+      <div className="c-meta">
+        ◎ {session.skillLevel || "All levels"} · Courts {session.courts}
+        {hasDupr && (
+          <span style={{ color: "var(--wood-2,#A8744A)", fontWeight: 700 }}>
+            {" · DUPR " + (session.minDupr !== null ? session.minDupr.toFixed(1) : "any") + "–" + (session.maxDupr !== null ? session.maxDupr.toFixed(1) : "any")}
+          </span>
+        )}
+        <br />
+        {filled}{cap > 0 ? "/" + cap : ""} {cap > 0 ? "registered" : "registered (unlimited)"} · {paid} paid · of {fmtMoney(session.expectedRevenue || 0)}
+      </div>
+      {cap > 0 && (
+        <div className="c-bar">
+          <i style={{ width: pct + "%", background: isFull ? "var(--wood)" : "rgba(91,107,168,0.4)" }} />
+          <i style={{ width: paidPct + "%", background: isFull ? "var(--wood-2,#8B5A37)" : "#5B6BA8" }} />
+        </div>
+      )}
+      <div className="c-tags">
+        <span className="uim-badge" style={{ background: badgeBg, color: badgeColor }}>{badgeText}</span>
+      </div>
+    </button>
+  );
+}
+
+/* ---- Tournament card ----------------------------------------------- */
+function TournamentRowMobile({ t, onOpenDetail }) {
+  const isMultiDay = t.startDate !== t.endDate;
+  const dateLabel = isMultiDay
+    ? t.startDate + " → " + t.endDate
+    : t.startDate;
+  const courtsLabel = t.courts.length > 0
+    ? "Courts " + t.courts.join(", ")
+    : "(no courts)";
+  return (
+    <button
+      className="uim-card"
+      style={{
+        borderLeftColor: t.when === "in-progress"
+          ? "var(--green)"
+          : t.when === "upcoming"
+            ? "var(--wood)"
+            : "rgba(26,26,26,0.10)"
+      }}
+      onClick={onOpenDetail}
+    >
+      <div className="c-top">
+        <span className="c-kicker">{t.id} · {tournamentTypeLabel(t.type)} {t.format ? "· " + t.format : ""}</span>
+        <span className="c-amt" style={{ color: t.netProfit >= 0 ? "var(--green)" : "var(--clay)" }}>
+          {fmtMoney(t.netProfit)}
+        </span>
+      </div>
+      <div className="c-title">{t.name}</div>
+      <div className="c-meta">
+        {dateLabel} · {t.startTime}–{t.endTime} · {courtsLabel}
+        <br />
+        {t.registeredPlayers}{t.playerCap > 0 ? "/" + t.playerCap : ""} players · {t.paidPlayers} paid
+        {t.signupsToday > 0 ? " · +" + t.signupsToday + " today" : ""}
+        <br />
+        Revenue {fmtMoney(t.totalRevenue)} · {fmtMoney(t.totalRevenueReceived)} received · net
+      </div>
+      <div className="c-tags">
+        {tournamentStatusPill(t.when, t.status)}
+      </div>
+    </button>
+  );
+}
+
+/* ---- Sponsorship banner card ----------------------------------------
+ * `statusPill` is ScreenSponsorships' own local renderer, handed down as
+ * a prop so the pill on the card is produced by the SAME function that
+ * produces the pill on the desktop row — not a copy of it. */
+function SponsorshipRowMobile({ b, onOpen, statusPill }) {
+  return (
+    <button className="uim-card" onClick={onOpen}>
+      <div className="c-top">
+        <span className="c-kicker">{b.bannerId}</span>
+        <span className="c-amt">
+          ${b.price.toFixed(0)}
+          <span style={{ fontWeight: 400, opacity: 0.55 }}>
+            {b.saleType === "monthly" ? " /mo" : ""}
+          </span>
+        </span>
+      </div>
+      <div className="c-title">{b.location}</div>
+      <div className="c-meta">
+        {b.sponsorName}{b.sponsorContact ? " · " + b.sponsorContact : ""}
+        <br />
+        {b.saleType === "monthly" ? "MONTHLY SUB" : b.saleType === "scheduled" ? "SCHEDULED CONTRACT" : "ONE-OFF"}
+        {" · "}{b.startDate}{b.endDate ? " → " + b.endDate : ""}
+        {b.saleType === "scheduled" && (
+          <>
+            <br />
+            {"Paid $" + (b.schedulePaid || 0).toFixed(0) + " of $" + (b.scheduleTotal || 0).toFixed(0)}
+            {b.overdueCount > 0 ? " · " + b.overdueCount + " overdue" : ""}
+          </>
+        )}
+      </div>
+      <div className="c-tags">
+        {statusPill(b.status)}
+      </div>
+    </button>
+  );
+}
+
+/* ---- POS sale history list ------------------------------------------
+ * The desktop view is a six-column <table>. Same rows, same order, same
+ * onSelect — it is the identical `filtered` array. */
+function SaleHistoryMobileList({ sales, onSelect }) {
+  return (
+    <div>
+      {sales.map(s => (
+        <button
+          key={s.saleId}
+          className={"uim-card" + (s.voided ? " is-dim" : "")}
+          style={{ textDecoration: s.voided ? "line-through" : "none" }}
+          onClick={() => onSelect(s)}
+        >
+          <div className="c-top">
+            <span className="c-kicker">{s.saleId} · {s.createdAt}</span>
+            <span className="c-amt">${s.total.toFixed(2)}</span>
+          </div>
+          <div className="c-title">{s.customerName || "—"}</div>
+          <div className="c-meta">
+            {s.items.length} {s.items.length === 1 ? "item" : "items"} · {s.paymentMethod}
+          </div>
+          <div className="c-tags">
+            {s.memberTier && <span className={"tier-pill " + s.memberTier}>{s.memberTier}</span>}
+            {s.voided && <span className="uim-badge" style={{ background: "var(--clay)", color: "var(--cream)" }}>Void</span>}
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ---- Mobile POS ---------------------------------------------------- */
+/* Every value and every function below arrives as a prop from ScreenPOS.
+ * There is no second cart, no second total, no second charge path. The
+ * product grid adds straight to the existing optimistic cart, and the
+ * Charge button on the cart bar means the whole sale is two taps from
+ * the last item added. */
+function PosMobileShell(p) {
+  const [cartOpen, setCartOpen] = useState(false);
+
+  const itemCount = p.cart.reduce((s, x) => s + x.quantity, 0) + p.attached.length;
+
+  // Same guard the desktop Charge button uses. processCharge() re-checks
+  // all of it anyway, so this is only about not offering a button that
+  // cannot work.
+  const chargeDisabled = p.submitting || p.lookingUpTier ||
+    (p.cart.length === 0 && p.attached.length === 0) ||
+    (p.paymentMethod === "Cash" && p.total > 0 && !(parseFloat(p.cashReceived) >= p.total));
+
+  useEffect(() => {
+    if (cartOpen && p.cart.length === 0 && p.attached.length === 0) setCartOpen(false);
+  }, [cartOpen, p.cart.length, p.attached.length]);
+
+  return (
+    <div>
+      <div className="uim-pos-filters">
+        <div className="cat-strip">
+          {p.categories.map(c => (
+            <button
+              key={c}
+              className={"cat-pill" + (p.category === c ? " on" : "")}
+              onClick={() => p.setCategory(c)}
+            >{c}</button>
+          ))}
+        </div>
+        <input
+          type="search"
+          inputMode="search"
+          className="uim-pos-search"
+          placeholder="Search products&hellip;"
+          value={p.search}
+          onChange={(e) => p.setSearch(e.target.value)}
+        />
+      </div>
+
+      {p.visibleProducts.length === 0 ? (
+        <div className="empty" style={{ marginTop: 12 }}>
+          {p.category === "All" && !p.search ? "No active products" : "No matches"}
+        </div>
+      ) : (
+        <div className="uim-pos-grid">
+          {p.visibleProducts.map(prod => {
+            const inCart = p.cart.find(x => (x.productId || x.sku) === (prod.productId || prod.sku));
+            const outOfStock = prod.stock < 1;
+            return (
+              <button
+                key={prod.productId || prod.sku}
+                className={"uim-pos-tile" + (outOfStock ? " oos" : "") + (inCart ? " in-cart" : "")}
+                onClick={() => p.addToCart(prod)}
+              >
+                <span className="t-name">{prod.name}</span>
+                <span className="t-price">${prod.price.toFixed(2)}</span>
+                <span className="t-stock">{outOfStock ? "Out of stock" : "Stock: " + prod.stock}</span>
+                {inCart && <span className="t-qty">&times;{inCart.quantity}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="uim-cartbar">
+        <button className="uim-cartbar-info" onClick={() => setCartOpen(true)}>
+          <span className="uim-cartbar-count">
+            {itemCount === 0 ? "Cart empty · tap to open" : itemCount + " item" + (itemCount === 1 ? "" : "s") + " · tap to edit"}
+          </span>
+          <span className="uim-cartbar-total">${p.total.toFixed(2)}</span>
+        </button>
+        <button
+          className="uim-charge"
+          onClick={p.processCharge}
+          disabled={chargeDisabled}
+        >
+          {p.submitting ? "Charging…" : p.lookingUpTier ? "pricing…" : "Charge"}
+        </button>
+      </div>
+
+      {cartOpen && (
+        <div className="uim-sheet" role="dialog" aria-label="Cart">
+          <div className="uim-sheet-head">
+            <h2 className="uim-sheet-title">Cart</h2>
+            <button className="uim-sheet-x" onClick={() => setCartOpen(false)} aria-label="Close">&times;</button>
+          </div>
+          <div className="uim-sheet-body">
+            <div className="uim-pillrow">
+              <button onClick={p.onOpenAttach}>+ Attach booking</button>
+              {(p.cart.length > 0 || p.attached.length > 0) && (
+                <button onClick={p.clearCart}>Clear</button>
+              )}
+            </div>
+
+            {p.attached.length > 0 && (
+              <>
+                <div className="uim-label">Attached &middot; settle on charge</div>
+                {p.attached.map((a, idx) => (
+                  <div className="uim-cart-line" key={a.kind + "-" + a.id}>
+                    <div className="cl-info">
+                      <div className="cl-name">{a.label}</div>
+                      {a.sub && <div className="cl-meta">{a.sub}</div>}
+                    </div>
+                    <div className="cl-total">${(a.price || 0).toFixed(2)}</div>
+                    <button className="uim-cart-x" onClick={() => p.removeAttached(idx)} aria-label="Detach">&times;</button>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {p.cart.length > 0 && (
+              <>
+                <div className="uim-label">Items</div>
+                {p.cart.map(x => (
+                  <div className="uim-cart-line" key={x.sku}>
+                    <div className="cl-info">
+                      <div className="cl-name">{x.name}</div>
+                      <div className="cl-meta">${x.price.toFixed(2)} each</div>
+                    </div>
+                    <div className="uim-step">
+                      <button onClick={() => p.updateQty(x.sku, -1)} aria-label={"Fewer " + x.name}>&minus;</button>
+                      <span className="n">{x.quantity}</span>
+                      <button onClick={() => p.updateQty(x.sku, 1)} aria-label={"More " + x.name}>+</button>
+                    </div>
+                    <div className="cl-total">${(x.price * x.quantity).toFixed(2)}</div>
+                    <button className="uim-cart-x" onClick={() => p.removeFromCart(x.sku)} aria-label="Remove">&times;</button>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {p.cart.length === 0 && p.attached.length === 0 && (
+              <div className="uim-tl-empty">Tap a product to start</div>
+            )}
+
+            <div className="uim-label">Discount</div>
+            <div className="uim-pillrow">
+              {[0, 10, 20, 50].map(d => (
+                <button
+                  key={d}
+                  className={p.discountPct === d ? "on" : ""}
+                  onClick={() => { p.setDiscountPct(d); p.setDiscountAmount(0); }}
+                >{d === 0 ? "None" : d + "%"}</button>
+              ))}
+            </div>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.5"
+              className="uim-field"
+              placeholder="$ custom discount"
+              value={p.discountAmount || ""}
+              onChange={(e) => { p.setDiscountAmount(parseFloat(e.target.value) || 0); p.setDiscountPct(0); }}
+            />
+
+            <div className="uim-label">Customer (optional)</div>
+            <input
+              type="tel"
+              inputMode="numeric"
+              className="uim-field"
+              placeholder="Phone"
+              value={p.customerPhone}
+              onChange={(e) => p.setCustomerPhone(e.target.value.replace(/[^0-9]/g, ""))}
+            />
+            <input
+              type="text"
+              className="uim-field"
+              placeholder="Name"
+              value={p.customerName}
+              onChange={(e) => p.setCustomerName(e.target.value)}
+            />
+
+            <div className="uim-label">Payment</div>
+            <div className="uim-pillrow">
+              {["Cash", "ABA", "Wing", "Card", "Account"].map(m => (
+                <button
+                  key={m}
+                  className={p.paymentMethod === m ? "on" : ""}
+                  onClick={() => p.setPaymentMethod(m)}
+                >{m}</button>
+              ))}
+            </div>
+            {p.paymentMethod === "Cash" && (
+              <>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.5"
+                  className="uim-field"
+                  placeholder="Cash received"
+                  value={p.cashReceived}
+                  onChange={(e) => p.setCashReceived(e.target.value)}
+                />
+                {parseFloat(p.cashReceived) >= p.total && p.total > 0 && (
+                  <div style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 12, color: "var(--green)" }}>
+                    Change: ${p.change.toFixed(2)}
+                  </div>
+                )}
+              </>
+            )}
+
+            <div className="uim-label">Total</div>
+            <div className="uim-totals">
+              <div className="row">
+                <span className="k">Subtotal</span>
+                <span className="v">${p.subtotal.toFixed(2)}</span>
+              </div>
+              {p.memberDiscountAmount > 0 && (
+                <div className="row" style={{ color: "var(--green)" }}>
+                  <span className="k">{p.memberTier} {p.memberDiscountPct}% (pro-shop)</span>
+                  <span className="v">&minus;${p.memberDiscountAmount.toFixed(2)}</span>
+                </div>
+              )}
+              {p.computedDiscountAmount > p.memberDiscountAmount && (
+                <div className="row" style={{ color: "var(--clay)" }}>
+                  <span className="k">Staff discount {p.discountPct > 0 && "(" + p.discountPct + "%)"}</span>
+                  <span className="v">&minus;${(p.computedDiscountAmount - p.memberDiscountAmount).toFixed(2)}</span>
+                </div>
+              )}
+              <div className="row total">
+                <span className="k">Total</span>
+                <span className="v">${p.total.toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+          <div className="uim-sheet-foot">
+            <button
+              className="uim-charge"
+              onClick={p.processCharge}
+              disabled={chargeDisabled}
+            >
+              {p.submitting ? "Charging…" : p.lookingUpTier ? "pricing updating…" : `Charge $${p.total.toFixed(2)}`}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function getStaffInfo() {
   try {
     const raw = sessionStorage.getItem("yard-staff-info");
@@ -28059,6 +30466,11 @@ function getStaffInfo() {
 }
 
 function App() {
+  // UI mode + the More sheet live at the very top with the other hooks so
+  // hook ORDER is identical on every render — the same rule the comment
+  // further down (about the blank-beige-screen bug) exists to protect.
+  const uiMode = useUiMode();
+  const [moreOpen, setMoreOpen] = useState(false);
   const [authed, setAuthed] = useState(!!getStoredPin());
   const staffInfo = getStaffInfo();
   const isStaff = !!(staffInfo && staffInfo.role === "staff");
@@ -28503,6 +30915,51 @@ function App() {
     default:          body = <ScreenDashboard />;
   }
 
+  // ---- MOBILE SHELL --------------------------------------------------
+  // Same `body`, same `go`, same `signOut`, same modals — only the chrome
+  // around them changes: the left sidebar becomes a bottom tab bar and the
+  // rest of the nav moves into a full-screen "More" sheet. The desktop
+  // return below this block is the original expression, untouched.
+  //
+  // OWNER'S ESCAPE HATCH: if anything on this path misbehaves, open
+  //     .../admin.html?ui=desktop
+  // and the desktop layout comes back AND is remembered — the URL is read
+  // in initialUiMode() before a single mobile component is constructed, so
+  // the hatch works even when every component below is broken.
+  if (uiMode === "mobile") {
+    return (
+      <div className="app-shell">
+        <ConfirmHost />
+        <QuickCreateFab go={go} screen={screen} canSee={canSee} />
+        {showShortcutHelp && <ShortcutHelpModal onClose={() => setShowShortcutHelp(false)} />}
+        <MobileTopBar title={(tabs.find(x => x.id === screen) || {}).label || "The Yard"} />
+        {body}
+        <MobileTabBar
+          tabs={tabs}
+          screen={screen}
+          go={(id) => { setMoreOpen(false); go(id); }}
+          canSee={canSee}
+          navIcons={NAV_ICONS}
+          onMore={() => setMoreOpen(o => !o)}
+          moreOpen={moreOpen}
+        />
+        {moreOpen && (
+          <MobileMoreSheet
+            tabs={tabs}
+            groups={NAV_GROUPS}
+            screen={screen}
+            go={go}
+            canSee={canSee}
+            navIcons={NAV_ICONS}
+            whoLabel={isStaff ? "Signed in · " + (staffInfo.name || "Staff") : "Signed in · Owner"}
+            onSignOut={signOut}
+            onClose={() => setMoreOpen(false)}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
       <ConfirmHost />
@@ -28555,6 +31012,13 @@ function App() {
           })}
         </nav>
         <div className="footer">
+          {/* The desktop half of the layout toggle. Purely ADDITIVE — the
+              two elements below it are byte-for-byte the originals, and
+              this button carries inline styles only, so it introduces no
+              CSS rule that could reach any existing element.
+              ?ui=mobile does the same from the address bar; ?ui=desktop
+              always brings you straight back here. */}
+          <MobileUiModeToggle />
           <div className="staff">{isStaff ? "Signed in · " + (staffInfo.name || "Staff") : "Signed in · Owner"}</div>
           <button className="signout" onClick={signOut}>
             <span>Sign out</span>
@@ -28572,6 +31036,35 @@ function App() {
  * we show a recover screen with a hard-reload button + the error text so
  * the staff can report it. The reload uses location.reload() with a cache
  * bust query param to escape any cached broken state.
+ *
+ * ------------------------------------------------------------------------
+ * v120 — THE CRASH SCREEN IS THE ESCAPE HATCH
+ * ------------------------------------------------------------------------
+ * v119 offered exactly one action here: "Reload admin". That preserves the
+ * URL, so on reload initialUiMode() reads localStorage["yard.ui.mode"] ===
+ * "mobile" again, mounts the same mobile component, and hits the same crash.
+ * A LOOP, with no way out that does not require remembering `?ui=desktop` —
+ * a string documented only in a source comment and inside MobileMoreSheet,
+ * which is unreachable the moment the app has crashed.
+ *
+ * So the recovery action now lives ON the crash screen. Three rules govern
+ * the code below, because it runs at the one moment when nothing else in the
+ * app can be trusted:
+ *
+ *   1. It renders NO Mobile* component and no component at all — inline
+ *      styles and plain elements only, so it cannot crash for the same
+ *      reason the app just did.
+ *   2. It does not read `_uiMode`, call getUiMode()/setUiMode(), or depend
+ *      on the module-level mode being sane. It reads localStorage directly
+ *      and falls back to a literal key name if even the constant is gone.
+ *   3. It fixes BOTH channels at once — it writes "desktop" to storage AND
+ *      puts ?ui=desktop on the URL — so a blocked/hostile localStorage or a
+ *      stale storage value cannot keep the owner in the broken layout. The
+ *      URL wins in initialUiMode(), and it re-persists on arrival.
+ *
+ * The reload button no longer stacks cache-bust params (searchParams.set
+ * overwrites), and sw.js keys page cache entries WITHOUT the query string,
+ * so repeated crashes can no longer add one cache entry per crash.
  */
 class AppErrorBoundary extends React.Component {
   constructor(props) {
@@ -28585,9 +31078,26 @@ class AppErrorBoundary extends React.Component {
     console.error("[AppErrorBoundary]", error, info);
     this.setState({ info: info });
   }
+  // Deliberately NOT `UI_MODE_KEY` directly: if the boot chain is what blew
+  // up, fall back to the literal so recovery still works.
+  uiModeKey() {
+    try {
+      if (typeof UI_MODE_KEY === "string" && UI_MODE_KEY) return UI_MODE_KEY;
+    } catch (e) {}
+    return "yard.ui.mode";
+  }
+  storedMode() {
+    try {
+      const v = window.localStorage.getItem(this.uiModeKey());
+      return v === "mobile" || v === "desktop" ? v : "";
+    } catch (e) {
+      return "";
+    }
+  }
   reload() {
     try {
-      // Force-refresh past CDN by adding a cache bust
+      // Force-refresh past CDN by adding a cache bust. `set` overwrites, so
+      // the URL does not grow on repeated crashes.
       const url = new URL(window.location.href);
       url.searchParams.set("_r", Date.now());
       window.location.href = url.toString();
@@ -28595,12 +31105,47 @@ class AppErrorBoundary extends React.Component {
       window.location.reload();
     }
   }
+  switchToDesktop() {
+    // Channel 1: the stored preference. Wrapped on its own so a throwing
+    // localStorage (private mode, quota, hostile shim) cannot stop channel 2.
+    try { window.localStorage.setItem(this.uiModeKey(), "desktop"); } catch (e) {}
+    // Channel 2: the URL. ?ui= beats storage in initialUiMode() and
+    // re-persists, so this works even when channel 1 silently failed.
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("ui", "desktop");
+      url.searchParams.delete("_r");
+      window.location.href = url.toString();
+      return;
+    } catch (e) {}
+    try { window.location.search = "?ui=desktop"; return; } catch (e) {}
+    try { window.location.reload(); } catch (e) {}
+  }
   render() {
     if (this.state.hasError) {
       const msg = (this.state.error && this.state.error.message) || String(this.state.error || "");
+      const wasMobile = this.storedMode() === "mobile";
+      const solid = {
+        background: "#1a1a1a", color: "#f1ead6", border: "2px solid #1a1a1a",
+        padding: "14px 22px", fontSize: 15, fontWeight: 700,
+        cursor: "pointer", borderRadius: 2, minHeight: 48
+      };
+      const ghost = {
+        background: "transparent", color: "#1a1a1a", border: "2px solid #1a1a1a",
+        padding: "14px 22px", fontSize: 15, fontWeight: 600,
+        cursor: "pointer", borderRadius: 2, minHeight: 48
+      };
+      const toDesktop = (
+        <button key="desk" onClick={() => this.switchToDesktop()}
+          style={wasMobile ? solid : ghost}>Switch to desktop layout</button>
+      );
+      const doReload = (
+        <button key="reload" onClick={() => this.reload()}
+          style={wasMobile ? ghost : solid}>Reload admin</button>
+      );
       return (
         <div style={{
-          padding: 40, maxWidth: 600, margin: "60px auto",
+          padding: 24, maxWidth: 600, margin: "40px auto",
           fontFamily: "system-ui, -apple-system, sans-serif",
           background: "#fff", border: "2px solid #1a1a1a", borderRadius: 4
         }}>
@@ -28616,6 +31161,13 @@ class AppErrorBoundary extends React.Component {
             The interface hit an error and stopped rendering. Your data is safe — this only
             affects what you can see in the browser. Reload to get back to a working state.
           </p>
+          {wasMobile && (
+            <p style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 20, fontWeight: 600 }}>
+              This device is set to the phone/tablet layout. If reloading lands you here
+              again, switch to the desktop layout — it is the original, known-good interface
+              and the setting sticks.
+            </p>
+          )}
           {msg && (
             <pre style={{
               background: "#f5f0e4", padding: 12, borderRadius: 3,
@@ -28623,11 +31175,14 @@ class AppErrorBoundary extends React.Component {
               maxHeight: 200, margin: "0 0 20px"
             }}>{msg}</pre>
           )}
-          <button onClick={() => this.reload()} style={{
-            background: "#1a1a1a", color: "#f1ead6", border: "none",
-            padding: "12px 24px", fontSize: 14, fontWeight: 600,
-            cursor: "pointer", borderRadius: 2
-          }}>Reload admin</button>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+            {wasMobile ? [toDesktop, doReload] : [doReload, toDesktop]}
+          </div>
+          <p style={{ fontSize: 12, lineHeight: 1.6, marginTop: 18, opacity: 0.7 }}>
+            You can also do this from the address bar at any time: add
+            {" "}<b>?ui=desktop</b>{" "}
+            to the page address and reload. That forces the desktop layout and remembers it.
+          </p>
         </div>
       );
     }
