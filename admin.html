@@ -4814,6 +4814,7 @@ var MUTATING_ACTIONS = new Set([
   "adminRenewMember",
   "adminSendReceiptSms",
   "adminMarkWalkInPlayerPaid","adminMarkCoachingSessionsPaid","adminPayCoach","adminRefundCoachingSession",
+  "adminFixCoachingCoachSplit",   // v116 M-c — writes Facility_Earns / Coach_Takes
   "adminUncancelCoachingSession",
   "adminUpdateOpenPlayPlayer","adminRemoveOpenPlayPlayer","adminAddOpenPlayPlayer","adminUpdateOpenPlaySession","adminMoveOpenPlaySessionCourt",
   "adminCreateSponsorship","adminUpdateSponsorship","adminCancelSponsorship",
@@ -5019,7 +5020,7 @@ function _invalidateForMutation(action, result) {
     /^(adminCreateWalkInBlock|adminCloseWalkInBlock|adminAddWalkInPlayer|adminRemoveWalkInPlayer|adminMarkWalkInPlayerPaid|adminUpdateWalkInBlock)/.test(action)
   );
   const isCoachingMutation = (
-    /^(adminCreateCoachingSession|adminCancelCoachingSession|adminUncancelCoachingSession|adminUpdateCoachingSession|adminMoveCoachingSessionCourt|adminMarkCoachingSessionsPaid|adminPayCoach|adminRefundCoachingSession|adminCreateCoach|adminUpdateCoach|adminDeleteCoach|tabAttachCoachingSession|tabDetachCoachingSession|posVoidSale)/.test(action)
+    /^(adminCreateCoachingSession|adminCancelCoachingSession|adminUncancelCoachingSession|adminUpdateCoachingSession|adminMoveCoachingSessionCourt|adminMarkCoachingSessionsPaid|adminPayCoach|adminFixCoachingCoachSplit|adminRefundCoachingSession|adminCreateCoach|adminUpdateCoach|adminDeleteCoach|tabAttachCoachingSession|tabDetachCoachingSession|posVoidSale)/.test(action)
   );
   const isOpenPlayMutation = (
     /^(adminCreateOpenPlaySession|adminCancelOpenPlaySession|adminUpdateOpenPlaySession|adminMoveOpenPlaySessionCourt|adminAddOpenPlayPlayer|registerForOpenPlay|cancelMyOpenPlayRegistration|adminUpdateOpenPlayPlayer|adminRemoveOpenPlayPlayer)/.test(action)
@@ -5083,7 +5084,12 @@ function _invalidateForMutation(action, result) {
   // sale (stock moves at tab close), so the product grid, sales list and
   // settleable-entries caches all stay valid — wiping them forced up to 3
   // pointless refetches after every single add at the counter.
-  const isTabItemOnlyMutation = /^tab(AddItems?|RemoveItem)$/.test(action);
+  // v114 SPEED: attach/detach move no stock and write no sale — exactly the
+  // reason tabAddItem/tabRemoveItem were excluded — so wiping posListProducts
+  // and posListSales after them forced pointless refetches on the counter
+  // path. adminListSettleableEntries IS still wiped below (that list genuinely
+  // changes when an entry joins or leaves a tab); see the wipe list.
+  const isTabItemOnlyMutation = /^tab(AddItems?|RemoveItem|Attach\w+|Detach\w+)$/.test(action);
   if ((isPosMutation || isTabMutation) && !isTabItemOnlyMutation) {
     // v99 — when the mutation response carries per-product stockDeltas
     // (posCreateSale / tabClose / adminSettleCombined), the default grid
@@ -5108,6 +5114,11 @@ function _invalidateForMutation(action, result) {
   // Previously only POS/tab mutations wiped this cache, so a just-added
   // walk-in player could be missing from "+ Attach" for up to 10s.
   if (isBookingMutation || isWalkInMutation || isOpenPlayMutation || isCoachingMutation) {
+    wipe("adminListSettleableEntries");
+  }
+  // v114: attach/detach are now excluded from the POS wipe above (no stock, no
+  // sale), but they DO change what is attachable — keep this one.
+  if (/^tab(Attach|Detach)/.test(action)) {
     wipe("adminListSettleableEntries");
   }
   if (isTabMutation) {
@@ -5412,6 +5423,96 @@ function rateBucketForHour(rules, dateStr, hour) {
     return "peak";
   }
   return "peak";
+}
+
+/* ============================================================================
+ * v118 HIGH-2 — THE CLIENT MIRROR OF THE SERVER'S COACHING SPLIT.
+ * ============================================================================
+ * Up to v117 the coaching modal computed the split INLINE inside a useMemo,
+ * with the pre-v117 formula and NO cap:
+ *
+ *     facility = rent + share;  coachTakes = fee - facility;
+ *
+ * On the canonical hybrid case ($12/h + 30% on a $25 two-hour lesson) the modal
+ * therefore showed Facility $31.50 / Coach -$6.50 while the server stored $25 /
+ * $0.00 — staff agreed to one number and the sheet recorded another. Worse, the
+ * "Override default split" checkbox PREFILLED its two boxes from those same
+ * un-capped numbers, so accepting the prefill sent a NEGATIVE Coach_Takes to a
+ * server that stored it verbatim, as dealType "custom", which the identity
+ * check then excluded. The shipped UI minted exactly the state the whole
+ * v115-v117 chain exists to make impossible.
+ *
+ * THE BODY BELOW IS A VERBATIM COPY OF `_computeCoachingMath` IN
+ * "Backend (patched full).gs" — comments included. It is not a re-derivation
+ * and must never become one: tests/v115_review_fixes_test.js §2d extracts both
+ * function bodies, normalises whitespace, and FAILS if they differ by one
+ * character. Change one, change the other.
+ * ========================================================================== */
+function _computeCoachingMathClient(dealType, courtRate, revSharePct, lessonFee, durationHours) {
+  // v118 M-2: floor every input at 0. A negative fee/rate/%/duration is
+  // meaningless here and used to walk straight through the cap (the ceiling
+  // collapsed to 0 while facilityEarns was ALREADY below it, so nothing
+  // fired and the cut stayed negative). Write paths refuse negatives outright;
+  // this floor is the last line of defence, and it is REPORTED, not silent.
+  const _feeIn = parseFloat(lessonFee) || 0;
+  const _rateIn = parseFloat(courtRate) || 0;
+  const _pctIn = parseFloat(revSharePct) || 0;
+  const _hrsIn = parseFloat(durationHours) || 0;
+  const inputsFloored = (_feeIn < 0 || _rateIn < 0 || _pctIn < 0 || _hrsIn < 0);
+  const fee = _feeIn < 0 ? 0 : _feeIn;
+  const rate = _rateIn < 0 ? 0 : _rateIn;
+  const pct = _pctIn < 0 ? 0 : _pctIn;
+  const hrs = _hrsIn < 0 ? 0 : _hrsIn;
+
+  let facilityEarns = 0;
+  if (dealType === "flat_rent") {
+    // Flat-rent is a pure court rental: the coach just pays us to book the court
+    // and handles their own student pricing off our books. The "fee" entered IS
+    // the court rental we charge the coach — we keep all of it, and there is no
+    // coach payout (we never touch the student's lesson money).
+    facilityEarns = fee;
+  } else if (dealType === "rev_share") {
+    facilityEarns = fee * (pct / 100);
+  } else if (dealType === "hybrid") {
+    facilityEarns = (rate * hrs) + (fee * (pct / 100));
+  }
+  // custom: facility earns whatever the staff inputs (handled at call site)
+
+  facilityEarns = Math.round(facilityEarns * 100) / 100;
+  const uncapped = facilityEarns;
+  // v117 HIGH-2: cap the LESSON-share the facility may claim at the lesson fee
+  // itself. flat_rent is EXEMPT ON PURPOSE — there `fee` IS the facility's own
+  // court rental, the coach is never owed anything, and capping the facility's
+  // rental at its own value would be meaningless. `custom` never reaches this
+  // branch either: its split is staff-entered and validated at the write path.
+  // v118 HIGH-1: `forgiven` records what the cap gave up, so the decision is
+  // never silent. `fee` is already floored at 0 above, so the ceiling is the
+  // fee itself and a negative cut is now unreachable from here.
+  let capped = false;
+  let forgiven = 0;
+  if (dealType === "rev_share" || dealType === "hybrid") {
+    const ceiling = fee;
+    if (facilityEarns > ceiling) {
+      forgiven = Math.round((facilityEarns - ceiling) * 100) / 100;
+      facilityEarns = ceiling;
+      capped = true;
+    }
+  }
+  // flat-rent never owes the coach anything (coach keeps their own student fee).
+  const coachTakes = (dealType === "flat_rent") ? 0 : Math.round((fee - facilityEarns) * 100) / 100;
+  return {
+    facilityEarns: facilityEarns,
+    coachTakes: coachTakes,
+    capped: capped,
+    uncappedFacilityEarns: uncapped,
+    // v118 HIGH-1: the money the facility did NOT charge because the deal
+    // terms asked for more of the lesson than the lesson collected. For a
+    // `hybrid` deal this is un-invoiced COURT RENT the coach would otherwise
+    // owe us; for `rev_share` it is an over-100% share. Always >= 0.
+    forgiven: forgiven,
+    // v118 M-2: at least one input arrived negative and was floored.
+    inputsFloored: inputsFloored
+  };
 }
 
 function calculatePriceClient({ config, isMember, tier, date, time, slots, courts }) {
@@ -7680,7 +7781,11 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
     setOptimisticPaid(prev => new Set([...prev, bookingId]));
     const r = await api("adminMarkPaid", { bookingId: bookingId, paymentMethod: mth });
     if (r.ok) {
-      showToast("Marked paid · " + (r.amount ? "$" + (+r.amount).toFixed(2) : "") + " collected", "success");
+      // v114 HONESTY: adminMarkPaid returns ok WITHOUT writing anything when
+      // the booking was already collected. Saying "$X collected" there tells
+      // staff they took money they did not take.
+      if (r.alreadyPaid) showToast(r.message || "Already paid — nothing was collected just now", "error");
+      else showToast("Marked paid · " + (r.amount ? "$" + (+r.amount).toFixed(2) : "") + " collected", "success");
       onMarkPaid && onMarkPaid();
       // Keep it in optimisticPaid until parent refresh removes it from `payments`.
       // No need to clear — when the data refreshes, this id will no longer be in payments.
@@ -7760,8 +7865,37 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
       } else {
         r = { ok: false, error: "Unknown entry type: " + o.entryType };
       }
-      if (r && r.ok) {
-        showToast("Marked paid · " + fmtMoney(o.amount) + " collected", "success");
+      // v116 H-2: THIS TEST USED TO BE `r.alreadyPaid` ALONE, and the coaching
+      // arm above calls an endpoint that NEVER SET IT. adminMarkCoachingSessionsPaid
+      // had a single success return { ok:true, updated, totalCollected, sessionIds },
+      // so an already-paid / cancelled / non-existent coaching session arrived
+      // here as ok:true with updated:0 and fell straight through to the green
+      // "Marked paid · $X collected" — a confident claim that money was taken
+      // when nothing was written and nothing was handed over.
+      //
+      // The server now sets alreadyPaid/noop like its two siblings; this test
+      // additionally accepts `noop` and an explicit `updated === 0` so the
+      // honest branch cannot be missed again by an endpoint that reports the
+      // no-op in only one of the three ways.
+      const _collectedNothing = r && r.ok && (r.alreadyPaid || r.noop || r.updated === 0);
+      if (_collectedNothing) {
+        // v114 HONESTY: adminMarkPaid returns ok WITHOUT writing anything when
+        // the booking was already collected (stale list / two devices, the
+        // Outstanding list is cached 10s). Claiming "collected" — and printing
+        // a receipt — for money nobody just took is the worst place in the
+        // panel to be confidently wrong.
+        showToast(r.message || "Already paid — nothing was collected just now", "error");
+        onMarkPaid && onMarkPaid();
+      } else if (r && r.ok) {
+        // v116 H-2/M-g: prefer the SERVER's figure. `o.amount` is the cached
+        // list value, which for coaching is facilityEarns (Backend 24766) while
+        // the ledger row actually written is lessonFee + courtFee (17624) — two
+        // different quantities. The server returns the exact collected total;
+        // use it whenever it is present.
+        const _collected = (typeof r.totalCollected === "number") ? r.totalCollected
+          : (typeof r.amount === "number") ? r.amount
+          : o.amount;
+        showToast("Marked paid · " + fmtMoney(_collected) + " collected", "success");
         onMarkPaid && onMarkPaid();
         // Offer a receipt (print / SMS) right after collecting, reusing the same
         // ReceiptModal as POS. Booking + walk-in are the customer-facing items.
@@ -9317,7 +9451,15 @@ function BookingRow({ booking, onAction, onOpen }) {
     try {
       setOptimisticPaid(true);
       const r = await api("adminMarkPaid", { bookingId: booking.bookingId, paymentMethod: mth });
-      if (r.ok) {
+      if (r.ok && r.alreadyPaid) {
+        // v114 HONESTY: adminMarkPaid returns ok WITHOUT writing anything when
+        // the booking was already collected (stale list / two devices, the
+        // Outstanding list is cached 10s). Claiming "collected" — and printing
+        // a receipt — for money nobody just took is the worst place in the
+        // panel to be confidently wrong.
+        showToast(r.message || "Already paid — nothing was collected just now", "error");
+        onAction && onAction();
+      } else if (r.ok) {
         showToast("Marked paid", "success");
         onAction && onAction();
         setReceiptItem(bookingReceipt({
@@ -9814,7 +9956,15 @@ function BookingDetailModal({ booking, onClose, onAction, peers }) {
       setActing(true);
       const r = await api(action, { bookingId: booking.bookingId, paymentMethod: payMethod });
       setActing(false);
-      if (r.ok) {
+      if (r.ok && r.alreadyPaid) {
+        // v114 HONESTY: adminMarkPaid returns ok WITHOUT writing anything when
+        // the booking was already collected (stale list / two devices, the
+        // Outstanding list is cached 10s). Claiming "collected" — and printing
+        // a receipt — for money nobody just took is the worst place in the
+        // panel to be confidently wrong.
+        showToast(r.message || "Already paid — nothing was collected just now", "error");
+        onAction && onAction();
+      } else if (r.ok) {
         showToast("Marked paid", "success");
         onAction && onAction();
         setReceiptItem(bookingReceipt({
@@ -11122,7 +11272,9 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
     ));
     const r = await api("adminMarkWalkInPlayerPaid", { playerId: playerId, paymentMethod: mth });
     if (r.ok) {
-      showToast("Marked paid", "success");
+      // v114 HONESTY: ok + alreadyPaid means the server wrote nothing.
+      showToast(r.alreadyPaid ? (r.message || "Already paid — nothing was collected just now") : "Marked paid",
+                r.alreadyPaid ? "error" : "success");
       refresh();
       onChanged && onChanged();
     } else {
@@ -11169,17 +11321,30 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
 
   async function closeBlock() {
     if (!confirm("Close this walk-in block? Players already added remain on record.")) return;
-    // Optimistic: close immediately; the write runs in the background. Closing a
-    // block is reversible-safe (players stay on record), so if the write fails
-    // the block simply comes back on the next refresh and we surface an error.
-    showToast("Block closed", "success");
-    onChanged && onChanged();
-    onClose && onClose();
+    // v114: this used to fire a green "Block closed" and tear the modal down
+    // BEFORE awaiting the write, which had two costs. (a) On a second device /
+    // stale modal the server refuses and staff had already been told it worked.
+    // (b) adminCloseWalkInBlock computes pendingCount / pendingAmountTotal —
+    // exactly the "3 players never paid, $21 outstanding" fact staff need at
+    // the end of a session — and throwing the modal away first meant that
+    // number could never be shown. Await, then report what the server said.
+    setWorking(true);
     const r = await api("adminCloseWalkInBlock", { blockId: block.blockId });
+    setWorking(false);
     if (!r.ok) {
       showToast((r.error || "Failed to close block") + " — refreshing", "error");
       onChanged && onChanged();
+      return;
     }
+    const _pend = r.pendingCount || 0;
+    showToast(
+      _pend > 0
+        ? "Block closed · " + _pend + " player" + (_pend === 1 ? "" : "s") + " never paid (" + fmtMoney(r.pendingAmountTotal || 0) + " uncollected)"
+        : "Block closed",
+      _pend > 0 ? "error" : "success"
+    );
+    onChanged && onChanged();
+    onClose && onClose();
   }
 
   async function cancelBlock() {
@@ -11321,12 +11486,22 @@ function WalkInBlockModal({ block, onClose, onChanged }) {
         )}
 
         <div className="actions" style={{ flexWrap: "wrap" }}>
+          {/* v114 RECOVERY: "Cancel block" used to be gated on status === "Open"
+              together with "Close block", so the moment a block was Closed —
+              the routine end-of-session action, and a one-tap mistake — the
+              only path that frees the courts and reverses paid players out of
+              the takings disappeared from the panel entirely. There is no
+              un-close endpoint, so the block's courts stayed blocked and its
+              refunds could only be done by hand in the sheet.
+              adminCancelWalkInBlock itself refuses ONLY an already-cancelled
+              block, so a Closed one is perfectly cancellable — show the button
+              for both states and keep Close for Open only. */}
+          {block.status !== "Cancelled" && (
+            <button className="btn ghost" style={{ color: "var(--clay)", marginRight: "auto" }}
+              onClick={cancelBlock} disabled={working}>Cancel block</button>
+          )}
           {block.status === "Open" && (
-            <>
-              <button className="btn ghost" style={{ color: "var(--clay)", marginRight: "auto" }}
-                onClick={cancelBlock} disabled={working}>Cancel block</button>
-              <button className="btn" onClick={closeBlock} disabled={working}>Close block</button>
-            </>
+            <button className="btn" onClick={closeBlock} disabled={working}>Close block</button>
           )}
           <button className="btn primary" onClick={onClose}>Done</button>
         </div>
@@ -12713,35 +12888,44 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
   const netFee = Math.round(grossFee * (1 - discountPct / 100) * 100) / 100;
   const discountAmt = Math.round((grossFee - netFee) * 100) / 100;
 
-  // Compute facility earns + coach takes from coach's deal terms
+  // Compute facility earns + coach takes from coach's deal terms.
+  // v118 HIGH-2: the numbers come from _computeCoachingMathClient — a VERBATIM
+  // copy of the server's _computeCoachingMath — so the modal can never show a
+  // split the server will not store. Only the human-readable formula string is
+  // built here, and it now says out loud when the cap fired and how much court
+  // rent the facility waived to make the split add up.
   const auto = useMemo(() => {
-    if (!selectedCoach) return { facilityEarns: 0, coachTakes: 0, formula: "" };
+    if (!selectedCoach) return { facilityEarns: 0, coachTakes: 0, formula: "", capped: false, forgiven: 0 };
     const fee = netFee;
     const rate = parseFloat(selectedCoach.courtRate) || 0;
     const pct = parseFloat(selectedCoach.revSharePct) || 0;
     const hrs = parseFloat(form.durationHours) || 0;
-    let facility = 0;
+    const m = _computeCoachingMathClient(selectedCoach.dealType, rate, pct, fee, hrs);
     let formula = "";
     if (selectedCoach.dealType === "flat_rent") {
       // Pure court rental: the "fee" entered IS the rental we charge the coach,
       // and we keep all of it. The coach's student fee is off our books.
-      facility = fee;
       formula = `Court rental — you keep all $${fee.toFixed(2)}`;
     } else if (selectedCoach.dealType === "rev_share") {
-      facility = fee * (pct / 100);
-      formula = `$${fee.toFixed(2)} × ${pct}% = $${facility.toFixed(2)}`;
+      formula = `$${fee.toFixed(2)} × ${pct}% = $${m.uncappedFacilityEarns.toFixed(2)}`;
     } else if (selectedCoach.dealType === "hybrid") {
-      const rent = rate * hrs;
-      const share = fee * (pct / 100);
-      facility = rent + share;
-      formula = `$${rate}/hr × ${hrs}h + $${fee.toFixed(2)} × ${pct}% = $${facility.toFixed(2)}`;
+      formula = `$${rate}/hr × ${hrs}h + $${fee.toFixed(2)} × ${pct}% = $${m.uncappedFacilityEarns.toFixed(2)}`;
     } else {
-      facility = 0;
       formula = "Custom deal — enter amounts manually";
     }
-    facility = Math.round(facility * 100) / 100;
-    const coachTakes = Math.round((fee - facility) * 100) / 100;
-    return { facilityEarns: facility, coachTakes: coachTakes, formula: formula };
+    if (m.capped) {
+      formula += ` — but the lesson only collected $${fee.toFixed(2)}, so the facility WAIVES $${m.forgiven.toFixed(2)}` +
+                 (selectedCoach.dealType === "hybrid" ? " of court rent" : " of its share") +
+                 ` and takes $${m.facilityEarns.toFixed(2)}; the coach is owed $0.00.`;
+    }
+    return {
+      facilityEarns: m.facilityEarns,
+      coachTakes: m.coachTakes,
+      formula: formula,
+      capped: m.capped,
+      forgiven: m.forgiven,
+      uncapped: m.uncappedFacilityEarns
+    };
   }, [selectedCoach, netFee, form.durationHours]);
 
   const coachTakes = form.manualOverride ? parseFloat(form.coachTakesOverride) || 0 : auto.coachTakes;
@@ -12825,6 +13009,10 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
     if (!form.coachId) return showToast("Coach required", "error");
     if (!form.courts.length) return showToast("Pick at least one court", "error");
     if (!form.durationHours || form.durationHours <= 0) return showToast("Duration required", "error");
+    // v118 M-2: a negative lesson fee is refused by every server write path —
+    // say so here rather than round-tripping for the same answer. $0 (a comped
+    // lesson) stays explicitly allowed.
+    if (grossFee < 0) return showToast("The lesson fee cannot be negative — a comped lesson is $0.00", "error");
 
     // Build notes: prepend a discount tag (strip any prior one to avoid
     // duplicates on re-save). The stored lessonFee is the NET fee.
@@ -13299,6 +13487,15 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
               {auto.formula && !form.manualOverride && (
                 <div className="formula">{auto.formula}</div>
               )}
+              {/* v118 HIGH-1: the cap is a real money decision — never silent. */}
+              {auto.capped && !form.manualOverride && (
+                <div className="formula" style={{ color: "var(--clay)", fontWeight: 700 }}>
+                  ⚠ Facility waives ${auto.forgiven.toFixed(2)} on this session — the deal terms ask $
+                  {auto.uncapped.toFixed(2)} of the lesson but the lesson only collects ${netFee.toFixed(2)}.
+                  {" "}There is no way to bill a coach here, so the coach is owed $0.00 and the waived amount is
+                  {" "}recorded in the session notes. Raise the lesson fee if the facility should not waive it.
+                </div>
+              )}
               {isCourtFeeDeal && isNew && !form.studentPhone && (
                 <div className="formula">No student phone entered — court fee priced at guest rack rate. Add a member's phone to preview their discount.</div>
               )}
@@ -13311,8 +13508,13 @@ function CoachingSessionModal({ session, coaches, dateDefault, onClose, onSaved 
                   onChange={(e) => setForm({
                     ...form,
                     manualOverride: e.target.checked,
+                    // v118 HIGH-2: `facilityEarns` / `coachTakes` are now the
+                    // SERVER's numbers (capped, never negative), so accepting
+                    // the prefill stores a split the server will accept. The
+                    // pre-v118 prefill took the un-capped preview and minted a
+                    // negative Coach_Takes on the canonical hybrid case.
                     facilityEarnsOverride: e.target.checked ? facilityEarns : 0,
-                    coachTakesOverride: e.target.checked ? coachTakes : 0
+                    coachTakesOverride: e.target.checked ? Math.max(0, coachTakes) : 0
                   })}
                 />
                 <label htmlFor="override" style={{ fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 600, cursor: "pointer" }}>
@@ -13492,8 +13694,16 @@ function PaymentsDueView({ data, loading, reload }) {
       paymentMethod: paymentMethod,
       paymentDate: paymentDate
     });
-    if (r.ok) {
-      showToast(`Marked ${r.updated} session${r.updated === 1 ? "" : "s"} paid · $${r.totalCollected.toFixed(2)} collected`, "success");
+    // v116 H-2: the second call site of the same endpoint, with the same
+    // problem — a green "Marked 0 sessions paid · $0.00 collected" for a batch
+    // where every session was already paid / cancelled / gone. The server now
+    // reports that as noop; say so instead of dressing it as a collection.
+    if (r.ok && (r.alreadyPaid || r.noop || r.updated === 0)) {
+      showToast(r.message || "Nothing was collected just now — refreshing", "error");
+      setCoachSessions(prev => { const next = { ...prev }; delete next[coachId]; return next; });
+      reload();
+    } else if (r.ok) {
+      showToast(`Marked ${r.updated} session${r.updated === 1 ? "" : "s"} paid · $${(r.totalCollected || 0).toFixed(2)} collected`, "success");
       setCoachSessions(prev => { const next = { ...prev }; delete next[coachId]; return next; });
       reload();
     } else {
@@ -13801,6 +14011,35 @@ function PayCoachesView({ data, coaches, loading, reload }) {
     }
   }
 
+  /* ---- v116 M-c: THE SIGNAL v115 COMPUTED AND NOBODY RENDERED ----
+   * adminListCoachPayments has reported `negativeCutSessions` / `negativeCutIds`
+   * since v115 (Backend :18270, :18298-18299) with the explicit comment "so the
+   * panel can say why Pay is failing". Those two fields had ZERO occurrences in
+   * this file. Staff saw a Pay button that refused with a message telling them
+   * to edit deal terms the session modal freezes — and nothing anywhere naming
+   * the offending session. Both are rendered below, with the repair action. */
+  const [fixModal, setFixModal] = useState(null);       // { sessionId, coachName }
+  const [fixFac, setFixFac] = useState("");
+  const [fixBusy, setFixBusy] = useState(false);
+
+  async function submitCoachSplitFix() {
+    if (!fixModal || fixBusy) return;
+    setFixBusy(true);
+    const r = await api("adminFixCoachingCoachSplit", {
+      sessionId: fixModal.sessionId,
+      facilityEarns: fixFac
+    });
+    setFixBusy(false);
+    if (r && r.ok) {
+      showToast(r.message || "Coach split fixed", "success");
+      setFixModal(null); setFixFac("");
+      setCoachSessions({});
+      reload();
+    } else {
+      showToast((r && r.error) || "Could not fix the split", "error");
+    }
+  }
+
   if (data === null) {
     return <div style={{ padding: 40, display: "flex", justifyContent: "center" }}><BouncingBall size="md" /></div>;
   }
@@ -13808,6 +14047,8 @@ function PayCoachesView({ data, coaches, loading, reload }) {
   const totalOwe = data.reduce((s, c) => s + (c.oweCoach || 0), 0);
   const totalPaidOut = data.reduce((s, c) => s + (c.paidOutToCoach || 0), 0);
   const oweCoaches = data.filter(c => (c.oweCoach || 0) > 0.001);
+  const blockedCoaches = data.filter(c => (c.negativeCutSessions || 0) > 0);
+  const blockedTotal = blockedCoaches.reduce((s, c) => s + (c.negativeCutSessions || 0), 0);
 
   return (
     <div>
@@ -13826,6 +14067,76 @@ function PayCoachesView({ data, coaches, loading, reload }) {
           <div className="sub">Across all completed payouts</div>
         </div>
       </div>
+
+      {blockedTotal > 0 && (
+        <div style={{ marginBottom: 18, padding: "12px 14px", borderLeft: "3px solid var(--clay)", background: "rgba(180,60,40,0.07)", borderRadius: 6, fontSize: 12, lineHeight: 1.6 }}>
+          <strong>Pay is blocked on {blockedTotal} session{blockedTotal === 1 ? "" : "s"}.</strong>{" "}
+          Their stored coach cut is <strong>negative</strong> — the facility's share is bigger than the lesson fee.
+          Paying one out would move cash <em>into</em> the till that nobody handed over, so the whole payout is refused.
+          The session's money fields are frozen once it's Paid, so fix the <strong>split</strong> here instead:
+          it changes only what the coach is owed and never touches what the student paid.
+          {blockedCoaches.map(c => (
+            <div key={c.coachId} style={{ marginTop: 8 }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11, fontWeight: 700 }}>{c.coachName || c.coachId}</div>
+              {(c.negativeCutIds || []).map(sid => (
+                <div key={sid} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: 11 }}>{sid}</span>
+                  <button
+                    className="btn-sm"
+                    onClick={() => { setFixModal({ sessionId: sid, coachName: c.coachName || c.coachId }); setFixFac(""); }}>
+                    Fix coach split
+                  </button>
+                </div>
+              ))}
+              {(c.negativeCutSessions || 0) > (c.negativeCutIds || []).length && (
+                <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
+                  …and {(c.negativeCutSessions || 0) - (c.negativeCutIds || []).length} more — run Data Validation (check 4) for the full list.
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {fixModal && (
+        <div className="modal-overlay" onClick={() => setFixModal(null)} style={{ zIndex: 450 }}>
+          <div className="modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <div className="kicker">{fixModal.coachName} · {fixModal.sessionId}</div>
+                <h2>Fix coach split</h2>
+              </div>
+              <button className="x" onClick={() => setFixModal(null)} aria-label="Close">×</button>
+            </div>
+            <div style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 12 }}>
+              {/* v117 HIGH-1: the facility share is COURT-FEE-INCLUSIVE everywhere in this
+                  system. v116's copy said "share of the lesson fee", which walked staff into
+                  entering a value that dropped the court fee out of recognised revenue. */}
+              Set the facility's share of <strong>everything the student paid</strong> — that is the
+              whole court fee (always 100% yours, never split with the coach) <em>plus</em> your slice
+              of the lesson fee. The coach gets the rest, which comes out of the lesson only.
+              Nothing the student paid changes — the lesson fee, the court fee and the payment record
+              are left exactly as they are, which is why this works on a session that's already Paid.
+              The server refuses any value below the court fee, and any value above the total collected.
+            </div>
+            <div style={{ display: "grid", gap: 6 }}>
+              <label style={{ fontSize: 11, fontFamily: "var(--mono)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                New facility share ($) — court fee + your slice of the lesson
+              </label>
+              <input
+                type="number" step="0.01" min="0" inputMode="decimal"
+                value={fixFac} onChange={e => setFixFac(e.target.value)}
+                placeholder="e.g. 17.50" />
+            </div>
+            <div className="actions">
+              <button className="btn ghost" onClick={() => setFixModal(null)}>Cancel</button>
+              <button className="btn primary" disabled={fixBusy || fixFac === ""} onClick={submitCoachSplitFix}>
+                {fixBusy ? "Saving…" : "Fix split"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="section-label">
         <span><span className="num">01</span><span className="name">Coaches you owe · click to expand</span></span>
@@ -15472,7 +15783,7 @@ function TabDetailModal({ tabId, products, onClose }) {
             tabId={tabId}
             customerPhone={tab.customerPhone}
             onClose={() => setShowAttachBooking(false)}
-            onAttached={() => { setShowAttachBooking(false); load(); }}
+            onAttached={(detail) => { setShowAttachBooking(false); if (detail) setData(detail); else load(); }}
           />
         )}
 
@@ -15758,7 +16069,12 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
       r = { ok: false, error: "Unknown entry type" };
     }
     setWorking(false);
-    if (r.ok) onAttached();
+    // v114 SPEED: every tabAttach* now returns the refreshed tab detail
+    // (same contract tabDetach* has had since v107), so hand it straight to
+    // the parent instead of making it fire a second blocking tabGetDetail.
+    // Falls back to the refetch whenever the server didn't manage to build
+    // one, so behaviour is unchanged in the degraded case.
+    if (r.ok) onAttached(r.detail && r.detail.ok ? r.detail : null);
     else showToast(r.error || "Failed", "error");
   }
 
@@ -20760,7 +21076,16 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
     }
 
     if (r.ok) {
-      showToast("Marked paid · " + fmtMoney(item.amount), "success");
+      // v114 HONESTY: ok + alreadyPaid means the server wrote nothing.
+      // v115 C2: the coaching arm is the BATCH endpoint, which has no
+      // per-item alreadyPaid flag — it reports what it actually wrote in
+      // `updated` / `sessionIds`, and skips rows that were already Paid.
+      // Without this it was the one branch here that still green-toasted a
+      // collection that never happened.
+      const _noop = r.alreadyPaid || r.noop ||
+                    (item.entryType === "coaching" && !(r.sessionIds || []).map(String).includes(String(item.id)));
+      if (_noop) showToast(r.message || "Already paid — nothing was collected just now", "error");
+      else showToast("Marked paid · " + fmtMoney(item.amount), "success");
       onChanged && onChanged();
     } else {
       setOptimisticPaid(prev => {
@@ -20808,24 +21133,94 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
     const results = await Promise.all(promises);
     const failed = results.filter(x => !x.r.ok);
 
-    if (failed.length === 0) {
-      showToast("Marked " + items.length + " items paid · " + fmtMoney(totalAmount), "success");
-    } else {
-      // Revert failed ones
-      const failedKeys = new Set();
-      for (const f of failed) {
-        for (const id of f.ids) {
-          failedKeys.add(f.kind + ":" + id);
-        }
+    /* v115 C2 — THE FALSE-COLLECTION TOAST, MULTIPLIED.
+     * This filtered on `!x.r.ok` alone, so the server's honest no-op reply
+     * — { ok:true, alreadyPaid:true, noop:true }, which means "this was
+     * ALREADY paid, I wrote nothing and recorded no payment" — counted as a
+     * success and was folded straight into a green
+     * "Marked N items paid · $TOTAL". Every other Mark-paid call site in
+     * this file consumes the flag; this one, the highest-risk path (multi
+     * item, big totals, the list two staff actually race on when it is 10s
+     * stale), did not. Staff were told, confidently, that they had just
+     * taken money nobody handed over.
+     *
+     * No-op items are excluded from BOTH the count AND the total and are
+     * reported separately. They stay optimistically hidden — they really
+     * are paid, they just weren't paid *now* — while only genuine failures
+     * are put back on the list. The coaching arm is a BATCH call with no
+     * per-item flag, so its no-ops are derived the same way the server
+     * reports them: any requested id missing from r.sessionIds was skipped
+     * (`updated` counts only rows actually written). */
+    const amountByKey = new Map(items.map(it => [optKey(it), it.amount || 0]));
+    const noopKeys = new Set();
+    for (const x of results) {
+      if (!x.r.ok) continue;
+      if (x.kind === "coaching") {
+        const wrote = new Set((x.r.sessionIds || []).map(String));
+        for (const id of x.ids) if (!wrote.has(String(id))) noopKeys.add("coaching:" + id);
+      } else if (x.r.alreadyPaid || x.r.noop) {
+        for (const id of x.ids) noopKeys.add(x.kind + ":" + id);
       }
+    }
+    const failedKeys = new Set();
+    for (const f of failed) {
+      for (const id of f.ids) failedKeys.add(f.kind + ":" + id);
+    }
+    if (failedKeys.size > 0) {
+      // Revert ONLY the genuine failures back onto the list.
       setOptimisticPaid(prev => {
         const next = new Set(prev);
         for (const k of failedKeys) next.delete(k);
         return next;
       });
-      const succeededCount = items.length - failedKeys.size;
-      showToast(succeededCount + " marked paid · " + failedKeys.size + " failed — try again", "error");
     }
+
+    let noopAmount = 0;
+    for (const k of noopKeys) noopAmount += (amountByKey.get(k) || 0);
+    let failedAmount = 0;
+    for (const k of failedKeys) failedAmount += (amountByKey.get(k) || 0);
+    const collectedCount = items.length - failedKeys.size - noopKeys.size;
+
+    /* ---- v116 M-g: THE COACHING TOTAL WAS THE WRONG QUANTITY ----
+     * `totalAmount - failedAmount - noopAmount` is built entirely from the
+     * CACHED `it.amount`, and for a coaching item that value is the facility
+     * share (`facilityEarns`, Backend :24766). The ledger row this call
+     * actually writes is `lessonFee + courtFee` (Backend :17624) — a different
+     * number, and on a rev-share/hybrid deal a materially different one. v115
+     * fixed WHICH items are counted and left WHAT they are counted as.
+     *
+     * The server already returns the exact figure it collected, per batch, in
+     * `totalCollected`. Use it for the coaching arm, and fall back to the
+     * cached amounts only for the endpoints that do not report one. */
+    let collectedAmount = 0;
+    let usedServerFigure = false;
+    for (const x of results) {
+      if (!x.r.ok) continue;
+      if (typeof x.r.totalCollected === "number") {
+        collectedAmount += x.r.totalCollected;
+        usedServerFigure = true;
+      } else if (typeof x.r.amount === "number" && !(x.r.alreadyPaid || x.r.noop)) {
+        collectedAmount += x.r.amount;
+      } else {
+        for (const id of x.ids) {
+          const k = x.kind + ":" + id;
+          if (!noopKeys.has(k)) collectedAmount += (amountByKey.get(k) || 0);
+        }
+      }
+    }
+    // Defensive: if no arm reported anything usable, fall back to the v115
+    // arithmetic rather than showing $0 for a real collection.
+    if (!usedServerFigure && collectedAmount === 0 && collectedCount > 0) {
+      collectedAmount = totalAmount - failedAmount - noopAmount;
+    }
+    collectedAmount = Math.round(collectedAmount * 100) / 100;
+
+    const parts = [];
+    if (collectedCount > 0) parts.push("Marked " + collectedCount + " item" + (collectedCount === 1 ? "" : "s") + " paid · " + fmtMoney(collectedAmount));
+    if (noopKeys.size > 0) parts.push(noopKeys.size + " already paid — nothing was collected for " + (noopKeys.size === 1 ? "it" : "those"));
+    if (failedKeys.size > 0) parts.push(failedKeys.size + " failed — try again");
+    if (parts.length === 0) parts.push("Nothing was collected");
+    showToast(parts.join(" · "), (failedKeys.size > 0 || noopKeys.size > 0) ? "error" : "success");
     onChanged && onChanged();
   }
 
@@ -22264,12 +22659,26 @@ function OpenPlayDetailModal({ sessionId, onClose, onChanged }) {
       // reported only the freed slots. Money owed back to customers must be
       // the loudest thing on screen.
       const _n = r.refundsDue || 0;
-      showToast(
-        "Session cancelled · " + r.slotsFreed + " slots freed" +
-        (_n > 0 ? " · " + _n + " paid player" + (_n === 1 ? "" : "s") +
-                  " owed " + fmtMoney(r.refundsTotal || 0) + " back — refund at the counter" : ""),
-        _n > 0 ? "error" : "success"
-      );
+      const _held = r.posSettledHeld || 0;
+      if (r.alreadyCancelled) {
+        // v114 HONESTY: the server short-circuits an already-cancelled session
+        // to a NO-OP (that guard exists so a second cancel cannot re-fire the
+        // whole refund set). Reporting "Session cancelled · 0 slots freed" in
+        // green hid the fact that someone else had already cancelled it — and
+        // with it, the money those customers are owed at the counter.
+        showToast(r.message || "This session was already cancelled — nothing changed. Check the roster for refunds already owed.", "error");
+      } else {
+        showToast(
+          "Session cancelled · " + r.slotsFreed + " slots freed" +
+          (_n > 0 ? " · " + _n + " paid player" + (_n === 1 ? "" : "s") +
+                    " owed " + fmtMoney(r.refundsTotal || 0) + " back — refund at the counter" : "") +
+          // v114: registrations settled through the POS are deliberately NOT
+          // reversed here (the sale owns that money) — staff must void the sale.
+          (_held > 0 ? " · " + _held + " player" + (_held === 1 ? "" : "s") +
+                       " paid through the POS — VOID that sale to refund them" : ""),
+          (_n > 0 || _held > 0) ? "error" : "success"
+        );
+      }
       onChanged();
     } else {
       showToast((r.error || "Failed to cancel session") + " — refreshing", "error");
@@ -23992,16 +24401,29 @@ function PlayerRow({ player, onChanged, entryFee, patchT }) {
     else { showToast(r.error || "Failed", "error"); onChanged(); }
   }
   async function remove() {
+    // v114 COPY-vs-SERVER: "They'll be unregistered from this tournament."
+    // described none of the three things adminRemoveTournamentPlayer actually
+    // does — it writes a negative "Tournament refund" row to the takings
+    // ledger when the player had paid, TEXTS the customer a cancellation, and
+    // deleteRow()s the roster row (there is no un-remove endpoint, so a
+    // mis-tap on a long roster is unrecoverable). This is the same warning the
+    // walk-in remove has carried since v109; the tournament one was missed.
+    const _wasPaid = !!player.paid;
+    const _amt = player.amountPaid || entryFee || 0;
     if (!await confirmAction({
       title: "Remove " + player.name + "?",
-      message: "They'll be unregistered from this tournament.",
+      message: "They'll be unregistered from this tournament. This cannot be undone — the roster row is deleted.",
+      consequence: (_wasPaid
+        ? "They already paid " + fmtMoney(_amt) + " — a matching refund is written to the takings ledger. Hand the cash back at the counter, and do NOT also refund through POS. "
+        : "They have not paid, so no money moves. ") +
+        "They will also be TEXTED that their registration was cancelled.",
       destructive: true,
       confirmLabel: "Remove"
     })) return;
     // Optimistic: drop the player now; counts reconcile from the server reload.
     patchT(prev => ({ ...prev, players: prev.players.filter(p => p.playerId !== player.playerId) }));
     const r = await api("adminRemoveTournamentPlayer", { playerId: player.playerId });
-    if (r.ok) { showToast("Removed", "success"); onChanged(); }
+    if (r.ok) { showToast(r.refunded ? "Removed · " + fmtMoney(r.refunded) + " refund recorded" : "Removed", "success"); onChanged(); }
     else { showToast(r.error || "Failed", "error"); onChanged(); }
   }
   return (
