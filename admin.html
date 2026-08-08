@@ -8413,6 +8413,36 @@ function ScreenDashboard() {
         </div>
       </div>
 
+      {/* v121 — Plasgate SMS balance alarm. Backend sets smsBalanceAlert on
+        * HTTP 402 (balance empty — hard red) or on 3+ other HTTP errors in
+        * 30 min (degraded — amber). Cleared automatically by the next
+        * successful send. Inline-styled on purpose: renders identically in
+        * the desktop layer and the .ui-mobile layer with zero CSS-boundary
+        * impact. */}
+      {data.smsBalanceAlert && (
+        <div
+          className="sms-balance-banner"
+          role="alert"
+          style={{
+            background: data.smsBalanceAlert.level === "empty" ? "#b3261e" : "#9a6a00",
+            color: "#fff",
+            padding: "12px 16px",
+            borderRadius: 8,
+            marginBottom: 14,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            fontWeight: 600
+          }}>
+          <span style={{ fontSize: 18, lineHeight: 1 }}>⚠</span>
+          <span>
+            {data.smsBalanceAlert.level === "empty"
+              ? "PlasGate balance empty — SMS not sending. Top up now."
+              : "PlasGate SMS errors — repeated send failures in the last 30 min. Check the SMS provider."}
+          </span>
+        </div>
+      )}
+
       {/* Promo banner if active */}
       {data.promo && data.promo.active && data.promo.pct > 0 && (
         <div className="promo-banner">
@@ -17787,7 +17817,7 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
           </div>
           <div className="actions">
             <button className="btn" onClick={printYardReceipt}>Print receipt</button>
-            <button className="btn" onClick={function () { sendReceiptSms(settled); }}>Text receipt</button>
+            <button className="btn" onClick={function () { sendReceiptSms(settled); }}>SMS receipt?</button>
             <button className="btn primary" onClick={() => onClosed(settled)}>Done</button>
           </div>
         </div>
@@ -19318,19 +19348,30 @@ function printYardReceipt() {
 }
 
 // Build a compact SMS receipt from the same data the printed receipt uses.
+// v121 SMS-cost: whole-dollar amounts drop the ".00" ($1.00 → $1 — same
+// money, 3 chars less per line) and the tail is just "Thank you!" — the
+// old "Thank you! thepickleballyard.club" tail (+23 chars) pushed typical
+// receipts past the 160-char GSM segment boundary (July average: 196 chars
+// = 2 billable segments each).
+function _smsMoney(n) {
+  return "$" + (Math.round((n || 0) * 100) / 100).toFixed(2).replace(/\.00$/, "");
+}
 function buildReceiptSms(r) {
   var lines = [];
-  (r.items || []).forEach(function (it) { lines.push(it.qty + "x " + it.name + " $" + (Math.round((it.lineTotal || 0) * 100) / 100).toFixed(2)); });
-  (r.attached || []).forEach(function (a) { lines.push(a.name + " $" + (Math.round((a.price || 0) * 100) / 100).toFixed(2)); });
+  (r.items || []).forEach(function (it) { lines.push(it.qty + "x " + it.name + " " + _smsMoney(it.lineTotal)); });
+  (r.attached || []).forEach(function (a) { lines.push(a.name + " " + _smsMoney(a.price)); });
   return "The Yard receipt " + r.saleId + "\n" + lines.join("\n")
-    + "\nTOTAL $" + (Math.round((r.total || 0) * 100) / 100).toFixed(2) + " (" + r.paymentMethod + ")"
-    + "\nThank you! thepickleballyard.club";
+    + "\nTOTAL " + _smsMoney(r.total) + " (" + r.paymentMethod + ")"
+    + "\nThank you!";
 }
 
 var _smsSending = false;
 async function sendReceiptSms(r) {
   if (!r) return;
   if (!r.customerPhone) { showToast("No phone number on file — can't text this receipt.", "error"); return; }
+  // v121 ask-first: staff now ASK the customer before texting a receipt.
+  // One tap, native confirm — no extra friction at a busy counter.
+  if (!confirm("Customer wants an SMS receipt?")) return;
   if (_smsSending) return;
   _smsSending = true;
   try {
@@ -19414,7 +19455,7 @@ function ReceiptModal({ r, onClose }) {
         )}
         <div className="actions">
           <button className="btn" onClick={printYardReceipt}>Print receipt</button>
-          <button className="btn" onClick={() => sendReceiptSms(rr)} disabled={!rr.customerPhone} title={!rr.customerPhone ? (phoneInput ? "Phone must be 8–12 digits" : "No phone on file — type one above") : ""}>Text receipt</button>
+          <button className="btn" onClick={() => sendReceiptSms(rr)} disabled={!rr.customerPhone} title={!rr.customerPhone ? (phoneInput ? "Phone must be 8–12 digits" : "No phone on file — type one above") : ""}>SMS receipt?</button>
           <button className="btn primary" onClick={onClose}>Close</button>
         </div>
       </div>
@@ -19529,7 +19570,7 @@ function SaleConfirmModal({ sale, onClose }) {
 
         <div className="actions">
           {rc && <button className="btn" onClick={printYardReceipt}>Print receipt</button>}
-          {rc && <button className="btn" onClick={() => sendReceiptSms(rc)}>Text receipt</button>}
+          {rc && <button className="btn" onClick={() => sendReceiptSms(rc)}>SMS receipt?</button>}
           <button className="btn primary" onClick={onClose}>Next sale</button>
         </div>
       </div>
