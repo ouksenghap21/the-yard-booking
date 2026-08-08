@@ -6209,6 +6209,11 @@ var MUTATING_ACTIONS = new Set([
   "tabAttachCoachingSession","tabDetachCoachingSession",
   "adminRenewMember",
   "adminSendReceiptSms",
+  /* v123 — a staff-initiated reminder costs a real SMS segment and STAMPS
+     Reminder_Sent, and the server DOES classify it as a mutation
+     (MUTATION_ACTIONS.adminSendBookingReminder), so the clientRequestId is
+     honoured: a 25s abort + retry can't bill the owner twice. */
+  "adminSendBookingReminder",
   "adminMarkWalkInPlayerPaid","adminMarkCoachingSessionsPaid","adminPayCoach","adminRefundCoachingSession",
   "adminFixCoachingCoachSplit",   // v116 M-c — writes Facility_Earns / Coach_Takes
   "adminUncancelCoachingSession",
@@ -6399,6 +6404,7 @@ function _invalidateForMutation(action, result) {
   if (action === "adminSetPromo") invalidateApiCache("adminGetPromo");
   if (action === "adminSetFairUse") { invalidateApiCache("adminGetFairUse"); try { invalidateApiCache("calculatePrice"); } catch (e) {} }
   if (action === "adminSetPosSettings") invalidateApiCache("adminGetPosSettings");
+  if (action === "adminSetSmsSettings") invalidateApiCache("adminGetSmsSettings");
   if (action === "adminSetSponsorshipSettings") invalidateApiCache("adminGetSponsorshipSettings");
   if (action === "adminSetLandingConfig") invalidateApiCache("adminGetLandingConfig");
   if (action === "adminSetPricingRules") invalidateApiCache("adminGetPricingRules");
@@ -6410,7 +6416,7 @@ function _invalidateForMutation(action, result) {
   // never wiped after a POS attach-settle and the UI kept showing "unpaid" even
   // though the sheet said Paid (the owner's "POS doesn't mark paid" report).
   const isBookingMutation = (
-    /^(adminCreateBooking|createBooking|adminCancelBooking|cancelBooking|adminExtendBooking|adminRepriceBooking|adminMoveBookingCourt|adminReleaseBookingCourts|adminMarkPaid|adminMarkRefunded|adminMarkNoShow|adminConfirmArrival|adminFlagNoShow|adminNoShowAndRelease|adminUndoCancellation|adminUpdateBooking|adminUpdateNotes|adminSettleCombined|tabClose)/.test(action)
+    /^(adminCreateBooking|createBooking|adminCancelBooking|cancelBooking|adminExtendBooking|adminRepriceBooking|adminMoveBookingCourt|adminReleaseBookingCourts|adminMarkPaid|adminMarkRefunded|adminMarkNoShow|adminConfirmArrival|adminFlagNoShow|adminNoShowAndRelease|adminUndoCancellation|adminUpdateBooking|adminUpdateNotes|adminSendBookingReminder|adminSettleCombined|tabClose)/.test(action)
   );
   const isWalkInMutation = (
     /^(adminCreateWalkInBlock|adminCloseWalkInBlock|adminAddWalkInPlayer|adminRemoveWalkInPlayer|adminMarkWalkInPlayerPaid|adminUpdateWalkInBlock)/.test(action)
@@ -8213,8 +8219,16 @@ function ScreenDashboard() {
             if (prev && prev.ok && !prev._isCore) {
               // Already have full data — merge core's fresh primary
               // numbers in without nuking secondary sections.
-              return {
+              // v122 L1: smsBalanceAlert is stamped LIVE by the server on
+              // every dashboard return (_withSmsAlert), so core always
+              // carries the current truth — including its ABSENCE after a
+              // top-up. Spreading ...prev kept the stale one and dropped the
+              // fresh one, so the "PlasGate balance empty" banner could
+              // linger (or stay missing) on this fast path. Take core's
+              // value verbatim: present → set it, absent → clear it.
+              const _merged = {
                 ...prev,
+                smsBalanceAlert: coreData.smsBalanceAlert,
                 bookings: coreData.bookings || prev.bookings,
                 utilization: coreData.utilization || prev.utilization,
                 actionQueue: {
@@ -8227,6 +8241,10 @@ function ScreenDashboard() {
                   refundsOwedTotal: coreData.actionQueue?.refundsOwedTotal ?? prev.actionQueue?.refundsOwedTotal ?? 0
                 }
               };
+              // Keep the shape clean: no alert means no key at all, exactly
+              // like a fresh server payload.
+              if (!coreData.smsBalanceAlert) delete _merged.smsBalanceAlert;
+              return _merged;
             }
             return coreData;
           });
@@ -10893,6 +10911,9 @@ function BookingRow({ booking, onAction, onOpen }) {
   const [payAsk, setPayAsk] = useState(null);
   // Receipt offer after collecting — print/text, same ReceiptModal as POS.
   const [receiptItem, setReceiptItem] = useState(null);
+  // v123 — same optimistic pattern as optimisticPaid: the row's Remind
+  // button reads "Remind again" the instant a reminder really goes out.
+  const [remindedNow, setRemindedNow] = useState(false);
   // Synchronous double-tap guard — setOptimisticPaid is async, so a fast
   // double-tap can fire the write twice before the disabled state lands.
   const actingRef = useRef(false);
@@ -10978,6 +10999,20 @@ function BookingRow({ booking, onAction, onOpen }) {
       </div>
       <div className="actions">
         <div className="total">${(booking.total || 0).toFixed(2)}</div>
+        {/* v123 — Remind, where staff actually work bookings. stopPropagation
+            keeps the row's own onOpen from firing behind the confirm. */}
+        {canRemindBooking(booking) && (
+          <button
+            className="btn-sm"
+            disabled={!booking.phone}
+            title={!booking.phone
+              ? "No phone on file — can't text a reminder"
+              : (remindedNow || bookingReminderSent(booking)
+                ? "Already reminded — this sends another SMS"
+                : "Text this customer a booking reminder (1 SMS)")}
+            onClick={(e) => { e.stopPropagation(); sendBookingReminder(booking, () => setRemindedNow(true)); }}
+          >{(remindedNow || bookingReminderSent(booking)) ? "Remind again" : "Remind"}</button>
+        )}
         {canQuickPay && (
           <button className="btn-sm primary" onClick={(e) => { e.stopPropagation(); setPayAsk(() => (mth) => quickMarkPaid(mth)); }}>Mark paid</button>
         )}
@@ -10991,6 +11026,10 @@ function BookingRow({ booking, onAction, onOpen }) {
 function BookingDetailModal({ booking, onClose, onAction, peers }) {
   const [acting, setActing] = useState(false);
   const [payAsk, setPayAsk] = useState(null);
+  // v123 — flips the Remind button to "Remind again" the moment a reminder
+  // really goes out, without closing this modal or re-fetching the row.
+  // (The server has stamped Reminder_Sent; the next list refresh agrees.)
+  const [remindedNow, setRemindedNow] = useState(false);
   // Standalone receipt modal (reprint/text) — null when closed. Offered right
   // after Mark Paid, and always available from here for an already-paid
   // booking (e.g. staff forgot to text/print at the time).
@@ -11878,6 +11917,24 @@ function BookingDetailModal({ booking, onClose, onAction, peers }) {
               onClick={() => setReleaseOpen(v => !v)}
               disabled={acting}
             >Release courts…</button>
+          )}
+          {/* v123 — Remind: automatic reminders are off by default now, so
+              THIS is how a customer gets one. Only rendered while the
+              booking is still in the future and on the books (cancelled /
+              no-show / waived are refused server-side too). No phone on
+              file → rendered DISABLED with the reason, same as the receipt
+              button. Label reflects state so a second tap is informed. */}
+          {canRemindBooking(booking) && (
+            <button
+              className="btn"
+              onClick={() => sendBookingReminder(booking, () => setRemindedNow(true))}
+              disabled={acting || !booking.phone}
+              title={!booking.phone
+                ? "No phone on file — can't text a reminder"
+                : (remindedNow || bookingReminderSent(booking)
+                  ? "Already reminded — this sends another SMS"
+                  : "Text this customer a booking reminder (1 SMS)")}
+            >{(remindedNow || bookingReminderSent(booking)) ? "Remind again" : "Remind"}</button>
           )}
           {/* "They're here" — most customers pay AFTER they play. This
               option lets staff mark the customer as physically present
@@ -19376,9 +19433,85 @@ async function sendReceiptSms(r) {
   _smsSending = true;
   try {
     var res = await api("adminSendReceiptSms", { phone: r.customerPhone, message: buildReceiptSms(r) });
-    if (res.ok) showToast("Receipt texted to " + r.customerPhone, "success");
+    // v122 M1: never paint green for a message that did not leave the
+    // building. The server forces manual re-sends past the dedupe window, so
+    // `deduped` should be unreachable — but if it ever comes back, staff are
+    // told the truth instead of being shown a false confirmation.
+    if (res.ok && res.deduped) showToast("Already texted moments ago — nothing re-sent", "error");
+    else if (res.ok) showToast("Receipt texted to " + r.customerPhone, "success");
     else showToast(res.error || "Couldn't send the SMS receipt", "error");
   } finally { _smsSending = false; }
+}
+
+/* =====================================================================
+ * v123 — STAFF-INITIATED BOOKING REMINDER
+ *
+ * Automatic "starts in 2 hours" reminders are OFF by default from v123
+ * (317 completed bookings, 2 no-shows; the reminded half had BOTH of
+ * them). What replaces them is a person deciding a particular customer
+ * needs a nudge and tapping "Remind".
+ *
+ * Same shape as the v122 receipt button on purpose: one tap, one native
+ * confirm because it spends the owner's money, and a toast that reports
+ * what actually happened. `deduped` should be unreachable (the server
+ * passes force:true) — but if it ever comes back, staff are told the
+ * truth rather than shown a green "Reminder texted" for nothing.
+ * ===================================================================== */
+
+/* Reminder_Sent (Bookings col U) comes back as a real boolean, or as
+   "TRUE"/"true" from a hand-edited cell. Both mean reminded. */
+function bookingReminderSent(b) {
+  if (!b) return false;
+  var v = b.reminderSent;
+  return v === true || String(v == null ? "" : v).trim().toLowerCase() === "true";
+}
+
+/* Mirrors the SERVER's past-booking guard so staff aren't shown a button
+   that can only ever error. The server is still the judge — it refuses
+   with "This booking has already started" if the clocks disagree. */
+function bookingStartsInFuture(b) {
+  if (!b || !b.date || !b.time) return false;
+  var t = String(b.time).slice(0, 5);
+  var d = new Date(String(b.date) + "T" + t + ":00");
+  if (isNaN(d.getTime())) return false;
+  return d.getTime() > Date.now();
+}
+
+/* Show the Remind button at all? Mirrors the server's status guards
+   (cancelled / no-show / waived) plus the past-booking guard. A missing
+   phone does NOT hide it — the button renders DISABLED with a reason,
+   exactly like the receipt button does for a tab with no number. */
+function canRemindBooking(b) {
+  if (!b || !b.bookingId) return false;
+  if (b.entryType && b.entryType !== "booking") return false;
+  var d = b.derivedStatus;
+  if (d === "cancelled" || d === "waived" || d === "no_show_kept" || d === "no_show_freed") return false;
+  return bookingStartsInFuture(b);
+}
+
+var _reminderSendingIds = new Set();
+async function sendBookingReminder(booking, onSent) {
+  if (!booking || !booking.bookingId) return;
+  if (!booking.phone) { showToast("No phone number on file — can't text a reminder.", "error"); return; }
+  var again = bookingReminderSent(booking);
+  // One lightweight confirm — it costs a real SMS segment. No multi-step
+  // dialog: the busy guard below is what stops a double-tap.
+  if (!confirm(again
+    ? "This customer has already been reminded. Text the reminder AGAIN? (1 SMS)"
+    : "Text this customer a booking reminder? (1 SMS)")) return;
+  if (_reminderSendingIds.has(booking.bookingId)) return;
+  _reminderSendingIds.add(booking.bookingId);
+  try {
+    var res = await api("adminSendBookingReminder", { bookingId: booking.bookingId });
+    if (res.ok && res.deduped) {
+      showToast("Already texted moments ago — nothing re-sent", "error");
+    } else if (res.ok) {
+      showToast("Reminder texted to " + booking.phone, "success");
+      onSent && onSent();
+    } else {
+      showToast(res.error || "Couldn't send the reminder", "error");
+    }
+  } finally { _reminderSendingIds.delete(booking.bookingId); }
 }
 
 // Membership receipt — printed from the just-created member. Receipt-only:
@@ -26133,7 +26266,10 @@ function BroadcastSmsModal({ tournamentId, tournamentName, players, onClose }) {
     // instead of relying on one big synchronous loop (which risks the
     // Apps Script 6-minute execution timeout on large rosters).
     let offset = 0;
-    let cumulative = { sent: 0, failed: 0, total: 0 };
+    // v122 M1: `deduped` is counted and displayed separately — a suppressed
+    // message was NOT delivered by this broadcast and must never be folded
+    // into the "sent" number.
+    let cumulative = { sent: 0, deduped: 0, failed: 0, total: 0 };
     let lastErr = null;
     for (;;) {
       const r = await api("adminBroadcastTournamentSms", {
@@ -26144,6 +26280,7 @@ function BroadcastSmsModal({ tournamentId, tournamentName, players, onClose }) {
       });
       if (!r.ok) { lastErr = r.error || "Failed"; break; }
       cumulative.sent += r.sent;
+      cumulative.deduped += (r.deduped || 0);
       cumulative.failed += r.failed;
       cumulative.total = r.total;
       setProgress("Sent batch through " + r.nextOffset + " of " + r.total + "…");
@@ -26154,7 +26291,9 @@ function BroadcastSmsModal({ tournamentId, tournamentName, players, onClose }) {
     setProgress(null);
     setBusy(false);
     if (lastErr) showToast(lastErr, "error");
-    else showToast(cumulative.sent + " sent · " + cumulative.failed + " failed", cumulative.failed > 0 ? "error" : "success");
+    else showToast(cumulative.sent + " sent · " + cumulative.failed + " failed"
+      + (cumulative.deduped > 0 ? " · " + cumulative.deduped + " already texted (not re-sent)" : ""),
+      (cumulative.failed > 0 || cumulative.deduped > 0) ? "error" : "success");
   }
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -26192,11 +26331,12 @@ function BroadcastSmsModal({ tournamentId, tournamentName, players, onClose }) {
           {result && (
             <div style={{
               padding: 10, marginTop: 8,
-              background: result.failed > 0 ? "rgba(217,120,92,0.08)" : "rgba(61,122,79,0.08)",
-              borderLeft: "3px solid " + (result.failed > 0 ? "var(--clay)" : "var(--green)"),
+              background: (result.failed > 0 || result.deduped > 0) ? "rgba(217,120,92,0.08)" : "rgba(61,122,79,0.08)",
+              borderLeft: "3px solid " + ((result.failed > 0 || result.deduped > 0) ? "var(--clay)" : "var(--green)"),
               fontFamily: "var(--mono)", fontSize: 11
             }}>
               Sent {result.sent} of {result.total} · {result.failed} failed
+              {result.deduped > 0 ? " · " + result.deduped + " already texted (not re-sent)" : ""}
             </div>
           )}
         </div>
@@ -27557,6 +27697,14 @@ function ScreenSettings() {
   const [savingFairUse, setSavingFairUse] = useState(false);
   const [posSettings, setPosSettings] = useState({ memberDiscountPct: 10, memberDiscountDefault: 10 });
   const [savingPos, setSavingPos] = useState(false);
+  // v123 — SMS reminder settings (Script Properties REMINDERS_AUTO +
+  // REMINDER_MIN_LEAD_HOURS). Both live behind adminGet/SetSmsSettings so the
+  // owner never has to open the Apps Script editor to change them back.
+  const [smsSettings, setSmsSettings] = useState({
+    remindersAuto: "off", remindersAutoDefault: "off",
+    reminderMinLeadHours: 3, reminderMinLeadHoursDefault: 3
+  });
+  const [savingSms, setSavingSms] = useState(false);
   const [goals, setGoals] = useState({
     monthlyRevenue: 0, monthlyBookings: 0, monthlyNewMembers: 0, monthlyPosRevenue: 0,
     peakUtilizationPct: 0, offPeakUtilizationPct: 0, activeMembers: 0
@@ -27662,6 +27810,7 @@ function ScreenSettings() {
     const cSp    = getCachedApi("adminGetSponsorshipSettings");
     const cPr    = getCachedApi("adminGetPricingRules");
     const cLand  = getCachedApi("adminGetLandingConfig");
+    const cSms   = getCachedApi("adminGetSmsSettings");
     if (cPromo && cPromo.ok) setPromo({ active: !!cPromo.active, pct: cPromo.pct || 50, label: cPromo.label || "Soft launch −50%" });
     if (cFair && cFair.ok && cFair.fullDiscountCourts !== undefined) setFairUse({ active: !!cFair.active, maxCourtsPerDay: cFair.maxCourtsPerDay, fullDiscountCourts: cFair.fullDiscountCourts, surchargePerHour: cFair.surchargePerHour, effectiveDate: cFair.effectiveDate || "" });
     if (cPos && cPos.ok) setPosSettings({ memberDiscountPct: cPos.memberDiscountPct, memberDiscountDefault: cPos.memberDiscountDefault });
@@ -27669,6 +27818,7 @@ function ScreenSettings() {
     if (cSp && cSp.ok) setSponsorSettings({ totalSlots: cSp.totalSlots, totalSlotsDefault: cSp.totalSlotsDefault });
     if (cPr && cPr.ok) { setPricingRules(cPr.rules || []); setPricingDirty(false); setPricingWarnings([]); }
     if (cLand && cLand.ok && cLand.landing) setLandingCfg({ enabled: !!cLand.landing.enabled, openingDate: cLand.landing.openingDate || "", headline: cLand.landing.headline || "", subtext: cLand.landing.subtext || "" });
+    if (cSms && cSms.ok && cSms.remindersAuto !== undefined) setSmsSettings({ remindersAuto: cSms.remindersAuto, remindersAutoDefault: cSms.remindersAutoDefault, reminderMinLeadHours: cSms.reminderMinLeadHours, reminderMinLeadHoursDefault: cSms.reminderMinLeadHoursDefault });
     // If we hydrated everything from cache, drop the loading state immediately.
     // The parallel fetches below will silently refresh the data in background.
     const anyHydrated = (cPromo && cPromo.ok) && (cPos && cPos.ok) && (cGoals && cGoals.ok) && (cSp && cSp.ok) && (cPr && cPr.ok);
@@ -27676,15 +27826,26 @@ function ScreenSettings() {
 
     // STEP 2 — fire all five fetches in PARALLEL, not sequentially.
     // Was ~5 × round-trip; now bounded by the slowest single request.
-    const [r, ps, g, sp, pr, ld, fu] = await Promise.all([
+    const [r, ps, g, sp, pr, ld, fu, sms] = await Promise.all([
       api("adminGetPromo"),
       api("adminGetPosSettings"),
       api("adminGetGoals"),
       api("adminGetSponsorshipSettings"),
       api("adminGetPricingRules"),
       api("adminGetLandingConfig"),
-      api("adminGetFairUse")
+      api("adminGetFairUse"),
+      api("adminGetSmsSettings")
     ]);
+    // v123 — SMS reminder controls. Failure is non-fatal: the card keeps the
+    // "off"/3h defaults on screen rather than blanking the whole page.
+    if (sms && sms.ok && sms.remindersAuto !== undefined) {
+      setSmsSettings({
+        remindersAuto: sms.remindersAuto,
+        remindersAutoDefault: sms.remindersAutoDefault,
+        reminderMinLeadHours: sms.reminderMinLeadHours,
+        reminderMinLeadHoursDefault: sms.reminderMinLeadHoursDefault
+      });
+    }
     if (ld && ld.ok && ld.landing) {
       setLandingCfg({
         enabled: !!ld.landing.enabled,
@@ -27790,6 +27951,32 @@ function ScreenSettings() {
       setPosSettings({
         memberDiscountPct: r.memberDiscountPct,
         memberDiscountDefault: r.memberDiscountDefault
+      });
+    } else {
+      showToast(r.error || "Save failed", "error");
+    }
+  }
+
+  // v123 — save BOTH SMS reminder controls in one call. The server validates
+  // both before writing either, so a rejected value never leaves half the
+  // card applied, and it echoes the stored config back.
+  async function saveSmsSettings(patch) {
+    const next = { ...smsSettings, ...(patch || {}) };
+    setSavingSms(true);
+    const r = await api("adminSetSmsSettings", {
+      remindersAuto: next.remindersAuto,
+      reminderMinLeadHours: next.reminderMinLeadHours
+    });
+    setSavingSms(false);
+    if (r.ok) {
+      showToast(r.remindersAuto === "on"
+        ? "Automatic reminders ON — the trigger will text again"
+        : "Automatic reminders OFF — staff send reminders by hand", "success");
+      setSmsSettings({
+        remindersAuto: r.remindersAuto,
+        remindersAutoDefault: r.remindersAutoDefault,
+        reminderMinLeadHours: r.reminderMinLeadHours,
+        reminderMinLeadHoursDefault: r.reminderMinLeadHoursDefault
       });
     } else {
       showToast(r.error || "Save failed", "error");
@@ -28482,6 +28669,91 @@ function ScreenSettings() {
           <div className="settings-warning">
             <b>OVERRIDE ACTIVE:</b> Current rate is {posSettings.memberDiscountPct}% (default is {posSettings.memberDiscountDefault}%).
             All eligible POS sales to members use this rate.
+          </div>
+        )}
+      </div>
+
+      {/* v123 — SMS reminders. Everything here is a Script Property behind
+          adminGet/SetSmsSettings, so the owner reverses the v123 decision
+          from this screen and never has to open the Apps Script editor. The
+          30-minute trigger and sendUpcomingReminders are both still
+          installed — this switch is the only thing holding them back. */}
+      <div className="settings-card">
+        <h3>SMS · Booking Reminders</h3>
+        <div className="desc">
+          The "starts in 2 hours" reminder used to go out automatically to every booking.
+          Across <b>317 completed bookings</b> there were <b>2 no-shows</b> — and both of them
+          were bookings that <b>had</b> been reminded (2 of 149 reminded vs 0 of 168 un-reminded).
+          So automatic sending is <b>off</b>, saving roughly <b>216 SMS a month</b>, and staff
+          tap <b>Remind</b> on the booking itself when a customer genuinely needs a nudge.
+          <br />
+          <span style={{ fontSize: 11, opacity: 0.7 }}>
+            Nothing was deleted. Switch this back on and the trigger resumes exactly as before.
+          </span>
+        </div>
+
+        <div className="settings-row">
+          <div className="field-label">Automatic reminders</div>
+          <div
+            className={"toggle" + (smsSettings.remindersAuto === "on" ? " on" : "")}
+            onClick={() => { if (!savingSms) saveSmsSettings({ remindersAuto: smsSettings.remindersAuto === "on" ? "off" : "on" }); }}
+          />
+          <div style={{
+            fontFamily: "var(--mono)",
+            fontSize: 12,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            fontWeight: 600,
+            color: smsSettings.remindersAuto === "on" ? "var(--green)" : "var(--ink)",
+            opacity: smsSettings.remindersAuto === "on" ? 1 : 0.5
+          }}>
+            {savingSms ? "Saving…" : (smsSettings.remindersAuto === "on" ? "On" : "Off")}
+          </div>
+          <span style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.12em", opacity: 0.55, marginLeft: 8 }}>
+            DEFAULT: {String(smsSettings.remindersAutoDefault || "off").toUpperCase()}
+          </span>
+        </div>
+
+        <div className="settings-row">
+          <div className="field-label">Skip if booked less than (hours) ahead</div>
+          <input
+            type="number"
+            min="0"
+            max="72"
+            step="0.5"
+            value={smsSettings.reminderMinLeadHours}
+            disabled={smsSettings.remindersAuto !== "on"}
+            title={smsSettings.remindersAuto !== "on"
+              ? "Only applies while automatic reminders are on"
+              : "0 = never skip; a booking made less than this many hours before it starts gets no automatic reminder"}
+            onChange={(e) => setSmsSettings({ ...smsSettings, reminderMinLeadHours: parseFloat(e.target.value) || 0 })}
+          />
+          <span style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.12em", opacity: 0.55, marginLeft: 8 }}>
+            DEFAULT: {smsSettings.reminderMinLeadHoursDefault}H · 0 = NEVER SKIP
+          </span>
+        </div>
+
+        <div className="settings-row">
+          <div className="actions">
+            <button className="btn primary" onClick={() => saveSmsSettings()} disabled={savingSms}>
+              {savingSms ? "Saving…" : "Save SMS settings"}
+            </button>
+          </div>
+        </div>
+
+        {smsSettings.remindersAuto === "on" ? (
+          <div className="settings-warning">
+            <b>AUTOMATIC SENDING IS ON:</b> every booking starting in ~2 hours gets an SMS again
+            {(parseFloat(smsSettings.reminderMinLeadHours) || 0) > 0
+              ? ", except those booked less than " + smsSettings.reminderMinLeadHours + "h before they start"
+              : " — including customers who booked minutes ago"}.
+            Roughly 216 messages a month at current volumes.
+          </div>
+        ) : (
+          <div className="settings-warning">
+            <b>STAFF SEND REMINDERS:</b> open a booking (or its row on the Bookings tab) and tap
+            <b> Remind</b>. It texts the same message the trigger used to send, and the booking
+            shows <b>Remind again</b> once someone has.
           </div>
         )}
       </div>
