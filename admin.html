@@ -19750,7 +19750,11 @@ function SaleHistoryModal({ onClose }) {
   const lineOpts = { productsOnly: productsOnly, categories: catFilter, query: lineQuery, loose: looseSearch, consignee: consigneeFilter };
   function clearLineFilters() { setCatFilter([]); setProductsOnly(false); setItemSearch(""); setConsigneeFilter(""); }
 
-  const filtered = useMemo(() => {
+  /* v138 P1 — the RECEIPT-level filters on their own. `filtered` is this plus
+     the product filters; splitting them changes nothing about `filtered` (same
+     predicates, same order) and gives the brand hint below a base it can
+     compare two DIFFERENT product filters against on equal terms. */
+  const receiptBase = useMemo(() => {
     if (!sales) return [];
     let out = sales;
     if (paymentFilter !== "all") out = out.filter(s => s.paymentMethod === paymentFilter);
@@ -19762,6 +19766,11 @@ function SaleHistoryModal({ onClose }) {
         (s.customerPhone || "").includes(q)
       );
     }
+    return out;
+  }, [sales, paymentFilter, search]);
+
+  const filtered = useMemo(() => {
+    let out = receiptBase;
     // v129 — LINE-ITEM AWARE. A sale survives a product filter only when at
     // least one of ITS OWN LINES matches. A receipt carrying a paddle and a
     // court hour therefore still appears under a Paddles filter — and the
@@ -19770,7 +19779,7 @@ function SaleHistoryModal({ onClose }) {
       out = out.filter(s => (s.items || []).some(it => saleLineMatchesFilter(it, lineOpts)));
     }
     return out;
-  }, [sales, paymentFilter, search, lineFilterOn, productsOnly, catFilter, lineQuery, looseSearch, consigneeFilter]);
+  }, [receiptBase, lineFilterOn, productsOnly, catFilter, lineQuery, looseSearch, consigneeFilter]);
 
   const aggregate = useMemo(() => {
     return {
@@ -19850,6 +19859,57 @@ function SaleHistoryModal({ onClose }) {
       voidedRevenue: Math.round(voidedRevenue * 100) / 100
     };
   }, [matchedLines]);
+
+  /* -------------------------------------------------------------------------
+   * v138 P1 — A NAME SEARCH IS NOT A BRAND SEARCH, AND THE SCREEN SAYS SO.
+   *
+   * The owner sold SIX Selkirk paddles. Typing "selkirk" into Find a product
+   * returns FOUR. Nothing is broken: SBA1's product name is "Boomstick
+   * American Version (USA FLAG 16mm)" and has never contained the word
+   * "Selkirk", so the two units it sold in July cannot be found by matching
+   * the NAME. SBRCER1 and LPBAECC were later renamed to start with "Selkirk",
+   * which is the only reason those match. It is a DATA gap, and the Consignee
+   * column is the field that exists to close it.
+   *
+   * THE FIX IS NOT TO WIDEN THE NAME SEARCH. v129 already established the
+   * rule this screen lives by: a filter that silently matches more than it
+   * says is a filter you cannot count with (which is why the subsequence
+   * fallback announces itself). Quietly folding brand knowledge into a name
+   * search would make "4" become "6" with nothing on screen explaining why —
+   * and would be wrong the moment a product legitimately has a brand word in
+   * its name but belongs to someone else.
+   *
+   * So the screen states the difference and offers the switch. It appears
+   * ONLY when the comparison is real: there is a name query, no consignee
+   * filter is applied, a consignee whose name relates to the query actually
+   * EXISTS on the loaded lines, and filtering by that consignee would really
+   * return MORE lines than the name search does — counted the same way, over
+   * the same receipts, with the same category/products-only filters. If the
+   * owner has not filled the Consignee column in, there is no consignee to
+   * find and nothing is claimed.
+   * ---------------------------------------------------------------------- */
+  const brandHint = useMemo(() => {
+    if (!lineFilterOn || !lineQuery || consigneeFilter) return null;
+    if (!consigneesPresent.length) return null;
+    const cand = consigneesPresent.filter(c => c.id.indexOf(lineQuery) >= 0 || lineQuery.indexOf(c.id) >= 0);
+    if (!cand.length) return null;
+    const byName = matchedLines.length;
+    let byNameUnits = 0;
+    matchedLines.forEach(r => { if (!r.sale.voided) byNameUnits += parseInt(r.item.quantity) || 0; });
+    let best = null;
+    cand.forEach(c => {
+      const opts = { productsOnly: productsOnly, categories: catFilter, query: "", consignee: c.id };
+      let lines = 0, units = 0;
+      receiptBase.forEach(s => (s.items || []).forEach(it => {
+        if (!saleLineMatchesFilter(it, opts)) return;
+        lines++;
+        if (!s.voided) units += parseInt(it.quantity) || 0;
+      }));
+      if (lines > byName && (!best || lines > best.lines)) best = { id: c.id, label: c.label, lines: lines, units: units };
+    });
+    if (!best) return null;
+    return { byName: byName, byNameUnits: byNameUnits, id: best.id, label: best.label, lines: best.lines, units: best.units };
+  }, [receiptBase, matchedLines, lineFilterOn, lineQuery, consigneeFilter, consigneesPresent, productsOnly, catFilter]);
 
   /* -------------------------------------------------------------------------
    * v136 C3 — THE CONFIRM AND THE TOAST BOTH LIED ABOUT STOCK.
@@ -20160,6 +20220,23 @@ function SaleHistoryModal({ onClose }) {
               <div style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--clay)", fontWeight: 700 }}>
                 {lineTotals.voidedLines} voided line{lineTotals.voidedLines === 1 ? "" : "s"} listed but NOT counted
                 {" (−" + lineTotals.voidedUnits + " units · −$" + lineTotals.voidedRevenue.toFixed(2) + ")"}
+              </div>
+            )}
+            {/* v138 P1 — the name search says what it is, and what it is not. */}
+            {brandHint && (
+              <div data-testid="sh-brand-hint" style={{ flexBasis: "100%", fontFamily: "var(--mono)", fontSize: 10, color: "var(--clay)", fontWeight: 700, lineHeight: 1.5 }}>
+                This is a NAME search — it matches the product name and SKU only, and it found {brandHint.byName}{" "}
+                line{brandHint.byName === 1 ? "" : "s"} / {brandHint.byNameUnits} units. Filtering by CONSIGNEE{" "}
+                “{brandHint.label}” finds {brandHint.lines} lines / {brandHint.units} units —{" "}
+                {brandHint.units - brandHint.byNameUnits} more units — because a product's brand is not always in
+                its name: “Boomstick American Version (USA FLAG 16mm)” is a Selkirk and the word never appears in
+                it. For “how many did this brand sell”, the CONSIGNEE filter is the reliable one; this name search
+                is not widened to match it, because a count you cannot see the rule for is a count you cannot use.{" "}
+                <button
+                  className="btn ghost"
+                  style={{ padding: "2px 10px", marginLeft: 4 }}
+                  onClick={() => { setConsigneeFilter(brandHint.id); setItemSearch(""); }}
+                >Use consignee “{brandHint.label}” instead</button>
               </div>
             )}
             {consigneeFilter && (
