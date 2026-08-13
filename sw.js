@@ -46,7 +46,7 @@
  */
 "use strict";
 
-const CACHE_VERSION = "yard-v123-manualremind";
+const CACHE_VERSION = "yard-v137-refundfix";
 const VENDOR_CACHE = "yard-vendor-v1";
 
 // Vendor URLs we know are immutable (include a version in the path)
