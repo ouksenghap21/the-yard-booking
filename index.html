@@ -3772,6 +3772,10 @@ function t(key, vars, lang) {
 /* Actions that create/modify records. These get an idempotency key so a
    transport-level retry of the same request can't create a duplicate
    (the server dedupes on clientRequestId within a short window). */
+/* v135 — the abort budget, named once instead of being a literal inside the
+   fetch call. Unchanged at 25 s; see api()'s AbortError branch. */
+var API_TIMEOUT_MS = 25000;
+
 var MUTATING_ACTIONS = new Set([
   "createBooking", "cancelBooking", "updateMyBooking", "cancelMyOpenPlayRegistration",
   "registerForOpenPlay", "registerForTournament",
@@ -3788,6 +3792,51 @@ function genRequestId() {
     Math.random().toString(36).slice(2, 10);
 }
 
+/* ====================================================================
+   v135 P0-A LINK 2 — ONE REQUEST ID PER USER INTENT, NOT PER FETCH.
+
+   THE SAME DEFECT AS admin.html's, CUSTOMER-FACING. clientRequestId was
+   minted fresh inside api() on every call, so the backend's 2-minute
+   idempotency window never saw a repeat — and this file's abort budget is a
+   hard-coded 25 s against a 1.76 MB script whose cold start can eat most of
+   it. A customer whose createBooking timed out AFTER the server committed
+   was told "Request timed out. Please check your connection and retry." and
+   tapped Book again: a second booking, a second court held, a second charge
+   to reconcile. registerForOpenPlay and cancelBooking are the same shape.
+
+   The id is now derived from what the customer asked for, so their own
+   second tap is recognised as a repeat and refused. Nothing auto-retries.
+   ==================================================================== */
+var _INTENT_IDLE_MS = 10 * 60 * 1000;
+var _intentIds = {};
+function intentKey(action, parts) {
+  return action + "|" + (Array.isArray(parts) ? parts : [parts])
+    .map(function (p) { return (p === undefined || p === null) ? "" : String(p); }).join("|");
+}
+function intentRequestId(key) {
+  var now = Date.now();
+  for (var k in _intentIds) {
+    if (now - _intentIds[k].at > _INTENT_IDLE_MS) delete _intentIds[k];
+  }
+  if (!_intentIds[key]) _intentIds[key] = { id: genRequestId(), at: now };
+  else _intentIds[key].at = now;
+  return _intentIds[key].id;
+}
+function retireIntent(key) { delete _intentIds[key]; }
+/* `timedOut` is set by api()'s AbortError branch below. A caller that reads
+   it must not tell the customer the request failed. */
+function isUnknownOutcome(r) { return !!(r && r.ok === false && r.timedOut === true); }
+/* One sentence, in both languages, for "we do not know whether that went
+   through". It never says failed and it never invites a second tap. */
+function unknownOutcomeText(what, lang) {
+  return (lang === "km")
+    ? ("ការ​ភ្ជាប់​បាន​ផុត​ពេល​មុន​ពេល​ម៉ាស៊ីន​មេ​ឆ្លើយ​តប។ យើង​មិន​ដឹង​ថា " + what + " បាន​រក្សា​ទុក​ឬ​អត់​ទេ។ "
+       + "សូម​ផ្ទុក​ទំព័រ​នេះ​ឡើង​វិញ​ដើម្បី​ពិនិត្យ​មុន​នឹង​ព្យាយាម​ម្ដង​ទៀត — កុំ​ចុច​ពីរ​ដង។")
+    : ("The connection timed out before the server answered, so we do not know whether " + what
+       + " was saved. It may well have been. Reload this page and check before trying again — "
+       + "please do not tap twice.");
+}
+
 async function api(action, params) {
   if (!API_URL || API_URL.includes("PASTE_YOUR")) {
     return { ok: false, error: "API_URL not configured. Paste your deployed Apps Script /exec URL into the API_URL constant." };
@@ -3801,18 +3850,29 @@ async function api(action, params) {
     }
   }
 
-  // Idempotency key for mutating actions (unless the caller supplied one).
+  // Idempotency key for mutating actions. A caller that owns a user INTENT
+  // supplies its own stable id (see intentRequestId) and that one wins; the
+  // mint below is only the fallback for calls that have not been converted.
   if (MUTATING_ACTIONS.has(action) && !url.searchParams.has("clientRequestId")) {
     url.searchParams.set("clientRequestId", genRequestId());
   }
 
   try {
-    // v70: abort if the request hangs longer than 25s (mirrors admin.html).
-    // Apps Script cold starts can stall a connection indefinitely on flaky
-    // mobile networks — without this, loading skeletons (e.g. the walk-in
-    // tab's session list) could sit forever with no empty/error state.
+    // v70: abort if the request hangs longer than the budget (mirrors
+    // admin.html). Apps Script cold starts can stall a connection
+    // indefinitely on flaky mobile networks — without this, loading skeletons
+    // (e.g. the walk-in tab's session list) could sit forever with no
+    // empty/error state.
+    //
+    // v135 — THE BUDGET IS NAMED, AND A TIMEOUT IS FLAGGED. The 25000 was a
+    // bare literal in the middle of the call with no way for a caller to tell
+    // an abort apart from any other failure; the reply now carries
+    // `timedOut`, which is what lets a MUTATION say "unknown" instead of
+    // "failed". The number itself is unchanged: this file's mutations are
+    // small writes and a longer budget would only delay a genuinely dead
+    // request in a customer's hand.
     const ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
-    const timeoutId = ctrl ? setTimeout(() => ctrl.abort(), 25000) : null;
+    const timeoutId = ctrl ? setTimeout(() => ctrl.abort(), API_TIMEOUT_MS) : null;
     const resp = await fetch(url.toString(), { method: "GET", signal: ctrl ? ctrl.signal : undefined });
     if (timeoutId) clearTimeout(timeoutId);
     if (!resp.ok) return { ok: false, error: "HTTP " + resp.status };
@@ -3820,7 +3880,21 @@ async function api(action, params) {
     return data;
   } catch (err) {
     if (err && err.name === "AbortError") {
-      return { ok: false, error: "Request timed out. Please check your connection and retry." };
+      /* v135 P0-A LINK 2 — the old copy was "Request timed out. Please check
+       * your connection and retry." For a READ that is fine. For a MUTATION
+       * it is an instruction to do the thing that double-books: the server
+       * never heard the abort and has very likely finished the job. The
+       * `timedOut` flag is what the mutating call sites read to say so; the
+       * default sentence no longer tells anyone to retry. */
+      return {
+        ok: false,
+        timedOut: true,
+        isMutation: MUTATING_ACTIONS.has(action),
+        error: MUTATING_ACTIONS.has(action)
+          ? ("The connection timed out after " + Math.round(API_TIMEOUT_MS / 1000)
+             + "s. The server may still have completed this — reload and check before trying again.")
+          : ("Request timed out after " + Math.round(API_TIMEOUT_MS / 1000) + "s. Check your connection and retry.")
+      };
     }
     return { ok: false, error: err.message || "Network error" };
   }
@@ -5347,6 +5421,11 @@ function ScreenBooking({ state, setState, go, lang, config }) {
     if (submittingRef.current) return;   // synchronous double-tap guard
     submittingRef.current = true;
     setSubmitting(true);
+    /* v135 P0-A LINK 2 — the id is THIS booking: this phone, this date, this
+     * time, this duration, these courts. Tap Book twice after a timeout and
+     * the backend recognises the repeat and refuses it instead of holding a
+     * second court. Retired only on a definite answer. */
+    const _iKey = intentKey("createBooking", [state.phone, date, time, slots, pickedCourts.join(","), bdayClaimed ? 1 : 0]);
     try {
       const r = await api("createBooking", {
         token: state.token || "",
@@ -5360,8 +5439,19 @@ function ScreenBooking({ state, setState, go, lang, config }) {
         // kept for backward compatibility.
         requestedCourts: pickedCourts.join(","),
         useBirthday: bdayClaimed ? 1 : 0,
-        source: "Web"
+        source: "Web",
+        clientRequestId: intentRequestId(_iKey)
       });
+      if (r.ok) retireIntent(_iKey);
+      if (!r.ok && isUnknownOutcome(r)) {
+        /* v135 P0-A LINK 2 — DO NOT SAY IT FAILED, AND DO NOT INVITE A RETRY.
+         * The server very likely made this booking. The customer is told the
+         * outcome is unknown and sent to check; if they do tap Book again,
+         * the same id goes out and the backend refuses the duplicate. */
+        showToast(unknownOutcomeText(lang === "km" ? "ការ​កក់​របស់​អ្នក" : "your booking", lang), "error");
+        return;
+      }
+      if (!r.ok) retireIntent(_iKey);
       if (!r.ok) {
         // M13: graceful session-expiry re-auth. If the backend rejected us on
         // an auth/session problem, the token is stale — clear it and bounce to
@@ -6122,14 +6212,27 @@ function ScreenMyBookings({ state, setState, go, lang, config }) {
   async function doCancel() {
     if (!cancelTarget) return;
     setCancelling(true);
+    /* v135 P0-A LINK 2 — one id per cancellation of this booking. */
+    const _iKey = intentKey("cancelBooking", [cancelTarget.bookingId, state.phone || ""]);
     const r = await api("cancelBooking", {
       bookingId: cancelTarget.bookingId,
       token: state.token || "",
-      phone: state.phone || ""
+      phone: state.phone || "",
+      clientRequestId: intentRequestId(_iKey)
     });
     setCancelling(false);
     setCancelTarget(null);
+    if (r.ok) retireIntent(_iKey);
+    if (!r.ok && isUnknownOutcome(r)) {
+      /* The cancellation may have gone through — and cancelBooking is what
+       * releases the court and, for a paid booking, moves money. Telling the
+       * customer it failed sends them to cancel it again. */
+      showToast(unknownOutcomeText(lang === "km" ? "ការ​បោះបង់​របស់​អ្នក" : "your cancellation", lang), "error");
+      load();
+      return;
+    }
     if (!r.ok) {
+      retireIntent(_iKey);
       if (isSessionError(r.error)) { handleSessionExpiry(setState, go, lang); return; }
       showToast(r.error || t("error", null, lang), "error"); return;
     }
@@ -7468,13 +7571,25 @@ function OpenPlaySessionModal({ session, myReg, profile, state, setState, go, la
     inFlightRef.current = true;
     setSubmitting(true);
     try {
+      /* v135 P0-A LINK 2 — one id per registration of this person for this
+       * session. A timeout followed by a second Register is the same intent
+       * and the backend refuses the repeat rather than booking the spot
+       * twice and charging for both. */
+      const _iKey = intentKey("registerForOpenPlay", [session.id, phone.trim(), name.trim()]);
       const r = await api("registerForOpenPlay", {
         sessionId: session.id,
         name: name.trim(),
         phone: phone.trim(),
         skillSelf: skillSelf || "",
-        duprSelf: duprSelf || ""
+        duprSelf: duprSelf || "",
+        clientRequestId: intentRequestId(_iKey)
       });
+      if (r.ok) retireIntent(_iKey);
+      if (!r.ok && isUnknownOutcome(r)) {
+        setError(unknownOutcomeText("your registration", lang));
+        return;
+      }
+      if (!r.ok) retireIntent(_iKey);
       if (r.ok) {
         // Persist profile for next time
         saveOpProfile({
