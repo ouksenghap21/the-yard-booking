@@ -6426,6 +6426,45 @@ function retireIntent(key) { _intentIds.delete(key); }
    read by nobody. */
 function isUnknownOutcome(r) { return !!(r && r.ok === false && r.timedOut === true); }
 
+/* ====================================================================
+   v139 FIX 3 — CHARGE, WITH THE CONSIGNMENT-MARGIN WARNING.
+
+   Under the corrected money model a discount comes out of the FACILITY's
+   margin, never the consignor's cheque: sell a $350 consigned paddle at 20%
+   off and the till takes $280 while $297.50 still has to be handed over.
+   Nothing at the counter said so, so this is where it is said.
+
+   The SERVER decides. It runs the check on the real cart/tab composition,
+   off the same allocation the payout report pays on, and refuses ONCE with
+   `consignmentLossWarning` plus every figure staff need. This wrapper shows
+   that sentence in a confirm and, if the staff member says yes, re-sends the
+   IDENTICAL charge with the explicit acknowledgement. It is a warning, not a
+   block — the owner may still want the sale — and it costs exactly one tap.
+
+   THE ACK IS PART OF THE INTENT KEY, deliberately. clientRequestId is minted
+   per INTENT (v135 LINK 2) and the server refuses a repeat inside two
+   minutes, so re-sending under the same key would be answered "Duplicate
+   request ignored". The acknowledged charge is a different intent and gets a
+   different id — while a double-tap of the acknowledged charge is still the
+   same intent, and is still refused. Nothing is retried on the user's behalf.
+
+   Returns { result, key, declined }. `declined` is true only when the staff
+   member read the warning and said no; nothing was written in that case. */
+async function chargeWithConsignmentGuard(action, payload, intentParts) {
+  let key = intentKey(action, intentParts);
+  let r = await api(action, Object.assign({}, payload, { clientRequestId: intentRequestId(key) }));
+  if (!(r && r.ok === false && r.consignmentLossWarning === true)) return { result: r, key: key, declined: false };
+  if (!confirm(r.error + "\n\nOK — charge it anyway.\nCancel — go back and change the discount.")) {
+    return { result: r, key: key, declined: true };
+  }
+  key = intentKey(action, intentParts.concat(["confirmConsignmentLoss"]));
+  r = await api(action, Object.assign({}, payload, {
+    confirmConsignmentLoss: "true",
+    clientRequestId: intentRequestId(key)
+  }));
+  return { result: r, key: key, declined: false };
+}
+
 /* The sentence staff are shown after a mutation whose outcome is UNKNOWN. It
    deliberately does not say "failed", because we do not know that, and the
    old copy saying so is what made the second tap feel safe. */
@@ -17202,19 +17241,17 @@ function ScreenPOS() {
 
     // If there are attached items, use the combined-settle endpoint;
     // otherwise use the regular posCreateSale.
-    let r, iKey;
+    /* v139 FIX 3 — both branches charge through chargeWithConsignmentGuard,
+       which is what puts the margin warning on the POS cart path. The payload
+       and the intent parts are unchanged from what shipped; the guard only
+       adds the acknowledged re-send when the server refuses the first one. */
+    let r, iKey, _cgDeclined = false;
     if (attached.length > 0) {
       const attachedBookings = attached.filter(a => a.kind === "booking").map(a => a.id);
       const attachedPlayers = attached.filter(a => a.kind === "walkin_player").map(a => a.id);
       const attachedOpenPlay = attached.filter(a => a.kind === "openplay_player").map(a => a.id);
       const attachedCoaching = attached.filter(a => a.kind === "coaching_session").map(a => a.id);
-      iKey = intentKey("adminSettleCombined", [
-        itemsJson,
-        JSON.stringify(attachedBookings), JSON.stringify(attachedPlayers),
-        JSON.stringify(attachedOpenPlay), JSON.stringify(attachedCoaching),
-        _discPct, _discAmt, paymentMethod, _cash, customerPhone, customerName
-      ]);
-      r = await api("adminSettleCombined", {
+      const _g = await chargeWithConsignmentGuard("adminSettleCombined", {
         items: itemsJson,
         attachedBookings: JSON.stringify(attachedBookings),
         attachedWalkInPlayers: JSON.stringify(attachedPlayers),
@@ -17227,12 +17264,16 @@ function ScreenPOS() {
         customerPhone: customerPhone,
         customerName: customerName,
         notes: notes,
-        cashier: "Staff",
-        clientRequestId: intentRequestId(iKey)
-      });
+        cashier: "Staff"
+      }, [
+        itemsJson,
+        JSON.stringify(attachedBookings), JSON.stringify(attachedPlayers),
+        JSON.stringify(attachedOpenPlay), JSON.stringify(attachedCoaching),
+        _discPct, _discAmt, paymentMethod, _cash, customerPhone, customerName
+      ]);
+      r = _g.result; iKey = _g.key; _cgDeclined = _g.declined;
     } else {
-      iKey = intentKey("posCreateSale", [itemsJson, _discPct, _discAmt, paymentMethod, _cash, customerPhone, customerName]);
-      r = await api("posCreateSale", {
+      const _g = await chargeWithConsignmentGuard("posCreateSale", {
         items: itemsJson,
         discountPct: _discPct,
         discountAmount: _discAmt,  // staff portion only — backend re-derives the member discount itself (don't double it)
@@ -17241,11 +17282,20 @@ function ScreenPOS() {
         customerPhone: customerPhone,
         customerName: customerName,
         notes: notes,
-        cashier: "Staff",
-        clientRequestId: intentRequestId(iKey)
-      });
+        cashier: "Staff"
+      }, [itemsJson, _discPct, _discAmt, paymentMethod, _cash, customerPhone, customerName]);
+      r = _g.result; iKey = _g.key; _cgDeclined = _g.declined;
     }
     setSubmitting(false);
+    /* The staff member READ the warning and said no. Nothing was written and
+       the cart is untouched, so this is not a failure to explain — it is the
+       warning doing its job. Short toast, cart kept, no unknown-outcome
+       marker. */
+    if (_cgDeclined) {
+      retireIntent(iKey);
+      showToast("Not charged — the discount is below what the consignor is owed", "error");
+      return;
+    }
     if (r.ok) retireIntent(iKey);
     if (!r.ok && isUnknownOutcome(r)) {
       /* v135 P0-A LINK 2 — THE TIMEOUT-AFTER-COMMIT CASE AT THE TILL.
@@ -19220,16 +19270,26 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
      * tender. A timeout followed by a second tap is the SAME intent and the
      * server's 2-minute window refuses it; changing the tender or the discount
      * is a different intent and is correctly allowed through. */
-    const iKey = intentKey("tabClose", [tabId, paymentMethod, finalTotal, discountPct, cashGiven]);
-    const r = await api("tabClose", {
+    /* v139 FIX 3 — the SECOND charge path. A consigned paddle rung onto a tab
+       and settled at a discount deeper than the facility's margin loses money
+       exactly as it does at the POS cart, so the same shared guard runs here:
+       the server refuses once with the figures, staff confirm, and the
+       identical settle goes through with the acknowledgement. */
+    const _g = await chargeWithConsignmentGuard("tabClose", {
       tabId: tabId,
       paymentMethod: paymentMethod,
       cashReceived: cashGiven,
       discountPct: discountPct,
-      notes: notes,
-      clientRequestId: intentRequestId(iKey)
-    });
+      notes: notes
+    }, [tabId, paymentMethod, finalTotal, discountPct, cashGiven]);
+    const r = _g.result;
+    const iKey = _g.key;
     setWorking(false);
+    if (_g.declined) {
+      retireIntent(iKey);
+      showToast("Not settled — the discount is below what the consignor is owed", "error");
+      return;
+    }
     if (r.ok) retireIntent(iKey);
     if (!r.ok && isUnknownOutcome(r)) {
       /* v135 P0-A LINK 2 — a settle that timed out MAY HAVE TAKEN THE MONEY.
@@ -20248,11 +20308,15 @@ function SaleHistoryModal({ onClose }) {
               </div>
             )}
             {/* v136 A3 — say WHICH figure the consignment payout pays on, on
-                the same line as both of them, so nobody has to guess. */}
+                the same line as both of them, so nobody has to guess.
+                v139 — and it is now the LIST PRICE, not COLLECTED: the
+                consignor is paid on retail whatever the item sells for, and
+                COLLECTED is what YOUR margin is measured against. */}
             <div style={{ flexBasis: "100%", fontFamily: "var(--mono)", fontSize: 10, opacity: 0.7, lineHeight: 1.5 }}>
-              COLLECTED is what these lines actually took after each receipt's discount was allocated to them —
-              it is the figure the Consignment payout report pays on, computed by the same code. LIST PRICE is the
-              Line_Total cell before any discount, so a paddle sold at 20% off shows both. Both are the matching
+              COLLECTED is what these lines actually took after each receipt's discount was allocated to them,
+              computed by the same code the Consignment payout uses — it is what YOUR MARGIN is measured against.
+              LIST PRICE is the Line_Total cell before any discount, and it is the figure the Consignment payout
+              PAYS THE CONSIGNOR ON. A paddle sold at 20% off shows both. Both are the matching
               lines only, never the receipt total: a sale that also carried a court booking contributes just its
               matching lines here, while the Revenue card above is the full receipt gross of every sale containing
               a match.
@@ -20375,8 +20439,9 @@ function SaleHistoryModal({ onClose }) {
                       <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--mono)", fontSize: 11, fontWeight: 700 }}>{r.item.quantity}</td>
                       {/* v136 A3 — what this line actually took, with the
                           pre-discount list price beneath it when they differ.
-                          The big number is the one the consignment payout
-                          pays on; before this release it was the other one. */}
+                          v139 — the big number is what YOUR MARGIN is measured
+                          against; the struck-through list price beneath it is
+                          what the CONSIGNOR is paid on. */}
                       <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--mono)", fontWeight: 700 }}>
                         {r.item.lineCollected === undefined || r.item.lineCollected === null
                           ? "$" + (parseFloat(r.item.lineTotal) || 0).toFixed(2)
@@ -21039,20 +21104,31 @@ function ProductModal({ product, onClose, onSaved }) {
             computed from. Leaving the % box EMPTY means "no rate recorded"
             and the product is never paid out; typing 0 means "I have looked
             at this and it is not on consignment", which is how the rental
-            paddle is retired from the outstanding-paddles list. */}
+            paddle is retired from the outstanding-paddles list.
+
+            v139 — WHAT THE PERCENTAGE MEANS. It is YOUR MARGIN: the share of
+            the RETAIL price you keep. The consignor is owed retail minus that
+            share, on the retail price, whatever the item actually sells for.
+            v129 read the same number as the consignor's cut and paid 15% of
+            what was collected — the inverse of the owner's arrangement. The
+            stored column and every value in it are unchanged; only the
+            formula and these labels moved. */}
         <div className="field-row" style={{ gap: 10 }}>
           <div className="field">
-            <div className="field-label">Consignee (optional)</div>
+            <div className="field-label">Consignor / consignee name (optional)</div>
             <input type="text" value={form.consignee}
               placeholder="Who owns this stock"
-              title="The person or shop this stock belongs to. The consignment payout report groups by this name; products with a rate but no consignee land in an 'Unassigned' group."
+              title="The person or shop this stock belongs to — the one you PAY. The consignment payout report groups by this name; products with a margin but no name land in an 'Unassigned' group and are still paid on retail."
               onChange={(e) => setForm({ ...form, consignee: e.target.value })} />
           </div>
           <div className="field">
-            <div className="field-label">Consignment % (optional)</div>
+            {/* v139 — THE NUMBER IS YOUR MARGIN, NOT THEIR CUT. The stored
+                column is unchanged (Consignment_Pct, 15 on the live paddles);
+                what changed is that the screen now says what 15 means. */}
+            <div className="field-label">Your margin % — the share of RETAIL you keep (optional)</div>
             <input type="number" min="0" max="100" step="0.5" value={form.consignmentPct}
               placeholder="blank = not recorded"
-              title="The consignee's share of what this product actually sells for. Blank = no rate recorded (never paid out). 0 = looked at, not on consignment."
+              title="YOUR MARGIN — the share of the RETAIL price you keep. 15 means you keep 15% of retail ($52.50 on a $350 paddle) and the consignor is owed the other 85% ($297.50) whatever it actually sells for. A discount comes out of YOUR 15%, not theirs, so a discount deeper than this sells at a loss and the till will warn you. Blank = no margin recorded (never paid out). 0 = looked at, not on consignment."
               onChange={(e) => setForm({ ...form, consignmentPct: e.target.value })} />
           </div>
         </div>
@@ -21179,12 +21255,18 @@ function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
        * Three missing SBA1 printed "Shrinkage value: $1,050.00" — 3 x the
        * $350 RETAIL price of a paddle the facility does not own and has not
        * paid for. The facility's actual exposure on a missing consigned unit
-       * is what it owes the consignee: the consignment rate x retail
-       * ($52.50 each here, 15%), because the sale that would have earned the
-       * consignee their cut can no longer happen. The other $297.50 is
-       * margin that was never earned, not money that was lost.
+       * is what it OWES the consignor for it.
        *
-       * `consignmentPct` is null on a product with no rate recorded, which
+       * v139 — AND THAT IS RETAIL MINUS YOUR MARGIN, NOT YOUR MARGIN. v136
+       * priced the exposure at `pct x retail` — $52.50 on a $350 paddle —
+       * because v129 read Consignment_Pct as the consignee's cut. It is the
+       * FACILITY's margin: the consignor is owed the other 85%, $297.50, and
+       * that is what walks out of the door with a missing paddle. The margin
+       * that was never earned is the $52.50, and THAT is the part that is not
+       * a loss. v136 had the two halves the wrong way round and under-stated
+       * the exposure by $245.00 a paddle.
+       *
+       * `consignmentPct` is null on a product with no margin recorded, which
        * means "we do not know" — those are counted and named separately
        * rather than being priced either way. */
       const pct = (p.consignmentPct === null || p.consignmentPct === undefined)
@@ -21201,9 +21283,10 @@ function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
         // Retail value of the variance — unchanged, still what the server's
         // valueShort totals.
         value: retail,
-        // What a MISSING consigned unit actually costs the facility.
+        // What a MISSING consigned unit actually costs the facility: what it
+        // owes the consignor for it, i.e. retail minus the facility's margin.
         liability: (consigned && pct !== null && variance < 0)
-          ? Math.round(-retail * pct) / 100
+          ? Math.round(-retail * (100 - pct)) / 100
           : 0
       };
     }).filter(Boolean);
@@ -21237,11 +21320,12 @@ function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
       + (consignedShort.length > 0
           ? "\n\nCONSIGNED stock missing: " + consignedShort.reduce((s, l) => s - l.variance, 0)
             + " unit(s), $" + consignedRetail.toFixed(2) + " at retail — you do not own these."
-            + "\nWhat you owe the consignee for them: $" + consignedLiability.toFixed(2)
-            + " (their consignment rate on the retail price). The rest of the retail price is margin"
-            + " that was never earned, not money that left the till."
+            + "\nWhat you owe the consignor for them: $" + consignedLiability.toFixed(2)
+            + " (the retail price MINUS your margin — you are paid your margin % of retail, they are"
+            + " owed the rest, and a missing paddle still has to be paid for). The remainder of the"
+            + " retail price is your margin, never earned — not money that left the till."
             + (consignedNoRate.length > 0
-                ? "\n" + consignedNoRate.length + " of them have NO consignment rate on file ("
+                ? "\n" + consignedNoRate.length + " of them have NO margin % on file ("
                   + consignedNoRate.map(l => l.sku).join(", ") + "), so their share is NOT in that figure."
                 : "")
           : "")
@@ -21670,7 +21754,9 @@ function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
                 const pp = byKey[r.sku] || {};
                 const pct = (pp.consignmentPct === null || pp.consignmentPct === undefined) ? null : (parseFloat(pp.consignmentPct) || 0);
                 if (pct === null) { noRate.push(r.sku); return; }
-                consLiab += Math.abs(r.value || 0) * pct / 100;
+                // v139 — what you OWE is retail minus YOUR margin, not your
+                // margin. v136 had the two halves the wrong way round.
+                consLiab += Math.abs(r.value || 0) * (100 - pct) / 100;
               });
               const totalShort = stResult.totals ? stResult.totals.valueShort : 0;
               const ownedShort = Math.round((totalShort - consRetail) * 100) / 100;
@@ -21687,9 +21773,9 @@ function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
                     <div style={{ fontWeight: 400 }}>
                       Consigned stock missing: {consRows.reduce((a, r) => a - r.variance, 0)} unit(s) ·
                       {" "}${consRetail.toFixed(2)} at retail — you do not own these ·
-                      {" "}<span style={{ color: "var(--clay)", fontWeight: 700 }}>you owe the consignee ${consLiab.toFixed(2)}</span>
+                      {" "}<span style={{ color: "var(--clay)", fontWeight: 700 }}>you owe the consignor ${consLiab.toFixed(2)}</span>
                       {noRate.length > 0 && (
-                        <span style={{ color: "var(--clay)" }}> — no rate on file for {noRate.join(", ")}, so their share is NOT in that figure</span>
+                        <span style={{ color: "var(--clay)" }}> — no margin % on file for {noRate.join(", ")}, so their share is NOT in that figure</span>
                       )}
                     </div>
                   )}
@@ -21736,9 +21822,9 @@ function StockManagementModal({ products, duplicateSkus, onClose, onChanged }) {
                     <span style={{ flexBasis: "100%", fontWeight: 400, lineHeight: 1.5 }}>
                       Consigned stock missing: {consShort.reduce((s, l) => s - l.variance, 0)} unit(s) ·
                       {" "}${consRetail.toFixed(2)} at retail (NOT yours) ·
-                      {" "}<span style={{ color: "var(--clay)", fontWeight: 700 }}>you owe the consignee ${consLiab.toFixed(2)}</span>
+                      {" "}<span style={{ color: "var(--clay)", fontWeight: 700 }}>you owe the consignor ${consLiab.toFixed(2)}</span>
                       {consShort.some(l => l.consignmentPct === null) &&
-                        <span style={{ color: "var(--clay)" }}> — some have no rate on file and are NOT in that figure</span>}
+                        <span style={{ color: "var(--clay)" }}> — some have no margin % on file and are NOT in that figure</span>}
                     </span>
                   )}
                 </div>
@@ -24110,8 +24196,9 @@ function generateConsignmentPdf(report) {
 
   const period = report.period || { label: "", fromStr: "", toStr: "" };
   const groups = report.groups || [];
-  const totals = report.totals || { units: 0, gross: 0, owed: 0, facility: 0 };
+  const totals = report.totals || { units: 0, gross: 0, retail: 0, owed: 0, facility: 0, losses: 0, lossProducts: 0 };
   const excluded = report.excluded || {};
+  const lossLines = report.lossLines || [];   // v139 FIX 2
 
   // --- Cover band ---
   doc.setFillColor(...INK);
@@ -24145,16 +24232,40 @@ function generateConsignmentPdf(report) {
   doc.rect(M, y, W - 2 * M, 74, "FD");
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.text("Total owed to consignees", M + 14, y + 22);
+  doc.text("Total owed to consignors", M + 14, y + 22);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(20);
   doc.text(fmtUsd(totals.owed), M + 14, y + 48);
   doc.setFontSize(9);
   doc.setTextColor(...MUTED);
-  doc.text("on " + totals.units + " unit(s) · " + fmtUsd(totals.gross) + " collected · facility keeps "
-    + fmtUsd(totals.facility), M + 14, y + 64);
+  /* v139 — RETAIL is the payout basis and is printed beside the money that
+     was actually taken, because they are different numbers. */
+  doc.text("on " + totals.units + " unit(s) · " + fmtUsd(totals.retail) + " retail · "
+    + fmtUsd(totals.gross) + " collected · you keep " + fmtUsd(totals.facility), M + 14, y + 64);
   doc.setTextColor(...INK);
   y += 96;
+
+  /* v139 FIX 2 — losses, on the first page, above the tables. */
+  if (lossLines.length > 0) {
+    const lh = 26 + lossLines.length * 11;
+    doc.setFillColor(255, 236, 230);
+    doc.rect(M, y - 2, W - 2 * M, lh, "F");
+    doc.setTextColor(...CLAY);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text("SOLD AT A LOSS: " + lossLines.length + " product line(s) cost you "
+      + fmtUsd(totals.losses) + ". The discount was deeper than your margin; the consignor "
+      + "is still owed the same share of retail.", M + 6, y + 12);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    lossLines.forEach((l, i) => {
+      doc.text("· " + l.sku + " “" + l.name + "” (" + l.consignee + ") — retail " + fmtUsd(l.retail)
+        + ", collected " + fmtUsd(l.gross) + ", owed " + fmtUsd(l.owed) + " → you lose "
+        + fmtUsd(l.shortfall) + " (margin " + l.marginPct.toFixed(1) + "%).", M + 6, y + 24 + i * 11);
+    });
+    doc.setTextColor(...INK);
+    y += lh + 12;
+  }
 
   if (report.hasUnassigned) {
     doc.setFillColor(255, 236, 230);
@@ -24228,27 +24339,37 @@ function generateConsignmentPdf(report) {
     doc.setTextColor(...INK);
     y += 6;
 
+    /* v139 — RETAIL is the payout basis, so it is printed; "Rate" is renamed
+       to what the number is; a loss line is marked on the row itself. */
     const body = g.products.map(p => [
-      p.sku, p.name, String(p.units), fmtUsd(p.gross),
+      p.sku + (p.loss ? "  (LOSS)" : ""), p.name, String(p.units),
+      fmtUsd(p.retail), fmtUsd(p.gross),
       fmtPct(p.pct), fmtUsd(p.owed), fmtUsd(p.facility)
     ]);
     body.push([
       { content: "TOTAL", styles: { fontStyle: "bold", fillColor: [232, 226, 210] } },
       { content: "", styles: { fillColor: [232, 226, 210] } },
       { content: String(g.units), styles: { fontStyle: "bold", fillColor: [232, 226, 210], halign: "right" } },
+      { content: fmtUsd(g.retail), styles: { fontStyle: "bold", fillColor: [232, 226, 210], halign: "right" } },
       { content: fmtUsd(g.gross), styles: { fontStyle: "bold", fillColor: [232, 226, 210], halign: "right" } },
       { content: "", styles: { fillColor: [232, 226, 210] } },
       { content: fmtUsd(g.owed), styles: { fontStyle: "bold", fillColor: [232, 226, 210], halign: "right" } },
       { content: fmtUsd(g.facility), styles: { fontStyle: "bold", fillColor: [232, 226, 210], halign: "right" } }
     ]);
+    if (g.lossProducts > 0) {
+      body.push([
+        { content: "OF WHICH SOLD AT A LOSS — " + g.lossProducts + " line(s)", colSpan: 7, styles: { fontStyle: "bold", textColor: CLAY } },
+        { content: "-" + fmtUsd(g.losses), styles: { fontStyle: "bold", textColor: CLAY, halign: "right" } }
+      ]);
+    }
     doc.autoTable({
       startY: y + 8,
-      head: [["SKU", "Product", "Units", "Collected", "Rate", "Owed", "Facility"]],
+      head: [["SKU", "Product", "Units", "Retail", "Collected", "Your margin %", "Owed", "You keep"]],
       body: body,
       theme: "grid",
       headStyles: { fillColor: INK, textColor: CREAM, fontSize: 9, halign: "left" },
       bodyStyles: { fontSize: 9 },
-      columnStyles: { 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" } },
+      columnStyles: { 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" } },
       margin: { left: M, right: M }
     });
     y = doc.lastAutoTable.finalY + 22;
@@ -24259,10 +24380,11 @@ function generateConsignmentPdf(report) {
     if (y > H - 120) { doc.addPage(); y = M; }
     doc.autoTable({
       startY: y,
-      head: [["All consignees", "Units", "Collected", "Owed", "Facility"]],
+      head: [["All consignors", "Units", "Retail", "Collected", "Owed", "You keep"]],
       body: [[
         { content: "GRAND TOTAL", styles: { fontStyle: "bold" } },
         { content: String(totals.units), styles: { fontStyle: "bold", halign: "right" } },
+        { content: fmtUsd(totals.retail), styles: { fontStyle: "bold", halign: "right" } },
         { content: fmtUsd(totals.gross), styles: { fontStyle: "bold", halign: "right" } },
         { content: fmtUsd(totals.owed), styles: { fontStyle: "bold", halign: "right" } },
         { content: fmtUsd(totals.facility), styles: { fontStyle: "bold", halign: "right" } }
@@ -24270,7 +24392,7 @@ function generateConsignmentPdf(report) {
       theme: "grid",
       headStyles: { fillColor: INK, textColor: CREAM, fontSize: 9, halign: "left" },
       bodyStyles: { fontSize: 10, fillColor: [232, 226, 210] },
-      columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } },
+      columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" } },
       margin: { left: M, right: M }
     });
     y = doc.lastAutoTable.finalY + 24;
@@ -24304,7 +24426,7 @@ function generateConsignmentPdf(report) {
   }
   const noRate = excluded.noRate || [];
   if (noRate.length > 0) {
-    exRows.push(["No consignment rate", noRate.length + " product(s) · "
+    exRows.push(["No margin % on file", noRate.length + " product(s) · "
       + fmtUsd(noRate.reduce((s, p) => s + (p.gross || 0), 0)),
       noRate.map(p => p.sku).join(", ")]);
   }
@@ -24442,7 +24564,9 @@ function ConsignmentReportModal({ onClose }) {
       "Seed consignment rates from the Notes column?\n\n"
       + "This adds two columns (Consignee, Consignment %) at the END of your product sheet and copies "
       + "any \"Consignment (N%)\" note into the rate field. It never overwrites a value you have already "
-      + "set, and running it twice changes nothing. The Consignee name is left blank for you to fill in."
+      + "set, and running it twice changes nothing. The Consignee name is left blank for you to fill in.\n\n"
+      + "Consignment % is YOUR MARGIN — the share of the RETAIL price you keep. 15 means you keep 15% "
+      + "of retail and the consignor is owed the other 85%, whatever the item actually sells for."
     )) return;
     setSetupWorking(true);
     try {
@@ -24473,7 +24597,8 @@ function ConsignmentReportModal({ onClose }) {
     if (!dryRun && !confirm(
       "Assign consignees from your brand list?\n\n"
       + "This fills in the Consignee cell on the paddles you named — Selkirk, Luzz, Joola, Friday, RPM — "
-      + "and sets Consignment % to 15 on any of them that still has no rate. Products are matched on the "
+      + "and sets Consignment % to 15 on any of them that still has no rate — that is YOUR MARGIN, the "
+      + "15% of retail you keep, with the consignor owed the other 85%. Products are matched on the "
       + "product NAME, not the SKU, because the SKUs don't always match the brand.\n\n"
       + "It never overwrites a consignee you have already typed, it never touches the rental paddle, and "
       + "running it twice changes nothing."
@@ -24548,15 +24673,18 @@ function ConsignmentReportModal({ onClose }) {
 
   const money = (n) => "$" + (Math.round((+n || 0) * 100) / 100).toFixed(2);
   const groups = (report && report.groups) || [];
-  const totals = (report && report.totals) || { units: 0, gross: 0, owed: 0, facility: 0 };
+  const totals = (report && report.totals) || { units: 0, gross: 0, retail: 0, owed: 0, facility: 0, losses: 0, lossProducts: 0 };
   const excluded = (report && report.excluded) || {};
+  /* v139 — the loss rows, flagged and totalled separately. The owner chose
+     "Both": these are shown here AND warned about at the till. */
+  const lossLines = (report && report.lossLines) || [];
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" style={{ maxWidth: 980, maxHeight: "92vh" }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <div>
-            <div className="kicker">Paid on what was collected · voids &amp; court lines excluded</div>
+            <div className="kicker">Consignor paid on RETAIL · you keep your margin % of retail · voids &amp; court lines excluded</div>
             <h2>Consignment Payout</h2>
           </div>
           <button className="x" onClick={onClose} aria-label="Close">×</button>
@@ -24592,9 +24720,12 @@ function ConsignmentReportModal({ onClose }) {
           <LoadFailed what="the consignment payout" error={loadErr} onRetry={() => { setLoadErr(null); load(); }} />
         ) : report ? (
           <div>
-            <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr", marginBottom: 14 }}>
+            {/* v139 — FIVE figures, because the payout basis and what the till
+                took are different numbers and conflating them is the defect
+                this release exists to fix. */}
+            <div className="stat-grid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", marginBottom: 14 }}>
               <div className="stat-card accent-green">
-                <div className="label">Owed to consignees</div>
+                <div className="label">Owed to consignors</div>
                 <div className="value">{money(totals.owed)}</div>
                 <div className="sub">{report.period.fromStr} → {report.period.toStr}</div>
               </div>
@@ -24604,16 +24735,43 @@ function ConsignmentReportModal({ onClose }) {
                 <div className="sub">consigned products only</div>
               </div>
               <div className="stat-card">
+                <div className="label">Retail</div>
+                <div className="value">{money(totals.retail)}</div>
+                <div className="sub">the payout basis — list price, before any discount</div>
+              </div>
+              <div className="stat-card">
                 <div className="label">Collected</div>
                 <div className="value">{money(totals.gross)}</div>
                 <div className="sub">what the customer actually paid</div>
               </div>
               <div className="stat-card">
-                <div className="label">Facility share</div>
-                <div className="value">{money(totals.facility)}</div>
-                <div className="sub">gross − owed</div>
+                <div className="label">Your margin</div>
+                <div className="value" style={totals.facility < 0 ? { color: "var(--clay)" } : {}}>{money(totals.facility)}</div>
+                <div className="sub">collected − owed · what you keep. Any discount comes out of THIS.</div>
               </div>
             </div>
+
+            {/* v139 FIX 2 — LOSSES, SHOWN HONESTLY. A discount deeper than your
+                margin does not shrink the consignor's cheque; it costs you
+                money. Never clamped at zero, never hidden. */}
+            {lossLines.length > 0 && (
+              <div style={{
+                padding: "10px 14px", marginBottom: 14,
+                background: "rgba(198,79,58,0.1)", borderLeft: "3px solid var(--clay)",
+                fontFamily: "var(--mono)", fontSize: 11, color: "var(--clay)", fontWeight: 700, lineHeight: 1.7
+              }}>
+                ⚠ {lossLines.length} product line(s) SOLD AT A LOSS — {money(report.lossTotal)} out of your
+                pocket. The discount was deeper than your margin, and the consignor is still owed the full
+                share of retail.
+                {lossLines.map(l => (
+                  <div key={l.consignee + "|" + l.sku} style={{ fontWeight: 400 }}>
+                    · {l.sku} “{l.name}” ({l.consignee}) — {l.units} unit(s), retail {money(l.retail)},
+                    collected {money(l.gross)}, owed {money(l.owed)} → you LOSE {money(l.shortfall)}
+                    {" "}(margin {l.marginPct.toFixed(1)}%).
+                  </div>
+                ))}
+              </div>
+            )}
 
             {report.hasUnassigned && (
               <div style={{
@@ -24623,6 +24781,7 @@ function ConsignmentReportModal({ onClose }) {
               }}>
                 ⚠ {money(report.unassignedOwed)} is owed on products that carry a consignment rate but NO
                 consignee name. Open Manage Stock → the product → fill in "Consignee" before paying anyone.
+                {" "}(That figure is retail minus your margin — it is the consignor side of the split, not yours.)
               </div>
             )}
 
@@ -24666,7 +24825,7 @@ function ConsignmentReportModal({ onClose }) {
               <EmptyState
                 icon="—"
                 title="Nothing to pay out in this range"
-                hint="Either no consigned product sold, or no product carries a consignment rate yet. Use the setup panel below to seed rates from your Notes column."
+                hint="Either no consigned product sold, or no product carries a margin % yet. Use the setup panel below to seed rates from your Notes column — the number you set is YOUR margin, the share of retail you keep."
               />
             ) : groups.map(g => (
               <div key={g.consignee} style={{ marginBottom: 18 }}>
@@ -24678,12 +24837,15 @@ function ConsignmentReportModal({ onClose }) {
                   <span className="right">{money(g.owed)} owed</span>
                 </div>
                 <div style={{ overflowX: "auto", border: "1px solid rgba(26,26,26,0.08)", borderRadius: 3 }}>
-                  <table style={{ width: "100%", minWidth: 620, borderCollapse: "collapse", fontSize: 12 }}>
+                  <table style={{ width: "100%", minWidth: 720, borderCollapse: "collapse", fontSize: 12 }}>
                     <thead>
+                      {/* v139 — RETAIL is the payout basis and gets its own column;
+                          "Rate" is renamed to what the number actually is. */}
                       <tr style={{ background: "var(--ink)", color: "var(--cream)" }}>
                         {[["sku", "SKU", "left"], ["name", "Product", "left"], ["units", "Units", "right"],
-                          ["gross", "Collected", "right"], ["pct", "Rate", "right"],
-                          ["owed", "Owed", "right"], ["fac", "Facility", "right"]].map(h => (
+                          ["retail", "Retail", "right"], ["gross", "Collected", "right"],
+                          ["pct", "Your margin %", "right"],
+                          ["owed", "Owed", "right"], ["fac", "You keep", "right"]].map(h => (
                           <th key={h[0]} style={{ padding: "8px 10px", textAlign: h[2], fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase" }}>{h[1]}</th>
                         ))}
                       </tr>
@@ -24691,23 +24853,37 @@ function ConsignmentReportModal({ onClose }) {
                     <tbody>
                       {g.products.map(p => (
                         <tr key={p.sku} style={{ borderBottom: "1px solid rgba(26,26,26,0.08)" }}>
-                          <td style={{ padding: "8px 10px", fontFamily: "var(--mono)", fontSize: 10 }}>{p.sku}</td>
+                          <td style={{ padding: "8px 10px", fontFamily: "var(--mono)", fontSize: 10 }}>
+                            {p.sku}
+                            {p.loss && <span style={{ marginLeft: 6, color: "var(--clay)", fontSize: 9, fontWeight: 700, letterSpacing: "0.14em" }}>LOSS</span>}
+                          </td>
                           <td style={{ padding: "8px 10px" }}>{p.name}</td>
                           <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--mono)", fontSize: 11 }}>{p.units}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--mono)", fontSize: 11 }}>{money(p.retail)}</td>
                           <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--mono)", fontSize: 11 }}>{money(p.gross)}</td>
                           <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--mono)", fontSize: 11 }}>{p.pct}%</td>
                           <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--mono)", fontWeight: 700 }}>{money(p.owed)}</td>
-                          <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--mono)", fontSize: 11, opacity: 0.6 }}>{money(p.facility)}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--mono)", fontSize: 11, opacity: p.loss ? 1 : 0.6, color: p.loss ? "var(--clay)" : "inherit", fontWeight: p.loss ? 700 : 400 }}>{money(p.facility)}</td>
                         </tr>
                       ))}
                       <tr style={{ background: "rgba(26,26,26,0.05)" }}>
                         <td style={{ padding: "8px 10px", fontFamily: "var(--mono)", fontSize: 10, fontWeight: 700 }} colSpan={2}>TOTAL</td>
                         <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--mono)", fontSize: 11, fontWeight: 700 }}>{g.units}</td>
+                        <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--mono)", fontSize: 11, fontWeight: 700 }}>{money(g.retail)}</td>
                         <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--mono)", fontSize: 11, fontWeight: 700 }}>{money(g.gross)}</td>
                         <td></td>
                         <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--mono)", fontWeight: 700 }}>{money(g.owed)}</td>
-                        <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--mono)", fontSize: 11, fontWeight: 700, opacity: 0.6 }}>{money(g.facility)}</td>
+                        <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--mono)", fontSize: 11, fontWeight: 700, opacity: 0.6, color: g.facility < 0 ? "var(--clay)" : "inherit" }}>{money(g.facility)}</td>
                       </tr>
+                      {g.lossProducts > 0 && (
+                        <tr style={{ background: "rgba(198,79,58,0.08)" }}>
+                          <td style={{ padding: "8px 10px", fontFamily: "var(--mono)", fontSize: 10, fontWeight: 700, color: "var(--clay)" }} colSpan={6}>
+                            OF WHICH SOLD AT A LOSS — {g.lossProducts} line(s)
+                          </td>
+                          <td></td>
+                          <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--mono)", fontSize: 11, fontWeight: 700, color: "var(--clay)" }}>−{money(g.losses)}</td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -24740,7 +24916,7 @@ function ConsignmentReportModal({ onClose }) {
                 </div>
               ))}
               {(excluded.noRate || []).length > 0 && (
-                <div>· {(excluded.noRate || []).length} product(s) with no consignment rate: {(excluded.noRate || []).map(p => p.sku).join(", ")}.</div>
+                <div>· {(excluded.noRate || []).length} product(s) with no margin % on file, so nothing can be worked out for them: {(excluded.noRate || []).map(p => p.sku).join(", ")}.</div>
               )}
               {(excluded.unknownProduct || []).map(u => (
                 <div key={u.sku}>· {u.sku} — sold under a SKU that is no longer in the product list.</div>
@@ -24781,6 +24957,9 @@ function ConsignmentReportModal({ onClose }) {
                   sheet — Consignee and Consignment&nbsp;% — and copies any rate it finds in Notes into the new
                   field. It never overwrites something you have already set, and running it twice does nothing
                   the second time.
+                  {" "}Consignment&nbsp;% is YOUR MARGIN: the share of the RETAIL price you keep. 15 means you
+                  keep $52.50 of a $350 paddle and the consignor is owed the other $297.50 — on retail, whatever
+                  it actually sells for, so a discount comes out of your 15% and not theirs.
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button className="btn" onClick={() => runSetup(true)} disabled={setupWorking}>Preview (no changes)</button>
@@ -24832,7 +25011,7 @@ function ConsignmentReportModal({ onClose }) {
                     {setup.unmarkedPaddles.length > 0 && (
                       <div>
                         <div style={{ fontFamily: "var(--mono)", fontSize: 11, fontWeight: 700, color: "var(--clay)", marginBottom: 6 }}>
-                          Paddles with NO consignment rate ({setup.unmarkedNeedingAttention} need a decision):
+                          Paddles with NO margin % on file ({setup.unmarkedNeedingAttention} need a decision):
                         </div>
                         <div style={{ fontFamily: "var(--mono)", fontSize: 10, lineHeight: 1.8 }}>
                           {setup.unmarkedPaddles.map(p => (
@@ -24840,7 +25019,7 @@ function ConsignmentReportModal({ onClose }) {
                               · {p.sku} “{p.name}”
                               {p.knownException
                                 ? " — KNOWN EXCEPTION: " + p.exceptionReason + ". Set its rate to 0 to retire it from this list."
-                                : " — open Manage Stock → this product and set Consignee + Consignment %."}
+                                : " — open Manage Stock → this product and set the consignor's name + your margin %."}
                             </div>
                           ))}
                         </div>
