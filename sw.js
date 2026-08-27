@@ -46,7 +46,7 @@
  */
 "use strict";
 
-const CACHE_VERSION = "yard-v141-netfix";
+const CACHE_VERSION = "yard-v146-counterfix";
 const VENDOR_CACHE = "yard-vendor-v1";
 
 // Vendor URLs we know are immutable (include a version in the path)
