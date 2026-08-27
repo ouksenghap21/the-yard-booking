@@ -6103,7 +6103,14 @@ const _PERSIST_ENDPOINTS = new Set([
   "adminDashboardKpi",
   "adminOperationalKpi",
   "adminListMembers",
-  "posListProducts",
+  /* v143 F5 — posListProducts is NO LONGER persisted. Hydrating the POS grid
+     from a previous session's disk payload put last-session PRICES on the
+     till, unmarked, with checkout live — and on fetch failure they stayed up
+     indefinitely. Server-side pricing keeps the LEDGER right regardless, but
+     the display could lie to the customer at the counter. Exclusion is the
+     simplest honest fix: a new session always fetches the grid fresh, while
+     in-session caching (api()/cacheApi, 15s TTL) is untouched, so tab
+     navigation within a session stays instant. */
   "adminListSponsorships",
   "adminListCoaches",
   "adminListCoachPayments",
@@ -6121,14 +6128,38 @@ const _PERSIST_ENDPOINTS = new Set([
   "adminListTournaments",
   "adminListOpenPlaySessions",
   "tabListOpen",
-  "adminListWalkInBlocks"
+  "adminListWalkInBlocks",
+  /* v142 — the POS sales log, so Sale History can render instantly from the
+     last-loaded log (marked stale, void gated) instead of a spinner. Its
+     cache key carries dateFrom/dateTo, so a payload from an earlier DAY can
+     never answer today's default range — only a same-day reopen primes. */
+  "posListSales"
 ]);
-const _LS_CACHE_PREFIX = "yard-cache-v1:";
+/* v142 "instantload" — THE PERSISTED CACHE IS NAMESPACED BY RELEASE.
+ * The prefix used to be the fixed "yard-cache-v1:", so a payload persisted by
+ * an OLD build was hydrated by a NEW one even when the payload shape had
+ * changed underneath it. CLIENT_CACHE_VERSION is kept in lockstep with
+ * sw.js's CACHE_VERSION (tests/v142_instantload_test.js pins the pair):
+ * bumping a release retires every previously persisted payload —
+ * _hydrateCacheFromLocalStorage DELETES anything under the shared
+ * "yard-cache-" root that is not in the CURRENT namespace, so
+ * version-mismatched data is removed, not merely ignored. */
+const CLIENT_CACHE_VERSION = "yard-v146-counterfix";
+const _LS_CACHE_ROOT = "yard-cache-";
+const _LS_CACHE_PREFIX = _LS_CACHE_ROOT + CLIENT_CACHE_VERSION + ":";
 const _LS_MAX_AGE_MS = 24 * 60 * 60 * 1000;  // 24h — anything older is too stale to even show
 
 function _persistCacheEntry(key, data, time) {
   const action = key.split(":")[0];
   if (!_PERSIST_ENDPOINTS.has(action)) return;
+  /* v143 F6 — the same rule cacheApi enforces: only an explicit ok:true
+   * payload may reach disk. api()'s write paths used to test
+   * `fresh.ok !== false`, so a truncated payload that LOST its ok flag
+   * entirely (a real Apps Script failure mode — see _tabPayloadComplete)
+   * could be persisted as if it were a full answer and hydrate a whole next
+   * session. Both api() write paths now test ok === true; this is the belt
+   * on the disk path itself. */
+  if (!data || data.ok !== true) return;
   try {
     // Cap size: don't persist huge payloads (>500KB)
     const json = JSON.stringify({ data: data, time: time });
@@ -6143,9 +6174,16 @@ function _persistCacheEntry(key, data, time) {
 function _hydrateCacheFromLocalStorage() {
   try {
     const now = Date.now();
+    const toRemove = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (!k || k.indexOf(_LS_CACHE_PREFIX) !== 0) continue;
+      if (!k) continue;
+      /* v142 — VERSION INVALIDATION. A key under the shared "yard-cache-"
+       * root that is not in THIS release's namespace was written by another
+       * build: its shape may disagree with what today's components read, so
+       * it is deleted here rather than left to shadow-expire at 24h. */
+      if (k.indexOf(_LS_CACHE_ROOT) === 0 && k.indexOf(_LS_CACHE_PREFIX) !== 0) { toRemove.push(k); continue; }
+      if (k.indexOf(_LS_CACHE_PREFIX) !== 0) continue;
       const cacheKey = k.substring(_LS_CACHE_PREFIX.length);
       try {
         const raw = localStorage.getItem(k);
@@ -6153,14 +6191,23 @@ function _hydrateCacheFromLocalStorage() {
         const parsed = JSON.parse(raw);
         if (!parsed || !parsed.data || typeof parsed.time !== "number") continue;
         if ((now - parsed.time) > _LS_MAX_AGE_MS) {
-          localStorage.removeItem(k);
+          toRemove.push(k);
           continue;
         }
-        _apiCache.set(cacheKey, { data: parsed.data, time: parsed.time });
+        /* v142 — `fromDisk: true` marks this entry as A PREVIOUS SESSION'S
+         * ANSWER that no fetch in THIS session has re-confirmed yet.
+         * getCachedApiEntry exposes the flag so a view can render the payload
+         * instantly AND say so (StaleDataNotice kind="cached") AND gate its
+         * money actions on it. Every successful fetch overwrites the entry
+         * WITHOUT the flag — that overwrite, and nothing else, retires it. */
+        _apiCache.set(cacheKey, { data: parsed.data, time: parsed.time, fromDisk: true });
       } catch (e) {
-        try { localStorage.removeItem(k); } catch (e2) {}
+        toRemove.push(k);
       }
     }
+    // Removal AFTER the scan — deleting while indexing localStorage.key(i)
+    // skips the neighbour of every removed key.
+    for (const k of toRemove) { try { localStorage.removeItem(k); } catch (e2) {} }
     _enforceApiCacheCap();  // v70 — don't hydrate past the in-memory cap
   } catch (e) {
     // No localStorage access — fine, in-memory cache only
@@ -6199,6 +6246,22 @@ function invalidateApiCache(prefix) {
       try { localStorage.removeItem(_LS_CACHE_PREFIX + k); } catch (e) {}
     }
   }
+  /* v143 F7/R10 — ALSO sweep the PERSISTED namespace directly. The loop
+   * above only sees keys THIS tab holds in memory: a variant persisted by
+   * another tab (or evicted from memory by the v70 cap) was never removed,
+   * so a mutation's per-family invalidation could leave a pre-mutation
+   * payload on disk to resurrect at the next boot. The disk copy is swept by
+   * prefix match against localStorage itself, not against the memory map. */
+  try {
+    const toRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || k.indexOf(_LS_CACHE_PREFIX) !== 0) continue;
+      const rest = k.substring(_LS_CACHE_PREFIX.length);
+      if (rest === prefix || rest.startsWith(prefix + ":")) toRemove.push(k);
+    }
+    for (const k of toRemove) localStorage.removeItem(k);
+  } catch (e) { /* localStorage unavailable — the memory sweep already ran */ }
 }
 
 /**
@@ -6214,6 +6277,63 @@ function getCachedApi(action, params = {}) {
 }
 
 /**
+ * v142 — like getCachedApi, but returns the whole cache ENTRY:
+ * { data, time, fromDisk }. `fromDisk` is true only for a payload hydrated
+ * out of localStorage that no fetch in THIS page session has re-confirmed —
+ * exactly the state a view must render as "last-loaded, refreshing…" and
+ * must never let money actions run against. Returns null when nothing is
+ * cached. Views that gate money on staleness read THIS, not getCachedApi.
+ */
+function getCachedApiEntry(action, params = {}) {
+  const key = _apiCacheKey(action, params);
+  const e = _apiCache.get(key);
+  if (!e || !e.data) return null;
+  return { data: e.data, time: e.time || 0, fromDisk: e.fromDisk === true };
+}
+
+/* ====================================================================
+   v142 — THE PERSISTED CACHE IS SCOPED TO THE LOGGED-IN CONTEXT.
+
+   The PIN lives in sessionStorage and dies with the tab; the persisted
+   payload cache lives in localStorage and does not. So staff member A could
+   close the tab, staff member B could open it and log in with their own PIN,
+   and A's last-loaded dashboard would paint for B before B's own fetch
+   landed. The payloads are facility-wide, not per-user secrets — but B's
+   allowed tabs may differ, and a view B is not entitled to must never flash.
+
+   applyCacheContext runs on every SUCCESSFUL login (ScreenLogin.tryAuth,
+   after adminWhoAmI answers). The context string is who-the-server-says-
+   you-are: role + name + allowed tabs. Same context → the cache survives
+   (an owner re-logging in after a tab close keeps the instant render).
+   Different context → invalidateApiCache("") wipes memory AND every
+   persisted key BEFORE the first post-login screen mounts. If localStorage
+   cannot even be read, we cannot tell WHO persisted the cache — so it is
+   wiped, fail-closed. signOut() already wipes everything for the
+   logout path; this covers the tab-closed-without-logout path.
+   ==================================================================== */
+/* Deliberately OUTSIDE the "yard-cache-" namespace (dot-style, like
+ * "yard.ui.mode"): the hydration sweep deletes everything under that root
+ * that is not in the current release's prefix, and the context tag must
+ * SURVIVE a version bump — it says WHO persisted the cache, which does not
+ * change when the payload shape does. */
+const _CACHE_CTX_KEY = "yard.cache.ctx";
+function applyCacheContext(role, name, allowedTabs) {
+  const ctx = [
+    String(role || ""),
+    String(name || ""),
+    Array.isArray(allowedTabs) ? allowedTabs.slice().sort().join(",") : ""
+  ].join("|");
+  try {
+    const prev = localStorage.getItem(_CACHE_CTX_KEY);
+    if (prev !== null && prev !== ctx) invalidateApiCache("");
+    localStorage.setItem(_CACHE_CTX_KEY, ctx);
+  } catch (e) {
+    // Cannot read who persisted the cache → cannot show it to this login.
+    invalidateApiCache("");
+  }
+}
+
+/**
  * Programmatically write into the API cache. Used by combined endpoints
  * (like adminDashboardCombined) to populate the per-endpoint caches that
  * getCachedApi reads, so first-paint stale-while-revalidate keeps working.
@@ -6221,7 +6341,11 @@ function getCachedApi(action, params = {}) {
  * Persists to localStorage if the action is in the persist whitelist.
  */
 function cacheApi(action, params, data) {
-  if (!data || data.ok === false) return;
+  /* v142 — `ok !== true`, not `ok === false`: a truncated or PARTIAL payload
+   * that lost its ok flag entirely (a real Apps Script failure mode — see
+   * _tabPayloadComplete) must never be persisted as if it were a full
+   * answer. Only an explicit ok:true payload may enter the cache. */
+  if (!data || data.ok !== true) return;
   const key = _apiCacheKey(action, params);
   const entry = { data: data, time: Date.now() };
   _apiCache.set(key, entry);
@@ -6266,6 +6390,12 @@ var MUTATING_ACTIONS = new Set([
   "adminCreateCorporateAccount","adminUpdateCorporateAccount",
   "adminCreateStaff","adminUpdateStaff",
   "adminStocktake",
+  /* v144 — the archive run moves rows between spreadsheets. It is idempotent
+     server-side (copy is key-deduped, delete only follows a verified copy),
+     but the server classifies it as a mutation (MUTATION_ACTIONS.adminArchiveRun),
+     so the clientRequestId keeps a 25s-abort retry from burning a second
+     full execution. */
+  "adminArchiveRun",
   "adminRefreshCache",
   /* v106 FLOW-AUDIT — NETWORK FAILURE MID-MUTATION.
    *
@@ -6896,7 +7026,9 @@ async function api(action, params = {}, options = {}) {
       if (!_inflightFetches.has(key)) {
         const p = _doFetchRaw(action, params).then(fresh => {
           _inflightFetches.delete(key);
-          if (fresh && fresh.ok !== false) {
+          /* v143 F6 — ok === true, matching cacheApi: an ok-less partial
+           * payload must never enter (or overwrite) the cache. */
+          if (fresh && fresh.ok === true) {
             const t = Date.now();
             _apiCache.set(key, { data: fresh, time: t });
             _enforceApiCacheCap();  // v70 — leak guard
@@ -6918,7 +7050,10 @@ async function api(action, params = {}, options = {}) {
   }
   const p = _doFetchRaw(action, params).then(fresh => {
     _inflightFetches.delete(key);
-    if (fresh && fresh.ok !== false) {
+    /* v143 F6 — ok === true here too (the synchronous-fetch write path):
+     * before v143 this tested `ok !== false`, so an ok-less truncated reply
+     * was cached AND persisted, and could hydrate a whole next session. */
+    if (fresh && fresh.ok === true) {
       const t = Date.now();
       _apiCache.set(key, { data: fresh, time: t });
       _enforceApiCacheCap();  // v70 — leak guard
@@ -8070,9 +8205,19 @@ function LoadFailed({ what, error, onRetry }) {
    ==================================================================== */
 function StaleDataNotice({ kind, what, error, onRefresh, refreshing, refreshLabel }) {
   const unknown = kind === "unknown";
+  /* v142 "instantload" — the THIRD state, kind="cached": the view painted
+   * INSTANTLY from the last session's persisted payload and a background
+   * fetch is under way. Deliberately calmer copy than "stale" (nothing has
+   * FAILED — this is last-known data, refreshing) but it gates money exactly
+   * as hard: every action wired to this marker stays disabled until a load
+   * actually succeeds. If the background fetch fails, the owning view
+   * escalates the SAME marker to kind="stale" — it is never cleared on fetch
+   * start, only on fetch success. Same element, same attribute, same inline
+   * styling: v135's marker extended, not a parallel mechanism. */
+  const cached = kind === "cached";
   return (
     <div
-      data-stale-notice={unknown ? "unknown" : "stale"}
+      data-stale-notice={unknown ? "unknown" : cached ? "cached" : "stale"}
       style={{
         border: "2px solid var(--clay)", borderRadius: 4,
         background: "rgba(193,102,74,0.10)",
@@ -8080,11 +8225,20 @@ function StaleDataNotice({ kind, what, error, onRefresh, refreshing, refreshLabe
       }}
     >
       <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase", fontWeight: 700, color: "var(--clay)" }}>
-        {unknown ? "Result unknown — do not act on these figures" : "Showing stale figures — refresh before taking money"}
+        {unknown
+          ? "Result unknown — do not act on these figures"
+          : cached
+          ? "Last-loaded figures — refreshing from the live sheet"
+          : "Showing stale figures — refresh before taking money"}
       </div>
       <div style={{ fontFamily: "var(--mono)", fontSize: 11, lineHeight: 1.6, marginTop: 6 }}>
         {unknown
           ? String(error || "")
+          : cached
+          ? ("The " + (what || "figures") + " shown are from the last successful load"
+             + (error ? " (" + String(error) + ")" : "")
+             + " and may be out of date. A fresh copy is being fetched in the background and will replace them the moment it arrives. "
+             + "Money actions are disabled until it does.")
           : ("The last refresh of " + (what || "this") + " failed" + (error ? " (" + String(error) + ")" : "")
              + ", so the figures below are from the last successful load and may be out of date. "
              + "Money actions are disabled until a refresh succeeds.")}
@@ -8131,6 +8285,12 @@ function ScreenLogin({ onAuth }) {
     const r = await api("adminWhoAmI", {}, { bypassCache: true });
     setChecking(false);
     if (r.ok) {
+      /* v142 — BEFORE any post-login screen can mount: if the persisted
+       * payload cache belongs to a DIFFERENT login context (staff A closed
+       * the tab, staff B logs in), wipe it so B never sees A's last-loaded
+       * view, not even for one paint. Same context keeps the cache — that is
+       * what makes the instant render work across a tab close. */
+      applyCacheContext(r.role, r.name, r.allowedTabs);
       try { sessionStorage.setItem("yard-staff-info", JSON.stringify({ role: r.role, name: r.name, allowedTabs: r.allowedTabs || [] })); } catch (e) {}
       onAuth();
     } else {
@@ -8608,10 +8768,62 @@ function Timeline({ bookings, dateStr, onBlockClick }) {
    ==================================================================== */
 function ScreenDashboard() {
   const uiMode = useUiMode();
-  const [data, setData] = useState(null);
-  const [bookings, setBookings] = useState(null);
-  const [kpiData, setKpiData] = useState(null);
-  const [opKpiData, setOpKpiData] = useState(null);
+  /* v142 "instantload" — FIRST PAINT COMES FROM THE LAST GOOD PAYLOAD,
+   * SYNCHRONOUSLY. The lazy initializers below read the per-endpoint caches
+   * (hydrated from localStorage at script load; populated by every successful
+   * adminDashboardCombined) so the very FIRST committed render already holds
+   * figures — no skeleton-then-swap, no spinner. Two cases:
+   *   · entry fetched THIS session (fromDisk false) — render it, no marker;
+   *     this is the pre-v142 behaviour on tab navigation, unchanged.
+   *   · entry from a PREVIOUS session (fromDisk true) — render it AND raise
+   *     `staleInfo`: the StaleDataNotice marker sits over the figures and
+   *     every money action on this screen is gated on it until the background
+   *     refresh SUCCEEDS. The marker is cleared in exactly one place (a fresh
+   *     ok dashboard payload landing in refresh()) — never on fetch start,
+   *     never on fetch failure. */
+  const [_boot] = useState(() => ({
+    d: getCachedApiEntry("adminDashboard"),
+    b: getCachedApiEntry("adminListTimelineEntries", { date: todayISO() }),
+    k: getCachedApiEntry("adminDashboardKpi"),
+    o: getCachedApiEntry("adminOperationalKpi")
+  }));
+  const [data, setData] = useState(() => (_boot.d && _boot.d.data && _boot.d.data.ok) ? _boot.d.data : null);
+  const [bookings, setBookings] = useState(() => (_boot.b && _boot.b.data && _boot.b.data.ok) ? (_boot.b.data.entries || []) : null);
+  const [kpiData, setKpiData] = useState(() => (_boot.k && _boot.k.data && _boot.k.data.ok) ? _boot.k.data : null);
+  const [opKpiData, setOpKpiData] = useState(() => (_boot.o && _boot.o.data && _boot.o.data.ok) ? _boot.o.data : null);
+  /* v142 — null = figures confirmed by THIS session's own fetch;
+   * {kind:"cached"} = previous session's payload, background refresh under
+   * way; {kind:"stale"} = previous session's payload AND the refresh failed
+   * (the 25s abort is routine at busy hours — the marker stays and carries
+   * the retry). Money actions are blocked whenever this is non-null. */
+  /* v143 F1 — EVERY leg that primed a rendered surface from disk is tracked,
+   * not only the dashboard leg. adminDashboardCombined wraps its legs in
+   * safely(), so {ok:true, dashboard:{ok:true}, timeline:{ok:false}} is a
+   * shape the backend really produces — and v142's clear-on-dashboard-leg
+   * alone dropped the marker while the timeline's disk rows stayed on
+   * screen UNMARKED, with handleBlockClick's forced live read disarmed.
+   * The ref holds which legs still await re-confirmation; refresh() retires
+   * each leg only on THAT leg's own fresh ok payload, and the marker clears
+   * only when none remain. Leg → surface: dashboard → hero figures + action
+   * queue (mark-paid family, mark-refunded, Release); timeline → the court
+   * timeline (booking click → BookingDetailModal's money actions); kpi →
+   * goals strip; opKpi → operational strip (both display-only, but still a
+   * previous session's figures until re-confirmed). */
+  const _staleLegsRef = useRef({
+    dashboard: !!(_boot.d && _boot.d.data && _boot.d.data.ok && _boot.d.fromDisk),
+    timeline:  !!(_boot.b && _boot.b.data && _boot.b.data.ok && _boot.b.fromDisk),
+    kpi:       !!(_boot.k && _boot.k.data && _boot.k.data.ok && _boot.k.fromDisk),
+    opKpi:     !!(_boot.o && _boot.o.data && _boot.o.data.ok && _boot.o.fromDisk)
+  });
+  const [staleInfo, setStaleInfo] = useState(() => {
+    const L = _staleLegsRef.current;
+    if (!(L.dashboard || L.timeline || L.kpi || L.opKpi)) return null;
+    const times = [_boot.d, _boot.b, _boot.k, _boot.o]
+      .filter(e => e && e.fromDisk && e.data && e.data.ok)
+      .map(e => e.time || 0);
+    return { kind: "cached", asOf: Math.min.apply(null, times) };
+  });
+  const [staleRefreshing, setStaleRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [lastChecked, setLastChecked] = useState(null);   // every successful 10s pulse
   const lastFullRefreshRef = useRef(0);                    // failsafe timer baseline
@@ -8666,6 +8878,29 @@ function ScreenDashboard() {
       }
       setTournamentDetailId(entry.tournamentId || entry.bookingId);
     } else {
+      /* v142 — A BOOKING MODAL OPENED OFF A STALE RENDER MUST HOLD FRESH
+       * DATA. While staleInfo is up, `entry` is a row out of a PREVIOUS
+       * session's payload: its total, its payment status — even whether it
+       * still exists — are unverified, and BookingDetailModal's money
+       * actions (Mark paid, refund, cancel, extend, shorten) would act on
+       * whatever this row claims. So the click pays one live round-trip for
+       * the booking's CURRENT truth and opens the modal on that; if the
+       * server cannot answer, no modal opens — a stale render is never
+       * promoted into a money surface. The walk-in / open-play / tournament
+       * branches above already fetch by id on open, so they need no gate. */
+      /* v143 F1 belt-and-braces — the forced read no longer hangs off
+       * staleInfo alone: if the timeline CACHE ENTRY itself is still
+       * fromDisk (a previous session's rows no fetch in THIS session has
+       * re-confirmed), the live read is forced even if some other path ever
+       * cleared the marker. Two independent conditions; either pays the one
+       * live round-trip. */
+      const _tlEntry = getCachedApiEntry("adminListTimelineEntries", { date: todayISO() });
+      if (staleInfo || (_tlEntry && _tlEntry.fromDisk)) {
+        const r = await api("adminGetBookingById", { bookingId: entry.bookingId }, { bypassCache: true });
+        if (r.ok && r.booking) setDetailBooking(r.booking);
+        else showToast(r.error || ("Could not load booking " + (entry.bookingId || "") + " — the dashboard is showing last-loaded figures; refresh it first"), "error");
+        return;
+      }
       setDetailBooking(entry);
     }
   }
@@ -8798,9 +9033,47 @@ function ScreenDashboard() {
     if (b && b.ok) setBookings(b.entries || []);
     if (k && k.ok) setKpiData(k);
     if (ok && ok.ok) setOpKpiData(ok);
+    /* v142/v143 — the stale marker is retired by FRESH OK PAYLOADS FOR EVERY
+     * DISK-PRIMED LEG and by nothing else. v143 F1: each leg is retired only
+     * by its OWN fresh ok payload, so a partial combined reply ({ok:true,
+     * dashboard ok, timeline ok:false} — the shape safely() emits when one
+     * leg throws) KEEPS the marker: the timeline on screen is still a
+     * previous session's rows and every money gate wired to staleInfo stays
+     * down. A refresh that fails (wholly or partially) while the marker is
+     * up ESCALATES it from "cached" to "stale" — same marker, now carrying
+     * the failure and its own Refresh button — and a marker that is not up
+     * is never raised here (a mid-session refresh failure over
+     * confirmed-fresh figures keeps its pre-v142 behaviour: the 10s pulse is
+     * the retry). Clearing on fetch START instead of fetch SUCCESS is the
+     * exact bug this placement exists to prevent: the marker must survive
+     * the 25s timeout. */
+    const _legs = _staleLegsRef.current;
+    if (d && d.ok) _legs.dashboard = false;
+    if (b && b.ok) _legs.timeline = false;
+    if (k && k.ok) _legs.kpi = false;
+    if (ok && ok.ok) _legs.opKpi = false;
+    const _legsStillStale = _legs.dashboard || _legs.timeline || _legs.kpi || _legs.opKpi;
+    if (!_legsStillStale) {
+      setStaleInfo(null);
+    } else {
+      const _whyNot = (d && !d.ok && d.error) || (b && !b.ok && b.error) ||
+        (k && !k.ok && k.error) || (ok && !ok.ok && ok.error) ||
+        (combined && combined.error) || "The refresh did not complete";
+      setStaleInfo(prev => prev ? { kind: "stale", error: _whyNot, asOf: prev.asOf } : prev);
+    }
     setLastUpdated(new Date());
     lastFullRefreshRef.current = Date.now();
   }
+
+  /* v142 — the marker's own Refresh button. In-flight guard so a double-tap
+   * cannot stack two full refreshes; whether the marker CLEARS is decided
+   * solely inside refresh() by the fetch actually succeeding. */
+  async function refreshFromMarker() {
+    if (staleRefreshing) return;
+    setStaleRefreshing(true);
+    try { await refresh({ fresh: true }); } finally { setStaleRefreshing(false); }
+  }
+  const moneyBlocked = !!staleInfo;
 
   // Today's Cash-vs-ABA reconciliation. Fetch on mount and whenever a
   // mutation fires (so it tracks new payments without waiting for a refresh).
@@ -8942,6 +9215,25 @@ function ScreenDashboard() {
           </button>
         </div>
       </div>
+
+      {/* v142 "instantload" — the persistent last-loaded marker. Present from
+        * the FIRST paint whenever the figures came off disk rather than off
+        * this session's own network; escalates to kind="stale" if the
+        * background refresh fails; cleared ONLY by a refresh that succeeds.
+        * Every money action on this screen (the action queue's mark-paid
+        * family, mark-refunded, and promoting a timeline row into
+        * BookingDetailModal) is gated on the same state. */}
+      {staleInfo && (
+        <StaleDataNotice
+          kind={staleInfo.kind}
+          what="dashboard figures"
+          error={staleInfo.kind === "cached"
+            ? ("last loaded " + fmtRelativeTime(staleInfo.asOf || Date.now()))
+            : staleInfo.error}
+          onRefresh={refreshFromMarker}
+          refreshing={staleRefreshing}
+        />
+      )}
 
       {/* v121 — Plasgate SMS balance alarm. Backend sets smsBalanceAlert on
         * HTTP 402 (balance empty — hard red) or on 3+ other HTTP errors in
@@ -9383,7 +9675,7 @@ function ScreenDashboard() {
 
       {/* Action Queue + Today's Pulse */}
       <div className="two-col">
-        <ActionQueuePanel data={data} onMarkPaid={refresh} onOpenBooking={openRefundBooking} />
+        <ActionQueuePanel data={data} blocked={moneyBlocked} onMarkPaid={refresh} onOpenBooking={openRefundBooking} />
         <TodaysPulsePanel
           data={data}
           onOpenPlayClick={(sid) => setOpenPlayDetailId(sid)}
@@ -9712,7 +10004,21 @@ function OperationalKpiPanel({ data }) {
 /* ====================================================================
    ACTION QUEUE PANEL
    ==================================================================== */
-function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
+function ActionQueuePanel({ data, onMarkPaid, onOpenBooking, blocked }) {
+  /* v142 "instantload" — `blocked` is the dashboard's staleInfo: these rows
+   * are then a PREVIOUS session's answer, and every action that WRITES MONEY
+   * off them is refused until a fresh payload lands. Gated (button disabled
+   * AND handler guarded, so a queued tap cannot slip through):
+   *   · markPaid            → adminMarkPaid
+   *   · markOverduePaid     → adminMarkPaid / adminMarkWalkInPlayerPaid /
+   *                           adminUpdateOpenPlayPlayer(paid) /
+   *                           adminMarkCoachingSessionsPaid
+   *   · markRefunded        → adminMarkRefunded (reverses today's takings)
+   * Deliberately NOT gated: Receipt (re-prints an already-recorded payment,
+   * writes nothing), "They're here" (adminConfirmArrival) and Release
+   * (adminNoShowAndRelease) — neither writes a payment row, and the server
+   * re-validates both against the live sheet. */
+  const STALE_BLOCK_MSG = "Showing last-loaded figures — money actions are disabled until the refresh completes. Use the Refresh in the banner above.";
   const aq = data.actionQueue || {};
   const payments = aq.paymentsToCollect || [];
   const overdue = aq.overdue || [];
@@ -9767,6 +10073,8 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
     visibleRefunds.length;
 
   async function markPaid(bookingId, mth) {
+    // v142 — no payment write off a stale render, even from a queued tap.
+    if (blocked) { showToast(STALE_BLOCK_MSG, "error"); return; }
     // Instantly hide the row
     setOptimisticPaid(prev => new Set([...prev, bookingId]));
     const r = await api("adminMarkPaid", { bookingId: bookingId, paymentMethod: mth });
@@ -9795,6 +10103,8 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
   // happens out-of-band (till, ABA, bank). We stamp [REFUNDED date] into
   // the booking's Notes so it stops showing up in this queue.
   async function markRefunded(bookingId, row) {
+    // v142 — no takings reversal off a stale render, even from a queued tap.
+    if (blocked) { showToast(STALE_BLOCK_MSG, "error"); return; }
     const _k = "refund:" + bookingId;
     if (actingRef.current.has(_k)) return;
     // v106 FLOW-AUDIT — DESTRUCTIVE ACTION WITH NO CONFIRM. This button sits
@@ -9840,6 +10150,8 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
 
   // Mark an overdue item paid — dispatches by entryType to the right endpoint.
   async function markOverduePaid(o, mth) {
+    // v142 — no payment write off a stale render, even from a queued tap.
+    if (blocked) { showToast(STALE_BLOCK_MSG, "error"); return; }
     const key = overdueKey(o);
     if (actingRef.current.has(key)) return;
     actingRef.current.add(key);
@@ -9938,6 +10250,14 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
   }
 
   async function noShowRelease(bookingId) {
+    /* v143 F2 — Release writes off a live receivable, frees courts and sends
+     * a paid SMS; off a stale row it can no-show a customer who has already
+     * tapped "They're here" on another device (server status
+     * "Pending - Arrived", which the old server-side guards let through).
+     * Gated exactly like the mark-paid family: dead button while the marker
+     * is up, and this guard for a queued tap. The server now refuses
+     * Pending - Arrived as well (adminNoShowAndRelease, v143). */
+    if (blocked) { showToast(STALE_BLOCK_MSG, "error"); return; }
     const _k = "release:" + bookingId;
     if (actingRef.current.has(_k)) return;
     if (!confirm("Release the court and notify the customer? This sends an SMS.")) return;
@@ -10077,7 +10397,7 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
                       No access
                     </button>
                   ) : (
-                    <button className="btn-sm primary" onClick={() => setPayAsk(() => (mth) => markOverduePaid(o, mth))}>Mark paid</button>
+                    <button className="btn-sm primary" disabled={!!blocked} title={blocked ? STALE_BLOCK_MSG : undefined} onClick={() => setPayAsk(() => (mth) => markOverduePaid(o, mth))}>Mark paid</button>
                   )}
                 </div>
               );
@@ -10124,7 +10444,7 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
               {/* v136 C1 — adminMarkPaid is gated on the `bookings` tab. A
                   dashboard-only staffer was shown this and refused every time. */}
               {canMarkEntryPaid("booking")
-                ? <button className="btn-sm primary" onClick={() => setPayAsk(() => (mth) => markPaid(p.bookingId, mth))}>Mark paid</button>
+                ? <button className="btn-sm primary" disabled={!!blocked} title={blocked ? STALE_BLOCK_MSG : undefined} onClick={() => setPayAsk(() => (mth) => markPaid(p.bookingId, mth))}>Mark paid</button>
                 : <button className="btn-sm" disabled title={markPaidBlockedReason("booking")}>No access</button>}
             </div>
           ))
@@ -10162,7 +10482,12 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
                   className="btn-sm success"
                   onClick={() => confirmArrival(b.bookingId)}
                 >They're here</button>
-                <button className="btn-sm danger" onClick={() => noShowRelease(b.bookingId)}>Release</button>
+                {/* v143 F2 — Release is money-adjacent (write-off + court
+                    release + paid SMS), so it is gated like the mark-paid
+                    family. "They're here" stays live: confirming an arrival
+                    writes no money off and is exactly what a stale queue
+                    most often needs. */}
+                <button className="btn-sm danger" disabled={!!blocked} title={blocked ? STALE_BLOCK_MSG : undefined} onClick={() => noShowRelease(b.bookingId)}>Release</button>
               </div>
             </div>
           ))
@@ -10284,7 +10609,7 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
                     {r.cancelledAt ? " · cancelled " + r.cancelledAt : ""}
                   </div>
                 </div>
-                <button className="btn-sm primary" onClick={() => markRefunded(r.bookingId, r)}>
+                <button className="btn-sm primary" disabled={!!blocked} title={blocked ? STALE_BLOCK_MSG : undefined} onClick={() => markRefunded(r.bookingId, r)}>
                   Mark refunded
                 </button>
               </div>
@@ -10336,7 +10661,11 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking }) {
           )}
         </div>
       )}
-      {receiptItem && <ReceiptModal r={receiptItem} onClose={() => setReceiptItem(null)} />}
+      {/* v143 F4 — the queue's receipts are built from CACHED list rows, so
+          while this panel is stale the Text action inside the modal is dead
+          (print stays live). Post-collect receipts pass through here too,
+          but a collect cannot have happened while blocked. */}
+      {receiptItem && <ReceiptModal r={receiptItem} smsBlocked={!!blocked} onClose={() => setReceiptItem(null)} />}
       {payAsk && <PayMethodModal onPick={(mth) => { const fn = payAsk; setPayAsk(null); fn(mth); }} onClose={() => setPayAsk(null)} />}
     </div>
   );
@@ -17857,17 +18186,32 @@ function ScreenPOS() {
 }
 
 function OpenTabsModal({ onClose, onSelect, onChanged }) {
-  const [tabs, setTabs] = useState(null);
+  /* v142 "instantload" — the list paints instantly from the last-loaded
+   * tabListOpen payload when one is on disk, MARKED, while the fresh fetch
+   * runs. This is safe for a list precisely because every money action on a
+   * tab lives in TabDetailModal, which fetches tabGetDetail LIVE on open
+   * (tabGetDetail has no API_CACHE_TTL entry, so it can never be served
+   * from cache) and gates its own settle/close on v135's marker — a stale
+   * LIST can misstate a running total but cannot settle one. */
+  const [_bootTabs] = useState(() => getCachedApiEntry("tabListOpen"));
+  const _bootTabsOk = !!(_bootTabs && _bootTabs.data && _bootTabs.data.ok && _bootTabs.fromDisk);
+  const [tabs, setTabs] = useState(() => _bootTabsOk ? (_bootTabs.data.tabs || []) : null);
+  const [staleList, setStaleList] = useState(() => _bootTabsOk ? { kind: "cached", asOf: _bootTabs.time } : null);
   const [showNewTab, setShowNewTab] = useState(false);
   const [loadErr, setLoadErr] = useState(null);   // v106 — see load()
 
   async function load() {
     const r = await api("tabListOpen");
-    if (r.ok) { setTabs(r.tabs || []); setLoadErr(null); }
+    if (r.ok) { setTabs(r.tabs || []); setLoadErr(null); setStaleList(null); }
     // v106 FLOW-AUDIT — a failed load left tabs===null and the modal spun
     // forever. Staff could not see, settle or even find a running tab, and
     // an open tab is unsettled money.
     else setLoadErr(r.error || "No response from the server");
+    /* v142 — a failed refresh over the primed list ESCALATES the marker
+     * (never clears it); only the success branch above retires it. */
+    if (!r.ok) {
+      setStaleList(prev => prev ? { kind: "stale", error: r.error || "The refresh did not complete", asOf: prev.asOf } : prev);
+    }
   }
   useEffect(() => { load(); }, []);
 
@@ -17888,6 +18232,21 @@ function OpenTabsModal({ onClose, onSelect, onChanged }) {
           </div>
           <button className="btn primary" onClick={() => setShowNewTab(true)}>+ New Tab</button>
         </div>
+
+        {/* v142 "instantload" — the persistent last-loaded marker over the
+          * primed list. Opening a tab is still safe (TabDetailModal fetches
+          * live), which is why the rows below stay clickable. */}
+        {staleList && (
+          <StaleDataNotice
+            kind={staleList.kind}
+            what="open-tabs list"
+            error={staleList.kind === "cached"
+              ? ("last loaded " + fmtRelativeTime(staleList.asOf || Date.now()))
+              : staleList.error}
+            onRefresh={load}
+            refreshing={false}
+          />
+        )}
 
         {tabs === null && loadErr ? (
           <LoadFailed what="open tabs" error={loadErr} onRetry={() => { setLoadErr(null); load(); }} />
@@ -19683,12 +20042,21 @@ function SaleHistoryModal({ onClose }) {
   const [consigneeColumn, setConsigneeColumn] = useState(true);
   const [sales, setSales] = useState(null);
   const [total, setTotal] = useState(0);
+  /* v145 F6 — the response's archiveIncluded / archiveUnavailable flags,
+   * kept so the log can say "includes archived data" (the ArchiveCard's
+   * promise) and, distinctly, that the archive was needed but unreachable. */
+  const [archiveInfo, setArchiveInfo] = useState(null);
   const [selected, setSelected] = useState(null);  // sale being viewed in detail
   const [working, setWorking] = useState(false);
   const [loadErr, setLoadErr] = useState(null);    // v106 — see load()
   /* v136 C3 — what the LAST void actually did to stock, kept on screen until
      it is dismissed. See voidSale() below for why a toast was not enough. */
   const [voidOutcome, setVoidOutcome] = useState(null);
+  /* v142 "instantload" — non-null while the log on screen is a PREVIOUS
+   * session's payload: {kind:"cached"} while the background fetch runs,
+   * {kind:"stale"} after it fails. Cleared only by a load that succeeds.
+   * Void — the one money action in this modal — is gated on it. */
+  const [staleView, setStaleView] = useState(null);
 
   function rangeDates(r) {
     const now = new Date();
@@ -19718,22 +20086,51 @@ function SaleHistoryModal({ onClose }) {
 
   async function load() {
     const { from, to } = rangeDates(range);
-    // Show "Loading..." state while the API call is in flight. The previous
-    // version left stale sales visible on screen during the fetch, which made
-    // it look like nothing was happening when you clicked a different range
-    // chip. Setting sales=null triggers the loading-spinner branch below.
-    setSales(null);
+    const _params = {
+      dateFrom: from,
+      dateTo: to,
+      includeVoided: "true"  // show voided too with a label
+    };
+    /* v142 "instantload" — instant render from the last-loaded log. Only a
+     * DISK entry (a previous session's answer for the SAME date range —
+     * posListSales keys carry dateFrom/dateTo, so yesterday's payload can
+     * never answer today's range) primes here; an in-session cache hit is
+     * already instant through api() itself. The primed log renders MARKED
+     * (StaleDataNotice kind="cached") with Void gated on the marker, and the
+     * fresh fetch below replaces it. */
+    const centry = getCachedApiEntry("posListSales", _params);
+    const primed = !!(centry && centry.data && centry.data.ok && centry.fromDisk);
+    if (primed) {
+      setSales(centry.data.sales || []);
+      setTotal(centry.data.total || 0);
+      setArchiveInfo({ archiveIncluded: !!centry.data.archiveIncluded, archiveUnavailable: !!centry.data.archiveUnavailable });   // v145 F6
+      setConsigneeColumn(centry.data.consigneeColumn !== false);
+      setLoadErr(null);
+      setStaleView(prev => prev || { kind: "cached", asOf: centry.time });
+    } else {
+      // Show "Loading..." state while the API call is in flight. The previous
+      // version left stale sales visible on screen during the fetch, which made
+      // it look like nothing was happening when you clicked a different range
+      // chip. Setting sales=null triggers the loading-spinner branch below.
+      setSales(null);
+    }
     try {
-      const r = await api("posListSales", {
-        dateFrom: from,
-        dateTo: to,
-        includeVoided: "true"  // show voided too with a label
-      });
+      const r = await api("posListSales", _params);
       if (r.ok) {
         setSales(r.sales || []);
         setTotal(r.total || 0);
+        setArchiveInfo({ archiveIncluded: !!r.archiveIncluded, archiveUnavailable: !!r.archiveUnavailable });   // v145 F6
         setConsigneeColumn(r.consigneeColumn !== false);   // v130 H1
         setLoadErr(null);      // v106
+        /* v142 — fresh success, and only fresh success, retires the marker. */
+        setStaleView(null);
+      } else if (primed) {
+        /* v142 — the refresh failed OVER a primed log: keep the last-loaded
+         * receipts on screen (a real, older answer beats an empty state) and
+         * ESCALATE the marker so it carries the failure and its Refresh. */
+        setStaleView(prev => prev
+          ? { kind: "stale", error: r.error || "The refresh did not complete", asOf: prev.asOf }
+          : { kind: "stale", error: r.error || "The refresh did not complete", asOf: null });
       } else {
         // On error, keep empty list rather than spinning forever.
         // v106 FLOW-AUDIT — but ALSO record WHY. Previously a failed fetch
@@ -19745,9 +20142,15 @@ function SaleHistoryModal({ onClose }) {
         setLoadErr(r.error || "No response from the server");
       }
     } catch (err) {
-      setSales([]);
-      setTotal(0);
-      setLoadErr((err && err.message) || "Network error");   // v106
+      if (primed) {
+        setStaleView(prev => prev
+          ? { kind: "stale", error: (err && err.message) || "Network error", asOf: prev.asOf }
+          : { kind: "stale", error: (err && err.message) || "Network error", asOf: null });
+      } else {
+        setSales([]);
+        setTotal(0);
+        setLoadErr((err && err.message) || "Network error");   // v106
+      }
     }
   }
 
@@ -19997,6 +20400,13 @@ function SaleHistoryModal({ onClose }) {
    * did and did not go back on a shelf.
    * ---------------------------------------------------------------------- */
   async function voidSale(saleId) {
+    /* v142 — a void reverses real takings; it must never run off a sale row
+     * from a previous session's payload. The Void button is disabled while
+     * the marker is up; this guard covers a queued tap as well. */
+    if (staleView) {
+      showToast("Showing the last-loaded sales log — voiding is disabled until the refresh completes. Use the Refresh in the banner above.", "error");
+      return;
+    }
     const ok = await confirmAction({
       title: "Void this sale?",
       message: saleId,
@@ -20053,9 +20463,27 @@ function SaleHistoryModal({ onClose }) {
           <div>
             <div className="kicker">Past receipts · voids · audit</div>
             <h2>Sale History</h2>
+            {/* v145 F6 — archiveIncluded / F5 archive-unreachable, rendered */}
+            <ArchiveDataNote data={archiveInfo} />
           </div>
           <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
+
+        {/* v142 "instantload" — the persistent last-loaded marker. Up from
+          * the first paint when the log came off disk; escalated (never
+          * cleared) by a failed refresh; retired only by a load that
+          * succeeds. Void is gated on the same state. */}
+        {staleView && (
+          <StaleDataNotice
+            kind={staleView.kind}
+            what="sales log"
+            error={staleView.kind === "cached"
+              ? ("last loaded " + fmtRelativeTime(staleView.asOf || Date.now()))
+              : staleView.error}
+            onRefresh={load}
+            refreshing={false}
+          />
+        )}
 
         {/* Filters */}
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
@@ -20515,14 +20943,14 @@ function SaleHistoryModal({ onClose }) {
         </div>
 
         {selected && (
-          <SaleDetailModal sale={selected} onClose={() => setSelected(null)} onVoid={voidSale} working={working} />
+          <SaleDetailModal sale={selected} onClose={() => setSelected(null)} onVoid={voidSale} working={working} blocked={!!staleView} />
         )}
       </div>
     </div>
   );
 }
 
-function SaleDetailModal({ sale, onClose, onVoid, working }) {
+function SaleDetailModal({ sale, onClose, onVoid, working, blocked }) {
   return (
     <div className="modal-overlay" onClick={onClose} style={{ zIndex: 200 }}>
       <div className="modal" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
@@ -20610,7 +21038,8 @@ function SaleDetailModal({ sale, onClose, onVoid, working }) {
         <div className="actions">
           {!sale.voided && (
             <button className="btn" style={{ color: "var(--clay)", marginRight: "auto" }}
-              onClick={() => onVoid(sale.saleId)} disabled={working}>
+              onClick={() => onVoid(sale.saleId)} disabled={working || !!blocked}
+              title={blocked ? "Showing the last-loaded sales log — voiding is disabled until the refresh completes." : undefined}>
               Void sale
             </button>
           )}
@@ -22097,7 +22526,7 @@ function membershipReceipt(m) {
     subtotal: fee, memberDiscountAmount: 0, discountAmount: 0, total: fee, paymentMethod: m.paymentMethod || "Cash", cashReceived: fee, changeGiven: 0 };
 }
 
-function ReceiptModal({ r, onClose }) {
+function ReceiptModal({ r, onClose, smsBlocked }) {
   // Hooks must run before any early return (React rules of hooks).
   const [method, setMethod] = useState((r && r.paymentMethod) || "Cash");
   // When the record has no phone (e.g. a tab opened with just a name), let
@@ -22118,6 +22547,14 @@ function ReceiptModal({ r, onClose }) {
     cashReceived: _hasCash ? r.cashReceived : r.total,
     changeGiven: _hasChange ? r.changeGiven : 0
   });
+  /* v143 F4 — `smsBlocked` is the caller's stale marker (the action queue
+   * passes its `blocked`). A receipt built off a stale row carries the
+   * CACHED amount, and texting it spends real PlasGate money to put a
+   * possibly-wrong figure in the customer's hands — so while the caller's
+   * figures are last-loaded (cached OR stale kind), the Text action is dead,
+   * button and handler both. Print / on-screen stays live: paper from a
+   * reprint is checked at the counter and costs nothing to re-run. */
+  const SMS_STALE_MSG = "Showing last-loaded figures — texting a receipt is disabled until the refresh completes, so the SMS can't quote a stale amount.";
   return (
     <div className="modal-overlay" style={{ zIndex: 400 }} onClick={onClose}>
       <div className="modal" style={{ maxWidth: 360 }} onClick={(e) => e.stopPropagation()}>
@@ -22161,7 +22598,7 @@ function ReceiptModal({ r, onClose }) {
         )}
         <div className="actions">
           <button className="btn" onClick={printYardReceipt}>Print receipt</button>
-          <button className="btn" onClick={() => sendReceiptSms(rr)} disabled={!rr.customerPhone} title={!rr.customerPhone ? (phoneInput ? "Phone must be 8–12 digits" : "No phone on file — type one above") : ""}>SMS receipt?</button>
+          <button className="btn" onClick={() => { if (smsBlocked) { showToast(SMS_STALE_MSG, "error"); return; } sendReceiptSms(rr); }} disabled={!!smsBlocked || !rr.customerPhone} title={smsBlocked ? SMS_STALE_MSG : (!rr.customerPhone ? (phoneInput ? "Phone must be 8–12 digits" : "No phone on file — type one above") : "")}>SMS receipt?</button>
           <button className="btn primary" onClick={onClose}>Close</button>
         </div>
       </div>
@@ -22624,6 +23061,10 @@ function CorporateStatementModal({ account, onClose }) {
           <div>
             <div className="kicker">{account.company}</div>
             <h2>Monthly Statement</h2>
+            {/* v145 F6 — rendered ABOVE the figures (and above the empty
+              * state: "No bookings" while the archive was unreachable must
+              * never read as a quiet month). */}
+            <ArchiveDataNote data={stmt} />
           </div>
           <button className="x" onClick={onClose} aria-label="Close">×</button>
         </div>
@@ -23092,6 +23533,10 @@ function CustomerHistoryModal({ customer, onClose }) {
           <div style={{ padding: 30, display: "flex", justifyContent: "center" }}><BouncingBall size="sm" /></div>
         ) : (
           <>
+            {/* v145 F6 — lifetime figures: says when archived rows were
+              * included, and warns when the archive was needed but
+              * unreachable (the spend below may then be partial). */}
+            <div style={{ marginBottom: 8 }}><ArchiveDataNote data={data} /></div>
             <div className="stat-grid" style={{ marginBottom: 18, gridTemplateColumns: "repeat(" + (_showLegacyWalkIns ? 6 : 5) + ", 1fr)" }}>
               <div className="stat-card accent-ink">
                 <div className="label">Bookings</div>
@@ -23432,14 +23877,31 @@ function generateAccountingPdf(report) {
   doc.text("Report period: " + report.period.fromStr + " to " + report.period.toStr, M, y);
   doc.text("Generated: " + report.generatedAt + " (Asia/Phnom_Penh)", M, y + 12);
   doc.text("Basis: " + (report.basis === "accrual" ? "Accrual" : "Cash") + " · Currency: USD", M, y + 24);
+  // v145 F6 — the archive read-through status ON THE COVER, beside the
+  // period facts. "Includes archived data" is the ArchiveCard's promise
+  // made visible; the F5 unreachable state is rendered DISTINCTLY (and in
+  // clay) because it means the figures in this document may be partial.
+  let _coverY = y + 36;
+  if (report.archiveUnavailable) {
+    doc.setTextColor(...CLAY);
+    doc.setFont("helvetica", "bold");
+    doc.text("WARNING: archive unreachable — figures may be incomplete for older dates.", M, _coverY);
+    doc.setTextColor(...MUTED);
+    doc.setFont("helvetica", "normal");
+    _coverY += 12;
+  } else if (report.archiveIncluded) {
+    doc.text("Includes archived data.", M, _coverY);
+    _coverY += 12;
+  }
   if (report._noActivity) {
     doc.setTextColor(...[217, 120, 92]);
     doc.setFont("helvetica", "bold");
-    doc.text("No activity recorded for this period.", M, y + 40);
+    doc.text("No activity recorded for this period.", M, _coverY + 4);
     doc.setTextColor(...MUTED);
     doc.setFont("helvetica", "normal");
+    _coverY += 16;
   }
-  y += 50;
+  y = Math.max(y + 50, _coverY + 14);
 
   // --- EXECUTIVE SUMMARY (key numbers in a clean box) ---
   doc.setTextColor(...INK);
@@ -25247,6 +25709,14 @@ function ScreenFinances() {
   const [updatedByKey, setUpdatedByKey] = useState({});  // when each key was last loaded
   const [loadingKey, setLoadingKey] = useState(null);  // the key currently being fetched
   const [error, setError] = useState(null);  // {key, message} when a fetch fails
+  /* v142 "instantload" — per-key staleness. A key primed from a DISK entry
+   * (a previous session's payload, unconfirmed by this session's network)
+   * carries {kind:"cached", asOf}; a failed refresh over it escalates to
+   * {kind:"stale", error}; a fresh success for THAT KEY deletes it — and
+   * nothing else does. While the current key carries a marker, the
+   * StaleDataNotice renders over the figures and OutstandingPanel's
+   * mark-paid family (single and bulk) is blocked. */
+  const [staleByKey, setStaleByKey] = useState({});
 
   // Race protection: only the most recent fetch can update state
   const fetchTokenRef = useRef(0);
@@ -25273,11 +25743,19 @@ function ScreenFinances() {
     const cacheParams = isMonthly
       ? { action: "adminFinancesMonth", params: { year: y, month: m } }
       : { action: "adminFinancesRange", params: { granularity: granularity, periodOffset: periodOffset } };
-    const cached = getCachedApi(cacheParams.action, cacheParams.params);
-    if (cached && cached.ok) {
-      setDataByKey(prev => ({ ...prev, [key]: cached }));
-      // Only set updated time if we don't have a fresher one
-      setUpdatedByKey(prev => prev[key] ? prev : { ...prev, [key]: Date.now() });
+    const centry = getCachedApiEntry(cacheParams.action, cacheParams.params);
+    if (centry && centry.data && centry.data.ok) {
+      setDataByKey(prev => ({ ...prev, [key]: centry.data }));
+      // Only set updated time if we don't have a fresher one. v142 — the
+      // stamp is the entry's OWN fetch time, never now(): a payload
+      // persisted yesterday must not be relabelled as current.
+      setUpdatedByKey(prev => prev[key] ? prev : { ...prev, [key]: centry.time });
+      /* v142 — a DISK entry renders instantly but MARKED; the marker is
+       * cleared only by this key's own fresh success below. An in-session
+       * cache hit (fromDisk false) primes exactly as before, unmarked. */
+      if (centry.fromDisk) {
+        setStaleByKey(prev => prev[key] ? prev : { ...prev, [key]: { kind: "cached", asOf: centry.time } });
+      }
     }
 
     // Mark this key as loading
@@ -25327,12 +25805,28 @@ function ScreenFinances() {
     if (r && r.ok) {
       setDataByKey(prev => ({ ...prev, [key]: r }));
       setUpdatedByKey(prev => ({ ...prev, [key]: Date.now() }));
+      /* v142 — fresh success is the ONLY thing that retires this key's
+       * last-loaded marker. */
+      setStaleByKey(prev => {
+        if (!prev[key]) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    } else if (r && !r.ok) {
+      /* v142 — a failed refresh over a primed key ESCALATES the marker
+       * ("cached" → "stale", now carrying the failure); it never clears it,
+       * and a key that has no marker never gains one here (mid-session
+       * refresh failures keep their pre-v142 handling below). */
+      setStaleByKey(prev => prev[key]
+        ? { ...prev, [key]: { kind: "stale", error: r.error || "The refresh did not complete", asOf: prev[key].asOf } }
+        : prev);
     }
 
     // Only clear loading/error if we're still the latest request AND user hasn't switched
     if (myToken === fetchTokenRef.current) {
       setLoadingKey(prev => (prev === key ? null : prev));
-      if (r && !r.ok && !cached) {
+      if (r && !r.ok && !(centry && centry.data && centry.data.ok)) {
         setError({ key: key, message: r.error || "Failed to load" });
       }
     }
@@ -25390,6 +25884,12 @@ function ScreenFinances() {
         showToast(r.error || "Failed to load report data", "error");
         return;
       }
+      /* v145 F5/F6 — the archive was needed for this period but could not be
+       * opened: the PDF cover carries the same warning, and the toast makes
+       * sure it is seen before the figures are handed to an accountant. */
+      if (r.archiveUnavailable) {
+        showToast(r.archiveWarning || "Archive unreachable — figures may be incomplete for older dates", "error");
+      }
       generateAccountingPdf(r);
       showToast("Accounting report downloaded", "success");
     } catch (e) {
@@ -25434,6 +25934,9 @@ function ScreenFinances() {
       : (currentData.granularity === granularity)
   ));
   const safeData = dataIsForCurrentView ? currentData : null;
+  /* v142 — the current key's last-loaded marker (null when the figures were
+   * fetched by THIS session). While non-null, mark-paid is blocked below. */
+  const currentStale = staleByKey[currentKey] || null;
 
   return (
     <div className="main">
@@ -25457,6 +25960,8 @@ function ScreenFinances() {
               <LastUpdated ts={currentUpdated} />
             </div>
           )}
+          {/* v145 F6 — archiveIncluded / F5 archive-unreachable, rendered */}
+          <ArchiveDataNote data={currentData} />
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           {/* Operational-only toggle — when on, hide memberships + sponsorships
@@ -25563,6 +26068,23 @@ function ScreenFinances() {
         </div>
       )}
 
+      {/* v142 "instantload" — the persistent last-loaded marker for THIS
+        * period. Painted with the primed figures on first render, escalated
+        * (not cleared) if the background fetch fails, retired only by this
+        * key's own fresh success. OutstandingPanel's mark-paid family is
+        * gated on the same state via the `blocked` prop below. */}
+      {currentStale && safeData && (
+        <StaleDataNotice
+          kind={currentStale.kind}
+          what={"finance figures for " + periodLabel}
+          error={currentStale.kind === "cached"
+            ? ("last loaded " + fmtRelativeTime(currentStale.asOf || Date.now()))
+            : currentStale.error}
+          onRefresh={load}
+          refreshing={isRefreshing}
+        />
+      )}
+
       {isLoading ? (
         <FinancesSkeleton granularity={granularity} />
       ) : (
@@ -25572,7 +26094,7 @@ function ScreenFinances() {
           )}
           {safeData ? (
             granularity === "monthly" ? (
-              <FinancesView data={safeData} onChanged={load} opOnly={opOnly} />
+              <FinancesView data={safeData} onChanged={load} opOnly={opOnly} blocked={!!currentStale} />
             ) : (
               <FinancesRangeView data={safeData} granularity={granularity} opOnly={opOnly} />
             )
@@ -26357,7 +26879,7 @@ function FinancesRangeView({ data, granularity, opOnly }) {
   );
 }
 
-function FinancesView({ data, onChanged, opOnly }) {
+function FinancesView({ data, onChanged, opOnly, blocked }) {
   const h = data.headline;
   const splits = data.splits;
   const hasMembership = (h.membershipRev || 0) > 0;
@@ -26575,7 +27097,7 @@ function FinancesView({ data, onChanged, opOnly }) {
       )}
 
       {/* Outstanding — split by AGE: pending (informational) vs overdue (real receivables) */}
-      <OutstandingPanel outstanding={data.outstanding} headline={h} onChanged={onChanged} />
+      <OutstandingPanel outstanding={data.outstanding} headline={h} onChanged={onChanged} blocked={blocked} />
 
       {/* Aging buckets + per-customer rollup — only show if there's anything outstanding */}
       {(data.outstandingByCustomer && data.outstandingByCustomer.length > 0) && (
@@ -26725,7 +27247,15 @@ function DailyRevenueChart({ daily }) {
   );
 }
 
-function OutstandingPanel({ outstanding, headline, onChanged }) {
+function OutstandingPanel({ outstanding, headline, onChanged, blocked }) {
+  /* v142 "instantload" — `blocked` is ScreenFinances' last-loaded marker for
+   * the period on screen. These receivable rows are then a PREVIOUS
+   * session's answer, so both payment writers — markPaid (single row) and
+   * bulkMarkPaid (the selection) — are refused, and their buttons carry the
+   * reason, until a fresh payload lands. The server would survive most stale
+   * collects (adminMarkPaid answers alreadyPaid/noop without writing), but
+   * "the server usually refuses" is not a gate; this is. */
+  const STALE_BLOCK_MSG = "Showing last-loaded figures — collecting is disabled until the refresh completes. Use the Refresh in the banner above.";
   const [showAllPending, setShowAllPending] = useState(false);
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   const [showAllOverdue, setShowAllOverdue] = useState(false);
@@ -26809,6 +27339,8 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
   }
 
   async function markPaid(item, mth) {
+    // v142 — no payment write off a stale render, even from a queued tap.
+    if (blocked) { showToast(STALE_BLOCK_MSG, "error"); return; }
     const key = optKey(item);
     // Hide instantly
     setOptimisticPaid(prev => new Set([...prev, key]));
@@ -26871,6 +27403,8 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
   /* Bulk mark-paid: hide everything optimistically, run all API calls in
    * parallel, then surface any failures. */
   async function bulkMarkPaid(mth) {
+    // v142 — no bulk payment write off a stale render, even from a queued tap.
+    if (blocked) { showToast(STALE_BLOCK_MSG, "error"); return; }
     const items = selectedItems;
     if (items.length === 0) return;
     const totalAmount = selectedTotal;
@@ -27054,7 +27588,7 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
               that failed the whole selection at once. Per row, from the
               caller's own tabs. */}
           {canMarkEntryPaid(item.entryType)
-            ? <button className="btn-sm primary" onClick={() => setPayAsk(() => (mth) => markPaid(item, mth))}>Mark paid</button>
+            ? <button className="btn-sm primary" disabled={!!blocked} title={blocked ? STALE_BLOCK_MSG : undefined} onClick={() => setPayAsk(() => (mth) => markPaid(item, mth))}>Mark paid</button>
             : <button className="btn-sm" disabled title={markPaidBlockedReason(item.entryType)}>No access</button>}
         </span>
       </div>
@@ -27177,6 +27711,8 @@ function OutstandingPanel({ outstanding, headline, onChanged }) {
           </button>
           <button
             className="btn-sm primary"
+            disabled={!!blocked}
+            title={blocked ? STALE_BLOCK_MSG : undefined}
             onClick={() => setPayAsk(() => (mth) => bulkMarkPaid(mth))}
           >
             ✓ Mark {selected.size} paid
@@ -33494,6 +34030,8 @@ function ScreenSettings() {
       <PerfProbeCard />
 
       <DataIntegrityCard />
+
+      <ArchiveCard />
       </>)}
 
       <div className="settings-card" style={{ opacity: 0.6 }}>
@@ -33739,6 +34277,139 @@ function PerfProbeCard() {
    - Repair calls adminRepairDataIntegrity with confirm=true; success
      hides the resolved issues from the list
    ==================================================================== */
+/* ====================================================================
+   ArchiveCard — v144 owner-only 60-day archive tool. Preview first
+   ("N rows across M sheets older than the cutoff"), then an explicit
+   confirmed Run. Never automatic; shows last run + rows moved. The
+   backend does copy → verify → delete and refuses to delete anything
+   the verify read-back could not confirm.
+   ==================================================================== */
+
+/* v145 F6 — the archive read-through status, RENDERED. The ArchiveCard
+   below promises that reports are marked "includes archived data", but
+   v144 never read the archiveIncluded flag anywhere: the promise lived
+   only in backend labels. This one component is dropped onto every report
+   surface that receives the flag (Finances, accounting PDF cover has its
+   own twin, Sale History, customer history, corporate statement) and it
+   renders the v145 F5 unreachable state DISTINCTLY: an archive that was
+   needed but could not be opened means the figures on screen may be
+   partial, which must never look like a quiet period. Function
+   declaration (hoisted), inline styles only — the v123 stylesheet sha256
+   pin holds because no CSS is added. */
+function ArchiveDataNote({ data }) {
+  if (!data) return null;
+  if (data.archiveUnavailable) {
+    return (
+      <div className="archive-note-warn" style={{
+        fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.08em",
+        fontWeight: 700, color: "var(--clay, #D9785C)", marginTop: 4
+      }}>
+        ⚠ ARCHIVE UNREACHABLE — FIGURES MAY BE INCOMPLETE
+      </div>
+    );
+  }
+  if (data.archiveIncluded) {
+    return (
+      <div className="archive-note-incl" style={{
+        fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.08em",
+        opacity: 0.6, marginTop: 4
+      }}>
+        INCLUDES ARCHIVED DATA
+      </div>
+    );
+  }
+  return null;
+}
+
+function ArchiveCard() {
+  const [previewing, setPreviewing] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [lastResult, setLastResult] = useState(null);
+
+  async function runPreview() {
+    setPreviewing(true);
+    const r = await api("adminArchivePreview");
+    setPreviewing(false);
+    if (r.ok) {
+      setPreview(r);
+      if (r.total === 0) showToast("Nothing older than " + r.cutoff + " is eligible", "info");
+    } else {
+      showToast(r.error || "Preview failed", "error");
+    }
+  }
+
+  async function runArchive() {
+    if (!preview || !preview.total) return;
+    if (!confirm("Move " + preview.total + " row(s) older than " + preview.cutoff + " to the archive spreadsheet?\n\nNothing is deleted: every row is copied and VERIFIED in the archive before it leaves the live workbook, and reports automatically read the archive for old dates.")) return;
+    setRunning(true);
+    const r = await api("adminArchiveRun");
+    setRunning(false);
+    if (r.ok) {
+      setLastResult(r);
+      showToast(r.message || (r.moved + " rows archived"), "success");
+      runPreview();
+    } else {
+      showToast(r.error || "Archive run failed", "error");
+    }
+  }
+
+  const sheetsWithRows = preview ? (preview.sheets || []).filter(s => s.rows > 0) : [];
+  return (
+    <div className="settings-card">
+      <h3>Data archive (60-day)</h3>
+      <div className="desc">
+        Moves transaction rows older than 60 days (paid/cancelled bookings, POS
+        sales, closed tabs, past availability) to a separate archive
+        spreadsheet so the live workbook stays fast. Nothing is destroyed —
+        rows are copied and verified before leaving the live sheets, and
+        Finances / reports / Sale History automatically include archived data
+        when you ask for old dates (marked "includes archived data").
+      </div>
+      <div className="settings-row" style={{ alignItems: "flex-start" }}>
+        <div style={{ flex: 1 }}>
+          {preview ? (
+            <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+              <div style={{ fontWeight: 600 }}>
+                {preview.total} row(s) across {sheetsWithRows.length} sheet(s) older than {preview.cutoff}
+                {preview.capped ? " (capped — run again for the rest)" : ""}
+              </div>
+              {sheetsWithRows.map(s => (
+                <div key={s.sheet} style={{ opacity: 0.75 }}>{s.sheet}: {s.rows}{s.capped ? " (capped this run)" : ""}</div>
+              ))}
+              {preview.lastRun ? (
+                <div style={{ opacity: 0.6, marginTop: 4 }}>
+                  Last run {preview.lastRun.at}: {preview.lastRun.moved} row(s) moved
+                </div>
+              ) : (
+                <div style={{ opacity: 0.6, marginTop: 4 }}>Never run yet{preview.archiveExists ? "" : " — the archive spreadsheet will be created on first run"}</div>
+              )}
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, opacity: 0.7 }}>Click Preview to count what would move. Nothing moves until you confirm a Run.</div>
+          )}
+          {lastResult && (
+            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
+              {lastResult.message}
+              {(lastResult.sheets || []).filter(s => s.error).map(s => (
+                <div key={s.sheet} style={{ color: "var(--danger, #c0392b)" }}>{s.sheet}: {s.error}</div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn" onClick={runPreview} disabled={previewing || running}>
+            {previewing ? "Counting…" : "Preview"}
+          </button>
+          <button className="btn primary" onClick={runArchive} disabled={running || previewing || !preview || !preview.total}>
+            {running ? "Archiving…" : "Run archive"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DataIntegrityCard() {
   const [auditing, setAuditing] = useState(false);
   const [repairing, setRepairing] = useState(false);
@@ -35538,6 +36209,10 @@ function App() {
   function signOut() {
     setStoredPin("");
     try { sessionStorage.removeItem("yard-staff-info"); } catch (e) {}
+    // v142 — retire the cache-owner tag too: after an explicit sign-out the
+    // (now empty) cache belongs to nobody, so the next login starts a fresh
+    // context rather than inheriting this one's.
+    try { localStorage.removeItem(_CACHE_CTX_KEY); } catch (e) {}
     invalidateApiCache("");  // wipe all cached responses so next user starts clean
     setScreen("dashboard");  // FINAL-QA fix: don't leak the previous user's screen to the next login
     setAuthed(false);
