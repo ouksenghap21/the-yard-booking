@@ -6144,7 +6144,7 @@ const _PERSIST_ENDPOINTS = new Set([
  * _hydrateCacheFromLocalStorage DELETES anything under the shared
  * "yard-cache-" root that is not in the CURRENT namespace, so
  * version-mismatched data is removed, not merely ignored. */
-const CLIENT_CACHE_VERSION = "yard-v151-tabtruth";
+const CLIENT_CACHE_VERSION = "yard-v152-settleguard";
 const _LS_CACHE_ROOT = "yard-cache-";
 const _LS_CACHE_PREFIX = _LS_CACHE_ROOT + CLIENT_CACHE_VERSION + ":";
 const _LS_MAX_AGE_MS = 24 * 60 * 60 * 1000;  // 24h — anything older is too stale to even show
@@ -18922,9 +18922,17 @@ function TabDetailModal({ tabId, products, onClose }) {
       const asked = lines.reduce((s, ln) => s + ln.quantity, 0);
       if (r.alreadyApplied) {
         const landed = (typeof r.count === "number") ? r.count : (r.items || []).length;
-        showToast("Already on " + tabId + " — this add had already gone through. Nothing was added a second time. "
-          + landed + " line" + (landed === 1 ? "" : "s") + (typeof r.total === "number" ? " · " + fmtMoney(r.total) : "")
-          + " " + (landed === 1 ? "is" : "are") + " on the tab.", "success", 8000);
+        /* v152 F2 — a COMPLETE landing whose products can no longer be
+         * resolved says so in its own words. It used to arrive here as
+         * `partiallyApplied` with "add the missing lines by hand" over a
+         * request that had landed in full — following which over-charges the
+         * customer. The server now sends `wantUnresolved` with the whole
+         * sentence; showing the server's sentence is the point. */
+        showToast(r.wantUnresolved && r.notice
+          ? r.notice
+          : ("Already on " + tabId + " — this add had already gone through. Nothing was added a second time. "
+             + landed + " line" + (landed === 1 ? "" : "s") + (typeof r.total === "number" ? " · " + fmtMoney(r.total) : "")
+             + " " + (landed === 1 ? "is" : "are") + " on the tab."), "success", r.wantUnresolved ? 14000 : 8000);
       } else {
         const added = (typeof r.count === "number") ? r.count : asked;
         showToast("Added " + added + " line" + (added === 1 ? "" : "s") + " to " + tabId, "success");
@@ -20107,7 +20115,43 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
       if (r.stockWarnings && r.stockWarnings.length) {
         showToast("Inventory note: " + r.stockWarnings.map(function (w) { return w.name + " (had " + w.available + ", sold " + w.requested + ")"; }).join(", ") + " — please reconcile stock.", "error", 12000);
       }
-      showToast("Tab settled · $" + r.total.toFixed(2) + (r.changeGiven > 0 ? " · Change: $" + r.changeGiven.toFixed(2) : ""), "success");
+      /* ---- v152 F1 — WHAT THE SECOND PRESS SAYS ---------------------------
+       *
+       * Before v152 a close that threw AFTER committing the sale answered
+       * { ok:false }, this component retired the intent (correctly — a
+       * definite failure is not an unknown outcome), and the next tap minted
+       * a NEW clientRequestId that route()'s dedupe could not recognise. A
+       * SECOND SALE was written for the same tab. The owner's standing
+       * instruction — "if Close & Settle shows a hard error, don't press it
+       * again, check POS Sales first" — existed to paper over exactly that.
+       *
+       * The server now holds a durable record that the tab has already
+       * produced a sale, and the second press COMPLETES that settle instead
+       * of making another one. It comes back ok:true with `settledEarlier`
+       * and the ORIGINAL sale's figures, so this branch has to say something
+       * different from "Tab settled": nothing was collected just now, and
+       * pretending otherwise is how a staff member takes the money twice at
+       * the counter even when the system did not.
+       *
+       * `postCommitWarnings` is the other half. A settle can now succeed with
+       * a row it could not stamp Paid — that is strictly better than failing
+       * the whole close over a taken sale — but it is never silent. */
+      if (r.settledEarlier) {
+        showToast(r.message || ("This tab was already settled by sale " + r.saleId + " · $" + r.total.toFixed(2)
+          + " — nothing was charged again."), "success", 15000);
+      } else {
+        showToast("Tab settled · $" + r.total.toFixed(2) + (r.changeGiven > 0 ? " · Change: $" + r.changeGiven.toFixed(2) : ""), "success");
+      }
+      if (r.postCommitWarnings && r.postCommitWarnings.length) {
+        showToast("The sale is recorded, but " + r.postCommitWarnings.length + " row"
+          + (r.postCommitWarnings.length === 1 ? "" : "s") + " could not be marked paid: "
+          + r.postCommitWarnings.join("; ") + ". Check " + tabId + " before the shift ends.", "error", 15000);
+      }
+      if (r.tabLeftOpen) {
+        showToast("This tab has been LEFT OPEN"
+          + (typeof r.uncoveredTotal === "number" && r.uncoveredTotal > 0 ? " — $" + r.uncoveredTotal.toFixed(2) + " on it was not on that sale" : "")
+          + ". Settle the rest separately.", "error", 15000);
+      }
       // Already-Paid attached entries were NOT charged by this settle — keep
       // them off the receipt so its lines match the sale exactly.
       const _unsettled = function (x) { return String(x.paymentStatus || "").toLowerCase() !== "paid"; };
