@@ -6144,7 +6144,7 @@ const _PERSIST_ENDPOINTS = new Set([
  * _hydrateCacheFromLocalStorage DELETES anything under the shared
  * "yard-cache-" root that is not in the CURRENT namespace, so
  * version-mismatched data is removed, not merely ignored. */
-const CLIENT_CACHE_VERSION = "yard-v147-validatorfix";
+const CLIENT_CACHE_VERSION = "yard-v151-tabtruth";
 const _LS_CACHE_ROOT = "yard-cache-";
 const _LS_CACHE_PREFIX = _LS_CACHE_ROOT + CLIENT_CACHE_VERSION + ":";
 const _LS_MAX_AGE_MS = 24 * 60 * 60 * 1000;  // 24h — anything older is too stale to even show
@@ -6368,6 +6368,14 @@ var MUTATING_ACTIONS = new Set([
      adminPreviewShorten is deliberately absent — it is a pure read. */
   "adminShortenBooking",
   "adminMarkRefunded","adminFlagNoShow","adminNoShowAndRelease","adminConfirmArrival",
+  /* v149 F3 — recording a lost ledger row APPENDS A PAYMENTS ROW. Neither
+     MUTATING_ACTIONS nor _isMutation's verb heuristics would have matched
+     "adminResolveLedgerGap" (no Create/Update/Cancel/Mark…Paid in it), so
+     without this entry it would carry no request id at all — and a 25s abort
+     plus the v148 retry would have re-sent an un-deduped money append. The
+     server also re-checks the Payments sheet before writing, but that is the
+     second line of defence, not the first. */
+  "adminResolveLedgerGap",
   "adminCreateMember","adminUpdateMember","adminSetPricingRules","adminSetPromo",
   "adminSetPosSettings","adminSetGoals","adminSetLandingConfig","adminSetFairUse",
   "posCreateSale","adminSettleCombined","tabOpen","tabClose","tabAddItem","tabAddItems","tabRemoveItem",
@@ -6518,8 +6526,18 @@ function genRequestId(){
      · THE ID IS RETIRED ON A DEFINITE ANSWER — success, or a refusal the
        server actually made. It is NOT retired on a timeout, because a
        timeout is exactly the case where the id must survive to the next tap.
-     · WE STILL DO NOT AUTO-RETRY. Nothing here re-fires a mutation on the
-       user's behalf. This only makes the user's own second tap safe.
+     · v148 CHANGED THE THIRD RULE, DELIBERATELY. From v135 to v147 this
+       block said "WE STILL DO NOT AUTO-RETRY", because a replayed mutation
+       could only be answered { duplicate:true } — an error the panel could
+       not act on. The v148 backend stores the FIRST execution's response
+       under the id and answers a replay with those exact bytes, so
+       _doFetchRaw now re-sends an id-carrying mutation ONCE on a
+       transport-level failure (see "SURVIVE CONGESTION" below). The intent
+       key is what makes that retry safe, for exactly the reasons above:
+       the same intent means the same id, the same id means the server
+       executes once and repeats its original answer. Nothing else here
+       changed — the id still describes the intent, is still retired only
+       on a definite answer, and still makes the user's own second tap safe.
 
    The map is bounded: an intent that is never retired (staff walked away
    mid-timeout) expires after IDLE_MS, well past the server's own 2-minute
@@ -6652,6 +6670,102 @@ function _apiTimeoutMs(action) {
   return (typeof t === "number" && t > 0) ? t : _API_DEFAULT_TIMEOUT_MS;
 }
 
+/* ====================================================================
+   v148 — SURVIVE CONGESTION INSTEAD OF ERRORING.
+
+   THE LIVE FAULT. At busy hour ten devices' requests queue behind the tab
+   endpoints on Apps Script's serialized capacity; the 25s budget fires, and
+   staff are shown "SERVER RETURNED 404" / "Request timed out" for requests
+   the server would have answered two seconds later. Every one of those
+   errors became a human retry loop at the till.
+
+   WHAT RETRIES, AND WHY EACH ONE IS SAFE:
+
+   · READS retry transparently, up to twice, with jittered backoff. A read
+     re-sent is just a read. Retries are skipped while the tab is hidden
+     (a backgrounded device must not compete for capacity), and the whole
+     retry loop lives INSIDE _doFetchRaw — one logical fetch, one promise,
+     one resolution — so the v142/v143 stale-marker machinery in refresh()
+     sees a retried success exactly as it sees a first-try success: one ok
+     payload, one marker clear. No double-clear, no race.
+
+   · MUTATIONS retry ONCE on a transport-level failure (timeout / HTTP
+     error / network error), and ONLY because the retry is provably
+     idempotent end-to-end: the SAME URL object is re-sent, so the v135
+     intent-keyed clientRequestId is byte-identical, and the v149 backend
+     stores the first execution's response text UNDER THE SAME CACHE ENTRY
+     as its dedupe marker — a replay lands the ORIGINAL result, not a second
+     execution and not an error.
+     Actions the client classifies as mutating but that carry NO
+     clientRequestId (not in MUTATING_ACTIONS — e.g. adminDuplicate
+     CoachingSession, adminGenerateRoundRobin) are EXCLUDED from mutation
+     retry entirely: without the id there is no dedupe, and a first attempt
+     that actually landed would land twice. They keep their manual-retry UX.
+
+   · v149 F4 — AND WHEN THE SERVER HAS NO RECORD OF THE FIRST ATTEMPT.
+     v148 relied on the dedupe marker being there. CacheService can evict it,
+     and busy hour — the only time this retry fires — is when it is most
+     likely to. A marker-miss then meant a SECOND EXECUTION of a mutation
+     that had already charged the till. So every attempt after the first now
+     carries clientRetry=1, and a marked retry the server has no record of is
+     REFUSED, in the { timedOut:true } shape isUnknownOutcome already reads.
+     The cost is named honestly: when the first attempt genuinely never
+     arrived, the retry no longer saves it and a human re-rings under a new
+     intent. Refusing to guess is the whole point.
+
+   · A replay that arrives while the first execution is still running gets
+     { duplicate:true, pending:true } from the server. The client then
+     POLLS (same id, so still un-executable twice) a couple of times to
+     collect the stored original result; if it never appears, the reply is
+     shaped { ok:false, timedOut:true } so every existing v135 call site —
+     isUnknownOutcome, unknownWriteMessage, the intent-id survival rules —
+     handles it exactly as it handled a timeout before. Against an OLDER
+     deployed backend (no result store) the retry degrades to that same
+     unknown-outcome path: never a double write, by the dedupe alone.
+   ==================================================================== */
+/* ---- v148 — THE BUSY-HOUR GATE -----------------------------------------
+   While a money modal (tab detail, close-tab, POS checkout) is open on this
+   device, or any mutation is in flight from it, the background polls (the
+   10s dashboard pulse, the 20s bookings and tournament polls) SKIP their
+   tick: at the exact moment staff are settling money is the exact moment
+   background reads compete with that settle for Apps Script's serialized
+   capacity. Poll intervals also carry per-device random jitter so ten staff
+   devices opened at the same minute do not synchronize their refreshes into
+   one thundering herd. The pulse resumes untouched the moment the modal
+   closes / the mutation resolves — nothing here changes WHAT refreshes,
+   only WHEN this device asks. */
+let _moneyHoldCount = 0;
+let _mutationsInFlight = 0;
+function yardHoldPush() { _moneyHoldCount++; }
+function yardHoldPop() { _moneyHoldCount = Math.max(0, _moneyHoldCount - 1); }
+function yardBusyHold() { return _moneyHoldCount > 0 || _mutationsInFlight > 0; }
+/* Per-mount jitter: base + up to 35% extra, fixed for the interval's life so
+   devices stay STAGGERED rather than randomly colliding per tick. */
+function pollJitterMs(base) { return base + Math.floor(Math.random() * Math.max(1, Math.round(base * 0.35))); }
+
+const _RETRY_MAX_READ = 2;        // extra attempts for reads
+const _RETRY_MAX_MUT = 1;         // extra attempts for id-carrying mutations
+const _RETRY_PENDING_POLLS = 2;   // duplicate+pending -> poll for the stored result
+function _retrySleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function _retryDelayMs(attempt, isMut) {
+  // Test harnesses run on real timers; they set this sandbox flag to elide
+  // the waiting (never defined in a browser — typeof-guarded).
+  try { if (typeof __YARD_TEST_ZERO_BACKOFF !== "undefined" && __YARD_TEST_ZERO_BACKOFF) return 0; } catch (e) {}
+  // jittered backoff: reads ~0.9s/1.8s, mutations ~2.5s — long enough for a
+  // queued execution slot to clear, short enough to beat the human retry.
+  const base = (isMut ? 2500 : 900) * attempt;
+  return base + Math.floor(Math.random() * 700);
+}
+function _pendingPollDelayMs() {
+  try { if (typeof __YARD_TEST_ZERO_BACKOFF !== "undefined" && __YARD_TEST_ZERO_BACKOFF) return 0; } catch (e) {}
+  return 3500 + Math.floor(Math.random() * 800);
+}
+/* A transport-level failure: the server may or may not have seen/finished
+   the request. (Set by _doFetchOnce; never set on a real JSON answer.) */
+function _isTransientFailure(r) {
+  return !!(r && r.ok === false && (r.timedOut === true || r._transient === true));
+}
+
 async function _doFetchRaw(action, params) {
   const pin = getStoredPin();
   const url = new URL(API_URL);
@@ -6665,6 +6779,64 @@ async function _doFetchRaw(action, params) {
   if (MUTATING_ACTIONS.has(action) && !url.searchParams.has("clientRequestId")) {
     url.searchParams.set("clientRequestId", genRequestId());
   }
+  /* v148 — the retry loop. The URL (and with it the clientRequestId) is
+     built ONCE above and reused verbatim by every attempt.
+
+     v149 F4 — EVERY ATTEMPT AFTER THE FIRST SAYS SO, IN THE REQUEST.
+     A mutation retry and a first attempt used to be indistinguishable on the
+     wire, so if the server's idempotency record had been evicted (busy hour
+     sheds cache exactly when the retry fires) it could not tell "this never
+     ran" from "this ran and I have forgotten" — and it re-executed. It now
+     REFUSES a marked retry it has no record of. That refusal is only correct
+     if the mark is honest, so it is set here, on the URL, before the re-send,
+     and never on the first attempt. Reads are left unmarked: the server's H2
+     block only consults it for id-carrying mutations, and a read re-sent is
+     just a read. */
+  const _isMut = _isMutation(action);
+  const _idCarrying = url.searchParams.has("clientRequestId");
+  const _maxExtra = _isMut ? (_idCarrying ? _RETRY_MAX_MUT : 0) : _RETRY_MAX_READ;
+  const _markRetry = () => { if (_isMut && _idCarrying) url.searchParams.set("clientRetry", "1"); };
+  if (_isMut) _mutationsInFlight++;
+  try {
+    let r = null;
+    for (let attempt = 0; ; attempt++) {
+      r = await _doFetchOnce(action, url);
+      if (!_isTransientFailure(r)) break;
+      if (attempt >= _maxExtra) break;
+      if (document.hidden) break;   // a backgrounded tab must not add load
+      if (_isMut) {
+        try { if (typeof showToast === "function") showToast("Connection is busy — retrying…", "default", 2600); } catch (e) {}
+      }
+      _markRetry();
+      await _retrySleep(_retryDelayMs(attempt + 1, _isMut));
+    }
+    /* Mutation replay bookkeeping: duplicate+pending means the FIRST
+       execution is still running (or its stored answer was unavailable).
+       Poll briefly for the stored original; then be honest. */
+    if (_isMut && _idCarrying && r && r.ok === false && r.duplicate === true) {
+      for (let p = 0; p < _RETRY_PENDING_POLLS && r && r.ok === false && r.duplicate === true; p++) {
+        if (document.hidden) break;
+        _markRetry();   // a poll is a repeat too — it must never be able to execute
+        await _retrySleep(_pendingPollDelayMs());
+        r = await _doFetchOnce(action, url);
+      }
+      if (r && r.ok === false && r.duplicate === true) {
+        /* Shape it as the timeout every v135 call site already handles:
+           outcome unknown, id NOT retired, staff told to check first. */
+        return {
+          ok: false, timedOut: true, duplicate: true,
+          error: "The server accepted this request but its answer is not back yet. "
+            + "It has NOT been done twice. Refresh and check before doing anything else with it."
+        };
+      }
+    }
+    return r;
+  } finally {
+    if (_isMut) _mutationsInFlight = Math.max(0, _mutationsInFlight - 1);
+  }
+}
+
+async function _doFetchOnce(action, url) {
   try {
     // v134 P-B — the budget is per action (see API_ACTION_TIMEOUT_MS). A clear
     // "timed out" message still beats a spinner that never resolves; it just
@@ -6683,8 +6855,10 @@ async function _doFetchRaw(action, params) {
     // "Unexpected token <" message that's not user-friendly.
     const text = await r.text();
     if (!r.ok) {
-      // HTTP error (rare with Apps Script but possible)
-      return { ok: false, error: "Server returned " + r.status + ". Please retry." };
+      // HTTP error — at busy hour this is how Apps Script sheds load (the
+      // 404/500 the counter sees), so it is transport-transient: v148 lets
+      // the retry loop above have it.
+      return { ok: false, _transient: true, httpStatus: r.status, error: "Server returned " + r.status + ". Please retry." };
     }
     try {
       return JSON.parse(text);
@@ -6703,7 +6877,10 @@ async function _doFetchRaw(action, params) {
         msg = text.trim();
       }
       console.warn("[api] non-JSON response for " + action + ":", text.substring(0, 500));
-      return { ok: false, error: msg };
+      // v148: an HTML error page is the overloaded-server shape too — the
+      // JSON answer never made it. Transient; mutations stay safe behind
+      // the clientRequestId dedupe + replay.
+      return { ok: false, _transient: true, error: msg };
     }
   } catch (e) {
     if (e.name === "AbortError") {
@@ -6731,7 +6908,7 @@ async function _doFetchRaw(action, params) {
       };
     }
     if (e.message && e.message.toLowerCase().indexOf("failed to fetch") >= 0) {
-      return { ok: false, error: "Network error. Check your connection and retry." };
+      return { ok: false, _transient: true, error: "Network error. Check your connection and retry." };
     }
     return { ok: false, error: e.message || "Unknown error" };
   }
@@ -8824,6 +9001,9 @@ function ScreenDashboard() {
     return { kind: "cached", asOf: Math.min.apply(null, times) };
   });
   const [staleRefreshing, setStaleRefreshing] = useState(false);
+  /* v149 F3 — in-flight guard for the pending-ledger-row repair, so a
+   * double-tap cannot fire two adminResolveLedgerGap calls for one row. */
+  const [ledgerGapFixing, setLedgerGapFixing] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
   const [lastChecked, setLastChecked] = useState(null);   // every successful 10s pulse
   const lastFullRefreshRef = useRef(0);                    // failsafe timer baseline
@@ -8973,16 +9153,48 @@ function ScreenDashboard() {
               // fresh one, so the "PlasGate balance empty" banner could
               // linger (or stay missing) on this fast path. Take core's
               // value verbatim: present → set it, absent → clear it.
+              // v149 F3: ledgerGapAlert rides the SAME return-time stamp and
+              // needs the SAME treatment for the same reason — a warning
+              // about money with no ledger row must not survive its repair,
+              // and must not be dropped on the fast path either.
+              /* v150 — A PARTIAL FIGURE MUST NOT OVERWRITE A COMPLETE ONE.
+               *
+               * This merge branch had never run: adminDashboardCore died on a
+               * ReferenceError on every call from the day it was written, so
+               * `coreData.ok` was never true and nothing here executed. With
+               * the endpoint repaired it runs on every refresh, and two of the
+               * things it copied are BOOKINGS-ONLY on the fast path —
+               * `utilization` (courts-in-use / booked court-hours /
+               * utilization %) and `actionQueue.courtsInUseNow` both also
+               * count open play, coaching and walk-ins in the full compute,
+               * off three sheets the fast path does not read.
+               *
+               * Copying them over `prev` — which by the `!prev._isCore` test
+               * above is a COMPLETE payload — would drop the courts-in-use
+               * tile back to the bookings-only count every ~8 seconds and let
+               * it climb again when the full call landed. The server marks
+               * both (`utilization._pending`, `courtsInUseNowPartial`); this
+               * keeps the complete figure whenever one is already on screen.
+               * Everything else below is proven field-for-field identical to
+               * the full compute (tests/v150_corefix_test.js SS3), so it is
+               * taken verbatim. */
+              const _coreUtilPartial = !!(coreData.utilization && coreData.utilization._pending);
+              const _coreCourtsPartial = !!(coreData.actionQueue && coreData.actionQueue.courtsInUseNowPartial);
               const _merged = {
                 ...prev,
                 smsBalanceAlert: coreData.smsBalanceAlert,
+                ledgerGapAlert: coreData.ledgerGapAlert,
                 bookings: coreData.bookings || prev.bookings,
-                utilization: coreData.utilization || prev.utilization,
+                utilization: (_coreUtilPartial && prev.utilization)
+                  ? prev.utilization
+                  : (coreData.utilization || prev.utilization),
                 actionQueue: {
                   ...(prev.actionQueue || {}),
                   paymentsToCollect: coreData.actionQueue?.paymentsToCollect || prev.actionQueue?.paymentsToCollect || [],
                   atRisk: coreData.actionQueue?.atRisk || prev.actionQueue?.atRisk || [],
-                  courtsInUseNow: coreData.actionQueue?.courtsInUseNow || prev.actionQueue?.courtsInUseNow || [],
+                  courtsInUseNow: (_coreCourtsPartial && prev.actionQueue?.courtsInUseNow)
+                    ? prev.actionQueue.courtsInUseNow
+                    : (coreData.actionQueue?.courtsInUseNow || prev.actionQueue?.courtsInUseNow || []),
                   refundsOwed: coreData.actionQueue?.refundsOwed || prev.actionQueue?.refundsOwed || [],
                   refundsOwedCount: coreData.actionQueue?.refundsOwedCount ?? prev.actionQueue?.refundsOwedCount ?? 0,
                   refundsOwedTotal: coreData.actionQueue?.refundsOwedTotal ?? prev.actionQueue?.refundsOwedTotal ?? 0
@@ -8991,6 +9203,7 @@ function ScreenDashboard() {
               // Keep the shape clean: no alert means no key at all, exactly
               // like a fresh server payload.
               if (!coreData.smsBalanceAlert) delete _merged.smsBalanceAlert;
+              if (!coreData.ledgerGapAlert) delete _merged.ledgerGapAlert;
               return _merged;
             }
             return coreData;
@@ -9065,6 +9278,41 @@ function ScreenDashboard() {
     lastFullRefreshRef.current = Date.now();
   }
 
+  /* ====================================================================
+     v149 F3 — RECORD A LEDGER ROW THE SYSTEM LOST.
+
+     tabClose commits the sale under its lock and appends the Payments row
+     after releasing it. An execution killed in between leaves money taken
+     with no ledger entry, and the review proved nothing automatic notices:
+     the v93 Revenue→Takings bridge files the gap under "Paid earlier" and
+     leaves `unexplained` at $0.00. The backend now arms a durable marker
+     before that append and clears it on success, and stamps any residue onto
+     every dashboard reply as ledgerGapAlert. This is the button on it.
+
+     It does NOT compute anything. The server re-checks whether the row is in
+     fact on the Payments sheet (the execution may have died AFTER the append
+     and before the clear) and, only if it is genuinely absent, writes the
+     row tabClose already computed — same ref, customer, amount, method and
+     staff. Owner PIN; a staff PIN is refused by the server.
+     ==================================================================== */
+  async function resolveLedgerGap(refId) {
+    if (ledgerGapFixing) return;
+    setLedgerGapFixing(refId);
+    try {
+      const r = await api("adminResolveLedgerGap", { refId: refId }, { bypassCache: true });
+      if (r && r.ok) {
+        try { if (typeof showToast === "function") showToast(r.message || "Ledger row recorded.", "success", 6000); } catch (e) {}
+        await refresh({ fresh: true });
+      } else if (isUnknownOutcome(r)) {
+        try { if (typeof showToast === "function") showToast(unknownWriteMessage("this ledger row for " + refId, r), "error", 12000); } catch (e) {}
+      } else {
+        try { if (typeof showToast === "function") showToast((r && r.error) || "Could not record it.", "error", 8000); } catch (e) {}
+      }
+    } finally {
+      setLedgerGapFixing("");
+    }
+  }
+
   /* v142 — the marker's own Refresh button. In-flight guard so a double-tap
    * cannot stack two full refreshes; whether the marker CLEARS is decided
    * solely inside refresh() by the fetch actually succeeding. */
@@ -9101,6 +9349,28 @@ function ScreenDashboard() {
     async function checkPulse() {
       // Skip if tab is in background — no point fetching for a hidden tab
       if (document.hidden) return;
+      /* v148 — and skip while THIS device is doing money: a tab/close/POS
+       * modal open or a mutation in flight. The pulse resumes on the next
+       * tick after the hold clears.
+       *
+       * v149 F5 — …BUT NOT PAST THE FAILSAFE. The comment above used to end
+       * "the 5-minute failsafe below still guarantees the dashboard can never
+       * quietly go ancient", and that was FALSE: the hold returned before the
+       * try block that contains the failsafe, so an open TabDetailModal — the
+       * one screen staff leave up for a whole settle — disabled the very
+       * guarantee the comment claimed. A tab held open through a shift showed
+       * figures of unbounded age with nothing saying so.
+       *
+       * The gate is now conditional on the dashboard NOT already being past
+       * the failsafe horizon. Normal case (figures fresher than 5 minutes):
+       * identical to v148 — the pulse is skipped and the busy-hour capacity
+       * saving is kept whole. Held case: exactly one tick is let through once
+       * the figures cross five minutes old, which is the guarantee, restored,
+       * at the cost of one adminPulse per five minutes of continuous holding.
+       */
+      const _pulseHeld = (typeof yardBusyHold === "function" && yardBusyHold());
+      const _pulseAncient = (Date.now() - (lastFullRefreshRef.current || 0)) > 5 * 60 * 1000;
+      if (_pulseHeld && !_pulseAncient) return;
       try {
         const r = await api("adminPulse", {}, { bypassCache: true });
         if (r && r.ok && r.fingerprint) {
@@ -9133,7 +9403,9 @@ function ScreenDashboard() {
       // 10 seconds — aggressive but cheap (~200 byte response per poll).
       // For 1-2 admin devices, total quota is ~14K calls/day, well under
       // the 20K Apps Script URL fetch limit.
-      pulseIntervalId = setInterval(checkPulse, 10000);
+      // v148 — plus per-device jitter (10-13.5s) so several staff devices
+      // opened together do not synchronize their pulses into one herd.
+      pulseIntervalId = setInterval(checkPulse, (typeof pollJitterMs === "function") ? pollJitterMs(10000) : 10000);
     }
     function stopPolling() {
       if (!pulseIntervalId) return;
@@ -9262,6 +9534,104 @@ function ScreenDashboard() {
               ? "PlasGate balance empty — SMS not sending. Top up now."
               : "PlasGate SMS errors — repeated send failures in the last 30 min. Check the SMS provider."}
           </span>
+        </div>
+      )}
+
+      {/* v149 F3 — PENDING LEDGER ROW. Money was taken and the Payments row
+        * the close intended was never confirmed written. This is the ONLY
+        * automatic surface that says so: the v93 bridge reclassifies the gap
+        * as "Paid earlier" and validation check 8 needs an owner to press a
+        * button. Same inline-style discipline as the SMS banner above — no
+        * CSS boundary is crossed, and it renders identically in .ui-mobile. */}
+      {data.ledgerGapAlert && data.ledgerGapAlert.count > 0 && (
+        <div
+          className="ledger-gap-banner"
+          data-ledger-gap={String(data.ledgerGapAlert.count)}
+          role="alert"
+          style={{
+            background: "#b3261e",
+            color: "#fff",
+            padding: "12px 16px",
+            borderRadius: 8,
+            marginBottom: 14,
+            fontWeight: 600
+          }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+            <span style={{ fontSize: 18, lineHeight: 1 }}>⚠</span>
+            <span>
+              {/* v151 C3 — NAMED FOR ITS SCOPE. tabClose is the ONLY path
+                * that arms a residue; posCreateSale, adminSettleCombined, the
+                * mark-paid routes, memberships and coaching payments arm
+                * nothing. An empty banner therefore means "no tab settle is
+                * missing its ledger row" and NOT "the ledger is whole", and
+                * the wording has to make that impossible to misread. */}
+              {data.ledgerGapAlert.count === 1
+                ? "TAB SETTLE: 1 tab was settled but its Payments-ledger row was not confirmed written."
+                : "TAB SETTLE: " + data.ledgerGapAlert.count + " tabs were settled but their Payments-ledger rows were not confirmed written."}
+              {" "}Takings and the accounting reports are short by {fmtMoney(data.ledgerGapAlert.total)} until this is recorded.
+              {" "}<span style={{ fontWeight: 400, opacity: 0.9 }}>
+                (This check covers TAB SETTLES only — it is not a statement about any other payment.)
+              </span>
+            </span>
+          </div>
+          {data.ledgerGapAlert.truncated && (
+            <div style={{ padding: "6px 0", borderTop: "1px solid rgba(255,255,255,0.25)", fontWeight: 500 }}>
+              Showing the {data.ledgerGapAlert.shown} newest of {data.ledgerGapAlert.count}. The rest are listed below by
+              reference so every one of them can be recorded.
+            </div>
+          )}
+          {typeof data.ledgerGapAlert.overflowArmFailures === "number" && data.ledgerGapAlert.overflowArmFailures > 0 && (
+            <div style={{ padding: "6px 0", borderTop: "1px solid rgba(255,255,255,0.25)", fontWeight: 500 }}>
+              Plus {data.ledgerGapAlert.overflowArmFailures} further settle{data.ledgerGapAlert.overflowArmFailures === 1 ? "" : "s"} that
+              could not be recorded here at all — the warning store hit its ceiling. Clear the list below, then run the
+              owner validation check to find them.
+            </div>
+          )}
+          {(data.ledgerGapAlert.rows || []).map(row => (
+            <div key={row.refId}
+              data-ledger-gap-row={row.refId}
+              style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+                       padding: "6px 0", borderTop: "1px solid rgba(255,255,255,0.25)", fontWeight: 500 }}>
+              <span>{row.refId} · {row.customer || "—"} · {fmtMoney(row.amount)} · {row.method}</span>
+              <button
+                type="button"
+                disabled={!!ledgerGapFixing}
+                onClick={() => resolveLedgerGap(row.refId)}
+                style={{ background: "#fff", color: "#b3261e", border: "none", borderRadius: 6,
+                         padding: "6px 12px", fontWeight: 700,
+                         cursor: ledgerGapFixing ? "default" : "pointer",
+                         opacity: ledgerGapFixing ? 0.6 : 1 }}>
+                {ledgerGapFixing === row.refId ? "Recording…" : "Record it now"}
+              </button>
+            </div>
+          ))}
+          {/* v151 C2 — THE ROWS BEYOND THE CAP ARE REACHABLE.
+            * The payload caps `rows` at 20 because it rides on every
+            * dashboard reply, but adminResolveLedgerGap needs nothing except
+            * a refId — so the remainder ride as bare refIds and get the same
+            * button. Before this, residue 21 and beyond were invisible AND
+            * unclearable: the repair endpoint is only reachable from a
+            * rendered row, so the banner could name a total it had no way to
+            * let anyone fix. */}
+          {(data.ledgerGapAlert.moreRefIds || []).map(refId => (
+            <div key={refId}
+              data-ledger-gap-row={refId}
+              data-ledger-gap-overflow="1"
+              style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+                       padding: "6px 0", borderTop: "1px solid rgba(255,255,255,0.25)", fontWeight: 500 }}>
+              <span>{refId}</span>
+              <button
+                type="button"
+                disabled={!!ledgerGapFixing}
+                onClick={() => resolveLedgerGap(refId)}
+                style={{ background: "#fff", color: "#b3261e", border: "none", borderRadius: 6,
+                         padding: "6px 12px", fontWeight: 700,
+                         cursor: ledgerGapFixing ? "default" : "pointer",
+                         opacity: ledgerGapFixing ? 0.6 : 1 }}>
+                {ledgerGapFixing === refId ? "Recording…" : "Record it now"}
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
@@ -11045,8 +11415,11 @@ function ScreenBookings() {
   useEffect(() => {
     const id = setInterval(() => {
       if (document.hidden) return;
+      /* v148 — hold the silent poll while this device is mid-money, and
+       * jitter the interval so devices stay staggered. */
+      if (typeof yardBusyHold === "function" && yardBusyHold()) return;
       load({ silent: true });
-    }, 20000);
+    }, (typeof pollJitterMs === "function") ? pollJitterMs(20000) : 20000);
     return () => clearInterval(id);
   }, [fetchRange.from, fetchRange.to]);
 
@@ -13783,6 +14156,8 @@ function BookingModal({ dateDefault, onClose, onCreated }) {
    to the backend as paymentMethod. Used by every "mark paid" spot that didn't
    already collect a method. */
 function PayMethodModal({ onPick, onClose }) {
+  /* v148 — the tender question IS the money moment: hold background polls. */
+  useEffect(() => { if (typeof yardHoldPush === "function") { yardHoldPush(); return () => yardHoldPop(); } }, []);
   return (
     <div className="modal-overlay" onClick={onClose} style={{ zIndex: 450 }}>
       <div className="modal" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
@@ -18430,6 +18805,10 @@ function NewTabModal({ onClose, onCreated }) {
 }
 
 function TabDetailModal({ tabId, products, onClose }) {
+  /* v148 — a money modal: while it is open, this device's background polls
+   * hold (see yardBusyHold), so the settle in front of a customer is not
+   * competing with our own dashboard pulse for server capacity. */
+  useEffect(() => { if (typeof yardHoldPush === "function") { yardHoldPush(); return () => yardHoldPop(); } }, []);
   const [data, setData] = useState(null);
   const [working, setWorking] = useState(false);
   const [showAddItem, setShowAddItem] = useState(false);
@@ -18526,12 +18905,53 @@ function TabDetailModal({ tabId, products, onClose }) {
     });
     if (r.ok) {
       retireIntent(iKey);
-      const count = lines.reduce((s, ln) => s + ln.quantity, 0);
-      showToast("Added " + count + " item" + (count === 1 ? "" : "s") + " to " + tabId, "success");
+      /* ---- v151 M1b — SAY WHAT THE SERVER SAID, NOT WHAT WE ASKED FOR ----
+       *
+       * This toast used to be `lines.reduce(...)` — the quantity the STAFF
+       * MEMBER tapped — announced as the number added, on the `r.ok` branch,
+       * which the server also takes when it recognises a re-send and appends
+       * NOTHING. `alreadyApplied` was read by zero executable code in this
+       * file. So a repeat add said "Added 5 items" while the detail installed
+       * underneath it showed the original 3, and the only surface that could
+       * have told the truth was on the response, unread.
+       *
+       * The count now comes from `r.count` (what is on the tab under this
+       * request) and `alreadyApplied` names the case out loud, because
+       * "nothing was added because it was already done" and "5 things were
+       * added" are different facts and staff act differently on them. */
+      const asked = lines.reduce((s, ln) => s + ln.quantity, 0);
+      if (r.alreadyApplied) {
+        const landed = (typeof r.count === "number") ? r.count : (r.items || []).length;
+        showToast("Already on " + tabId + " — this add had already gone through. Nothing was added a second time. "
+          + landed + " line" + (landed === 1 ? "" : "s") + (typeof r.total === "number" ? " · " + fmtMoney(r.total) : "")
+          + " " + (landed === 1 ? "is" : "are") + " on the tab.", "success", 8000);
+      } else {
+        const added = (typeof r.count === "number") ? r.count : asked;
+        showToast("Added " + added + " line" + (added === 1 ? "" : "s") + " to " + tabId, "success");
+      }
       // v99 — POS SPEED: reconcile from the response's fresh detail — zero
       // extra round-trips. Refetch only if an older backend sent none.
       if (r.detail && r.detail.ok) { setData(r.detail); setStale(""); setUnknownWrite(""); }
       else load();
+    } else if (r && r.partiallyApplied === true) {
+      /* ---- v151 M1 — A PARTIAL LANDING, SURFACED ------------------------
+       *
+       * The server refuses rather than claiming "already applied" when the
+       * rows on the tab under this request id are not the whole request —
+       * because a per-row append loop can be killed mid-batch and v149's
+       * guard answered ok/alreadyApplied to ANY nonzero row count, which is
+       * how a tab settled $8.00 for a $13.50 add.
+       *
+       * This is NOT a toast. A toast is gone in three seconds and this needs
+       * a decision: the pending lines are cleared (the server's detail is the
+       * truth about what is on the tab), the sentence stays on screen in the
+       * unknown-write banner, and every money action stays blocked until a
+       * refresh. The intent is NOT retired — tapping add again re-sends the
+       * same id and is refused again, rather than doubling whatever landed. */
+      if (r.detail && r.detail.ok) { setData(r.detail); setStale(""); }
+      else setData(prev => prev ? Object.assign({}, prev, { items: prev.items.filter(it => !it._pending) }) : prev);
+      setUnknownWrite(r.error || ("Part of this add landed on " + tabId + " and part did not — check the tab before settling."));
+      showToast(r.error || "This add landed only partially — check the tab.", "error", 12000);
     } else if (isUnknownOutcome(r)) {
       /* v135 P0-A LINK 2 — THE TIMEOUT-AFTER-COMMIT CASE.
        *
@@ -18552,9 +18972,16 @@ function TabDetailModal({ tabId, products, onClose }) {
       }) : prev);
       setUnknownWrite(unknownWriteMessage("these " + lines.length + " line" + (lines.length === 1 ? "" : "s") + " on " + tabId, r));
     } else {
-      // A DEFINITE refusal from the server: roll back the optimistic lines —
-      // tabAddItems is all-or-nothing server-side, so the pre-tap view is
-      // exactly the true state.
+      /* A DEFINITE refusal from the server: roll back the optimistic lines.
+       *
+       * v151 — the old comment here claimed "tabAddItems is all-or-nothing
+       * server-side, so the pre-tap view is exactly the true state". That was
+       * false: the appends are a per-row loop and a mid-loop failure leaves
+       * some rows written. What is true is narrower, and it is now the
+       * server's job to say so — a refusal that left rows behind arrives as
+       * `partiallyApplied` and is handled in the branch above, so by the time
+       * control reaches HERE the server has refused without writing and the
+       * pre-tap view is the true state. */
       retireIntent(iKey);
       setData(prev => prev ? Object.assign({}, prev, { items: prev.items.filter(it => !it._pending) }) : prev);
       showToast(r.error || "Failed", "error");
@@ -19568,6 +19995,8 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
 }
 
 function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTotal, playerTotal, openPlayTotal, coachingTotal, customerPhone, customerName, items, bookings, walkInPlayers, openPlayPlayers, coachingSessions, onClose, onClosed }) {
+  /* v148 — money modal: background polls hold while this is open. */
+  useEffect(() => { if (typeof yardHoldPush === "function") { yardHoldPush(); return () => yardHoldPop(); } }, []);
   const [paymentMethod, setPaymentMethod] = useState("Cash");
   const [cashReceived, setCashReceived] = useState("");
   const [discountPct, setDiscountPct] = useState(0);
@@ -30315,6 +30744,8 @@ function TournamentDetailModal({ tournamentId, onClose, onChanged, onEdit }) {
   useEffect(() => {
     const id = setInterval(() => {
       if (document.hidden) return;  // don't poll from a backgrounded tab
+      // v148 — hold while this device is mid-money (see yardBusyHold)
+      if (typeof yardBusyHold === "function" && yardBusyHold()) return;
       api("adminGetTournament", { tournamentId: tournamentId }, { bypassCache: true })
         /* v135 P0-A LINK 3 — the poll used to swallow every failure with
          * `.catch(() => {})` and ignore an `ok:false` reply entirely. It is
@@ -30328,7 +30759,7 @@ function TournamentDetailModal({ tournamentId, onClose, onChanged, onEdit }) {
           setStale((r && r.error) || "The background refresh of this tournament is failing");
         })
         .catch((e) => { setStale("The background refresh of this tournament is failing" + (e && e.message ? " (" + e.message + ")" : "")); });
-    }, 20000);
+    }, (typeof pollJitterMs === "function") ? pollJitterMs(20000) : 20000);   // v148 — stagger devices
     return () => clearInterval(id);
   }, [tournamentId]);
 
