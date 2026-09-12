@@ -3133,6 +3133,10 @@ const SLOT_MINUTES = 30;          // backend slot size
 const MIN_SLOTS = 2;              // 60 minutes minimum
 const MAX_SLOTS = 8;              // 4 hours maximum
 const BOOKING_WINDOW_DAYS = 30;
+// v157 QUOTETRUTH — how long the client waits for the inputs to settle
+// before asking the server for the authoritative price. Short, because the
+// Book button is not actionable until the answer lands (see useServerQuote).
+const QUOTE_DEBOUNCE_MS = 250;
 const FOUNDING_CAP = 20;
 
 /* ====================================================================
@@ -3290,6 +3294,20 @@ const STRINGS = {
     b_birthday_gift: "Birthday gift",
     b_founding_disc: "Founding −50%",
     b_member_disc: "Member −30%",
+    /* v157 QUOTETRUTH — the price is the server's, and the customer is told
+       when it is not settled yet. Never a silent stale number. */
+    q_confirming: "Confirming…",
+    q_upto: "up to",
+    q_confirming_note: "Confirming your rate with the courts — the final price appears here in a moment.",
+    q_failed_h: "We could not confirm the price",
+    q_failed_note: "Nothing has been booked. Tap Retry, or book at the counter.",
+    q_retry: "Retry",
+    q_cta_confirming: "Confirming price…",
+    q_cta_failed: "Price unavailable",
+    q_member_expired: "Your membership is no longer active — the price shown is now the standard rate.",
+    q_member_changed: "Your membership details changed — the price has been updated.",
+    q_bday_used: "The free birthday session does not apply to this booking — the usual member rate applies.",
+    q_promo_disc: "Promotion −{n}%",
     b_peak: "PEAK · $15/HR",
     b_offpeak: "OFF-PEAK · $13/HR",
     b_peak_line: "Peak rate",
@@ -3361,7 +3379,12 @@ const STRINGS = {
     mb_confirm_cancel_sub: "This will free your court time and notify you by SMS.",
     // H7 fix: sober refund/cutoff copy shown ADDITIONALLY when the booking
     // being cancelled was already Paid — refunds aren't automatic/online.
-    mb_confirm_cancel_paid_notice: "This booking was already paid. Refunds are handled at the front counter, not automatically — please stop by or contact us after cancelling.",
+    /* v158 §2.4 — this used to say refunds are "handled at the front counter
+       … after cancelling", which described a cancellation the server now
+       refuses. Cancelling a paid booking here would have stranded the money
+       on a row every revenue report skips. Say what actually happens. */
+    mb_confirm_cancel_paid_notice: "This booking is already paid, so it is cancelled at the front counter — our staff will cancel it and hand your money back in one go. Please stop by or contact us.",
+    mb_cancel_at_counter: "Paid — cancel at the counter",
     mb_keep: "Keep it",
     mb_confirm_cancel_yes: "Yes, cancel",
     // v68 — customer self-edit (date / time / court count before play)
@@ -3375,6 +3398,15 @@ const STRINGS = {
     eb_full: "full",
     eb_new_total: "New total",
     eb_was: "was",
+    /* v157 QUOTETRUTH — a booking edit may never reprice silently. */
+    eb_price_change_h: "This change alters the price",
+    eb_old_price: "Current price",
+    eb_new_price: "New price",
+    eb_difference: "Difference",
+    eb_more: "more",
+    eb_less: "less",
+    eb_ack: "I understand the price changes",
+    eb_ack_note: "Payment is settled at the counter. Nothing is charged online.",
     eb_no_slots: "No free slots that day — try another date.",
     eb_cutoff_note: "Changes close 30 minutes before start. We keep your same court when it's free.",
     eb_confirm: "Confirm changes",
@@ -3593,6 +3625,19 @@ const STRINGS = {
     b_birthday_gift: "កាដូខួបកំណើត",
     b_founding_disc: "ស្ថាបនិក −៥០%",
     b_member_disc: "សមាជិក −៣០%",
+    /* v157 QUOTETRUTH */
+    q_confirming: "កំពុងបញ្ជាក់…",
+    q_upto: "រហូតដល់",
+    q_confirming_note: "កំពុងបញ្ជាក់តម្លៃជាមួយប្រព័ន្ធ — តម្លៃចុងក្រោយនឹងបង្ហាញនៅទីនេះក្នុងពេលបន្តិចទៀត។",
+    q_failed_h: "យើងមិនអាចបញ្ជាក់តម្លៃបានទេ",
+    q_failed_note: "មិនទាន់មានការកក់ណាមួយឡើយ។ សូមចុច ព្យាយាមម្តងទៀត ឬកក់នៅទីលានផ្ទាល់។",
+    q_retry: "ព្យាយាមម្តងទៀត",
+    q_cta_confirming: "កំពុងបញ្ជាក់តម្លៃ…",
+    q_cta_failed: "មិនមានតម្លៃ",
+    q_member_expired: "សមាជិកភាពរបស់អ្នកលែងមានសុពលភាព — តម្លៃដែលបង្ហាញឥឡូវនេះជាតម្លៃស្តង់ដារ។",
+    q_member_changed: "ព័ត៌មានសមាជិកភាពរបស់អ្នកបានផ្លាស់ប្តូរ — តម្លៃត្រូវបានធ្វើបច្ចុប្បន្នភាព។",
+    q_bday_used: "ការលេងកាដូខួបកំណើតមិនអាចប្រើសម្រាប់ការកក់នេះបានទេ — តម្លៃសមាជិកធម្មតាត្រូវបានអនុវត្ត។",
+    q_promo_disc: "ប្រូម៉ូសិន −{n}%",
     b_peak: "ម៉ោងមមាញឹក (Peak) · $15/ម៉ោង",
     b_offpeak: "ម៉ោងធម្មតា (Off-Peak) · $13/ម៉ោង",
     b_peak_line: "តម្លៃម៉ោងមមាញឹក",
@@ -3657,7 +3702,8 @@ const STRINGS = {
     mb_confirm_cancel_sub: "តារាងនេះនឹងត្រូវបើកឱ្យអ្នកផ្សេងកក់វិញ ហើយប្រព័ន្ធនឹងជូនដំណឹងដល់អ្នកតាម SMS។",
     // H7 fix: sober refund/cutoff copy shown ADDITIONALLY when the booking
     // being cancelled was already Paid — refunds aren't automatic/online.
-    mb_confirm_cancel_paid_notice: "ការកក់នេះបានបង់ប្រាក់រួចហើយ។ ការសងប្រាក់វិញមិនមែនធ្វើដោយស្វ័យប្រវត្តិទេ សូមទំនាក់ទំនង ឬអញ្ជើញមកកាន់បញ្ជរដើម្បីសងប្រាក់វិញ បន្ទាប់ពីលុបចោលការកក់នេះ។",
+    mb_confirm_cancel_paid_notice: "ការកក់នេះបានបង់ប្រាក់រួចហើយ ដូច្នេះការលុបចោលធ្វើនៅបញ្ជរ។ បុគ្គលិកយើងនឹងលុបចោល និងសងប្រាក់វិញក្នុងពេលតែមួយ។ សូមអញ្ជើញមក ឬទំនាក់ទំនងមកយើង។",
+    mb_cancel_at_counter: "បង់ប្រាក់រួច — លុបចោលនៅបញ្ជរ",
     mb_keep: "រក្សាទុកការកក់",
     mb_confirm_cancel_yes: "បាទ/ចាស លុបចោល",
     // v68 — customer self-edit (KM)
@@ -3671,6 +3717,15 @@ const STRINGS = {
     eb_full: "ពេញ",
     eb_new_total: "តម្លៃថ្មី",
     eb_was: "ពីមុន",
+    /* v157 QUOTETRUTH */
+    eb_price_change_h: "ការកែប្រែនេះផ្លាស់ប្តូរតម្លៃ",
+    eb_old_price: "តម្លៃបច្ចុប្បន្ន",
+    eb_new_price: "តម្លៃថ្មី",
+    eb_difference: "ភាពខុសគ្នា",
+    eb_more: "ថ្លៃជាង",
+    eb_less: "ថោកជាង",
+    eb_ack: "ខ្ញុំយល់ព្រមថាតម្លៃមានការផ្លាស់ប្តូរ",
+    eb_ack_note: "ការទូទាត់ធ្វើឡើងនៅទីលានផ្ទាល់។ គ្មានការគិតប្រាក់តាមអនឡាញទេ។",
     eb_no_slots: "គ្មានម៉ោងទំនេរនៅថ្ងៃនេះទេ — សូមជ្រើសថ្ងៃផ្សេង។",
     eb_cutoff_note: "អាចកែប្រែបានរហូតដល់ ៣០ នាទីមុនម៉ោងចាប់ផ្តើម។ បើតារាងរបស់អ្នកនៅទំនេរ ប្រព័ន្ធនឹងរក្សាតារាងដដែលជូន។",
     eb_confirm: "បញ្ជាក់ការកែប្រែ",
@@ -4172,6 +4227,112 @@ function isBirthdayEligibleClient(member, dateStr, windowDays) {
   if (usedYear >= thisYear) return false;
 
   return true;
+}
+
+/* ====================================================================
+   v157 QUOTETRUTH — THE SERVER IS THE ONLY PRICE.
+   ====================================================================
+   Register §2.3: "The website carries its own copy of the pricing
+   calculation, and it is not the same calculation. The till's version has
+   five parts; the website's has two." calculatePriceClient above knows
+   about the base rate and the member discount. It does NOT know about the
+   promotion, the fair-use daily cap and surcharge, or whether this
+   customer's membership is still alive — all three of which the SERVER
+   applies when it charges. The gap between the two is money, and it always
+   ran the same direction at the counter: the customer showed the app, and
+   the owner ate the difference.
+
+   So the client stopped pricing. Every screen that shows a booking price
+   now asks calculatePrice — the SAME function createBooking and
+   updateMyBooking charge with — and shows nothing bookable until it
+   answers. This hook is that request, and it has exactly three states:
+
+     "pending"  a request is in flight (or debouncing). The Book/Confirm
+                button is NOT actionable. Any previously-received quote has
+                ALREADY been discarded — a stale number cannot outlive the
+                inputs it was computed for.
+     "ok"       `quote` is the server's answer for exactly these inputs.
+     "error"    the request failed. `quote` is null, LOUDLY: the pre-v157
+                code kept displaying the cheaper client number for ever
+                with no spinner and no error, which is how a member at the
+                surcharge tier could be quoted $40 and charged $80.
+
+   The sequence number matters as much as the cancel flag: React can leave
+   a slow earlier request in flight while a newer one resolves first, and
+   without `seq` the older, wronger answer would land last and win.
+   ==================================================================== */
+function useServerQuote(req) {
+  const [quote, setQuote] = useState(null);
+  const [status, setStatus] = useState("pending");
+  const [error, setError] = useState("");
+  const [retryTick, setRetryTick] = useState(0);
+  const seqRef = useRef(0);
+  // The request is compared by VALUE, not by identity — a re-render that
+  // rebuilds an identical object must not re-ask the server.
+  const key = JSON.stringify(req || {});
+  useEffect(() => {
+    // v157 — RETIRE THE OLD ANSWER FIRST. Not after the new one arrives,
+    // and not only on success: the instant the inputs change, the number on
+    // screen stops being an answer to the question being asked.
+    setQuote(null);
+    setStatus("pending");
+    setError("");
+    const seq = ++seqRef.current;
+    let cancelled = false;
+    const tmr = setTimeout(() => {
+      api("calculatePrice", JSON.parse(key)).then(r => {
+        if (cancelled || seq !== seqRef.current) return;
+        if (r && r.ok) { setQuote(r); setStatus("ok"); setError(""); return; }
+        setQuote(null);
+        setStatus("error");
+        setError((r && r.error) ? String(r.error) : "");
+      }).catch(err => {
+        if (cancelled || seq !== seqRef.current) return;
+        setQuote(null);
+        setStatus("error");
+        setError((err && err.message) ? String(err.message) : "");
+      });
+    }, QUOTE_DEBOUNCE_MS);
+    return () => { cancelled = true; clearTimeout(tmr); };
+  }, [key, retryTick]);
+
+  /* v158 — A QUOTE HAS NO EXPIRY, SO COMING BACK TO THE APP RE-ASKS.
+     Nothing here ages an answer out. Leave the app open on the booking
+     screen overnight and the figure on screen is a day old: the membership
+     may have lapsed in the night, the promotion may have ended at midnight,
+     the fair-use counter resets on the date, the owner may have edited the
+     rate card. The CHARGE stays correct either way — createBooking reprices
+     server-side and the confirm screen shouts when the two differ (S6d) —
+     but the promise this release is named for is that the number the
+     customer AGREES to is the number they pay, and that promise has to be
+     kept BEFORE the booking is written, not explained afterwards.
+
+     So: whenever the page returns to the foreground after having been
+     hidden, the old answer is retired (the effect above clears it and sets
+     "pending", which also un-arms the Book button) and the server is asked
+     again. Only after being hidden — a visibilitychange that merely reports
+     "still visible" must not cost a round trip, and neither must the first
+     paint. admin.html has used exactly this pattern in two places since
+     v140; this is the customer app's first. */
+  useEffect(() => {
+    if (typeof document === "undefined" || !document.addEventListener) return;
+    let wasHidden = document.hidden === true;
+    function onVisChange() {
+      if (document.hidden) { wasHidden = true; return; }
+      if (!wasHidden) return;
+      wasHidden = false;
+      setRetryTick(function (n) { return n + 1; });
+    }
+    document.addEventListener("visibilitychange", onVisChange);
+    return () => { document.removeEventListener("visibilitychange", onVisChange); };
+  }, []);
+
+  return {
+    quote: quote,
+    status: status,
+    error: error,
+    retry: function () { setRetryTick(function (n) { return n + 1; }); }
+  };
 }
 
 // Format duration (slots in 30-min increments) → "2h" / "2h 30m" / "30m"
@@ -5226,20 +5387,100 @@ function ScreenBooking({ state, setState, go, lang, config }) {
     api("getFoundingStatus").then(r => { if (r.ok) setFoundingStatus(r); });
   }, []);
 
-  /* Birthday eligibility — computed client-side from cached member info */
+  /* v157 QUOTETRUTH — THE AUTHORITATIVE QUOTE.
+     Asked for EVERY booking, member or guest, promotion or not, fair-use on
+     or off — not only when the fair-use policy happens to be running. This
+     is the same calculatePrice createBooking charges with, so membership,
+     the promotion, the daily cap and the birthday gate are all read from
+     the sheet at quote time instead of from a page-load snapshot.
+     `requestedCourts` (a count-only hint) is deliberately NOT sent as
+     `courtNumbers`: the server may assign different courts at book time, so
+     the quote takes v145 F3's worst-assignment floor, which is exactly what
+     makes quote >= charge true rather than merely likely. */
+  const quoteReq = useMemo(() => ({
+    date: date, time: time, slots: slots,
+    courts: pickedCourts.length,
+    requestedCourts: pickedCourts.join(","),
+    // v157 — SEND THE FLAG ONLY WHEN IT IS TRUE. A query string has no
+    // booleans: `useBirthday: 0` arrives at the server as the STRING "0",
+    // and both calculatePrice (`if (params.useBirthday && …)`) and
+    // createBooking (`useBirthday: !!params.useBirthday`) read a non-empty
+    // string as YES. Sending the falsy value is therefore the same as
+    // claiming the gift — it gives an eligible member a FREE session they
+    // never asked for and burns their once-a-year credit. Omitted, not
+    // zeroed. (The same omission is applied to the createBooking call in
+    // submit() below, so quote and charge ask the identical question.)
+    useBirthday: bdayClaimed ? 1 : undefined,
+    phone: state.phone || ""
+  }), [date, time, slots, pickedCourts.join(","), bdayClaimed, state.phone]);
+  const serverQuoteState = useServerQuote(quoteReq);
+  const serverQuote = serverQuoteState.quote;
+  const quoteStatus = serverQuoteState.status;
+  const quoteError = serverQuoteState.error;
+
+  /* v157 DEFECT 1 — MEMBERSHIP COMES FROM THE SERVER ON EVERY QUOTE.
+     The page used to read membership once, at load, and never again. An app
+     left on a home screen while the membership lapsed kept showing the 50%
+     founding price indefinitely while the server charged full rate. The
+     quote carries the live answer; when it disagrees with what this page
+     believed, the page changes its mind and SAYS SO. */
+  useEffect(() => {
+    if (quoteStatus !== "ok" || !serverQuote) return;
+    const srvIsMember = !!serverQuote.isMember;
+    const srvTier = String(serverQuote.memberTier || "");
+    const ownTier = String((member && member.tier) || "");
+    if (srvIsMember === isMember &&
+        (!srvIsMember || srvTier.toLowerCase() === ownTier.toLowerCase())) return;
+    setState(s => ({
+      ...s,
+      isMember: srvIsMember,
+      member: srvIsMember
+        ? { ...(s.member || {}),
+            tier: srvTier,
+            name: serverQuote.memberName || ((s.member || {}).name || ""),
+            memberNumber: serverQuote.memberNumber || ((s.member || {}).memberNumber || "") }
+        : null
+    }));
+    showToast(t(srvIsMember ? "q_member_changed" : "q_member_expired", null, lang), "error");
+  }, [quoteStatus, serverQuote]);
+
+  /* Birthday eligibility. The client window check may only HIDE the card —
+     v157 DEFECT 3: the SERVER decides whether the gift is still available,
+     because only it knows Birthday_Used_Year. Pre-v157 this read the
+     page-load member snapshot, so tapping "Book another" after claiming the
+     gift brought the card back with a live $0 claim button. */
   useEffect(() => {
     if (!isMember || !member) {
       if (bdayEligible) setBdayEligible(false);
       return;
     }
+    // Only a SETTLED quote may change the answer. While one is in flight the
+    // page holds what the server last told it — otherwise every keystroke
+    // would retract the gift for a moment and un-claim it behind the
+    // customer's back.
+    if (quoteStatus !== "ok" || !serverQuote) return;
     const windowDays = (config && config.birthdayWindowDays) || 3;
-    const eligible = isBirthdayEligibleClient(member, date, windowDays);
+    const clientWindow = isBirthdayEligibleClient(member, date, windowDays);
+    const serverSays = !!serverQuote.isBirthdayEligible;
+    const eligible = clientWindow && serverSays;
     if (eligible !== bdayEligible) setBdayEligible(eligible);
-    // If date moves out of birthday window while claimed, un-claim it.
+    // Out of the window (or the gift is spent) — un-claim it.
     if (!eligible && bdayClaimed) setBdayClaimed(false);
-  }, [isMember, member, date, config]);
+  }, [isMember, member, date, config, quoteStatus, serverQuote]);
 
-  /* Price calculation — pure client-side, instant updates */
+  /* v157 DEFECT 3 — the server refused the gift, so the page stops offering
+     it. The claim is not the client's memory; it is the server's answer. */
+  useEffect(() => {
+    if (quoteStatus !== "ok" || !serverQuote) return;
+    if (bdayClaimed && !serverQuote.isBirthdaySession) {
+      setBdayClaimed(false);
+      showToast(t("q_bday_used", null, lang), "error");
+    }
+  }, [quoteStatus, serverQuote]);
+
+  /* Client estimate — kept ONLY as the rate-bucket skeleton for the
+     itemised breakdown and as the pre-confirmation ceiling below. Every
+     dollar the customer is asked to agree to comes from the server. */
   const pricing = useMemo(() => {
     if (!config) return null;  // wait for config to load
     return calculatePriceClient({
@@ -5252,47 +5493,50 @@ function ScreenBooking({ state, setState, go, lang, config }) {
     });
   }, [config, isMember, member, bdayEligible, bdayClaimed, date, time, slots, pickedCourts.length]);
 
-  /* v76 FAIR-USE server quote. When the policy is active (config.fairUse
-     exists only then) and a member is booking, the client estimate can't
-     know how many discounted courts the member already used today (count
-     model: first K of the day at full discount, then discount + surcharge
-     up to the cap, then rack — court numbers are irrelevant) — so ask the
-     SERVER (the same calculatePrice createBooking charges with) for the
-     authoritative quote, debounced. The instant client estimate shows
-     first, then upgrades. Policy OFF (or guest / birthday booking) → this
-     does nothing: zero UI change. */
-  const [fairQuote, setFairQuote] = useState(null);
-  useEffect(() => {
-    setFairQuote(null);
-    if (!config || !config.fairUse || !isMember || bdayClaimed) return;
-    let cancelled = false;
-    const tmr = setTimeout(() => {
-      api("calculatePrice", {
-        date: date, time: time, slots: slots,
-        courts: pickedCourts.length,
-        requestedCourts: pickedCourts.join(","),
-        phone: state.phone || ""
-      }).then(r => {
-        if (!cancelled && r && r.ok) setFairQuote(r);
-      }).catch(() => {});
-    }, 350);
-    return () => { cancelled = true; clearTimeout(tmr); };
-  }, [config, isMember, bdayClaimed, date, time, slots, pickedCourts.join(","), state.phone]);
+  /* v157 — THE RACK PRICE: what this window costs with NO discount of any
+     kind. Every discount the server can apply (member, promotion, birthday)
+     only ever subtracts, so this is a true upper bound on the charge — with
+     one exception, the fair-use surcharge, which ADDS. So the ceiling is
+     offered as a "up to $X" figure only while the fair-use policy is off,
+     and while it is on the customer is shown no figure at all until the
+     server answers. An estimate on this screen is never below the charge. */
+  const rackEstimate = useMemo(() => {
+    if (!config) return null;
+    return calculatePriceClient({
+      config: config,
+      isMember: false, tier: "",
+      isBirthdayEligible: false, useBirthday: false,
+      date: date, time: time, slots: slots, courts: pickedCourts.length
+    });
+  }, [config, date, time, slots, pickedCourts.length]);
+  const estimateCeiling = (config && !config.fairUse && rackEstimate) ? rackEstimate.total : null;
 
-  /* The price shown/quoted: server fair-use quote when available, else the
-     instant client estimate. The bucket breakdown stays client-side (same
-     base math on both sides); the money fields come from the server. */
+  /* The price shown/quoted. NULL until the server has answered — there is
+     no client-computed total on this screen any more. */
   const pricingShown = useMemo(() => {
-    if (!fairQuote || !pricing) return pricing;
+    if (quoteStatus !== "ok" || !serverQuote) return null;
+    const fu = serverQuote.fairUse || null;
+    // The itemised peak/off-peak lines are presentation, not money: show
+    // them only while they still add up to the server's own base subtotal.
+    const serverBase = Math.round((serverQuote.subtotal - (fu ? fu.surcharge : 0)) * 100) / 100;
+    const bucketsAgree = !!rackEstimate && Math.abs(serverBase - rackEstimate.subtotal) < 0.005;
     return {
-      ...pricing,
-      subtotal: fairQuote.subtotal,
-      discountPct: fairQuote.discountPct,
-      discountAmount: fairQuote.discountAmount,
-      total: fairQuote.total,
-      fairUse: fairQuote.fairUse || null
+      subtotal: serverQuote.subtotal,
+      discountPct: serverQuote.discountPct,
+      discountAmount: serverQuote.discountAmount,
+      total: serverQuote.total,
+      isMember: !!serverQuote.isMember,
+      memberTier: serverQuote.memberTier || "",
+      isBirthdayEligible: !!serverQuote.isBirthdayEligible,
+      isBirthdaySession: !!serverQuote.isBirthdaySession,
+      promoApplied: !!serverQuote.promoApplied,
+      promoPct: serverQuote.promoPct || 0,
+      promoLabel: serverQuote.promoLabel || "",
+      breakdown: bucketsAgree ? rackEstimate.breakdown : [],
+      isMixed: bucketsAgree && rackEstimate.isMixed,
+      fairUse: fu
     };
-  }, [pricing, fairQuote]);
+  }, [quoteStatus, serverQuote, rackEstimate]);
 
   /* Convert backend slots → wheel format */
   const wheelSlots = useMemo(() => {
@@ -5389,6 +5633,10 @@ function ScreenBooking({ state, setState, go, lang, config }) {
 
   function ctaLabel() {
     if (isGuest && !guestName.trim()) return t("b_cta_add_name", null, lang);
+    // v157 QUOTETRUTH — the button says what it is doing. It is not
+    // actionable on an unconfirmed price, and a failed quote is LOUD.
+    if (quoteStatus === "error") return t("q_cta_failed", null, lang);
+    if (quoteStatus !== "ok") return t("q_cta_confirming", null, lang);
     if (bdayClaimed) return t("b_cta_claim", null, lang);
     return t("b_cta_confirm", null, lang);
   }
@@ -5413,11 +5661,18 @@ function ScreenBooking({ state, setState, go, lang, config }) {
     if (submitting) return true;
     if (courtAvailability.available.length === 0) return true;
     if (isPastStart) return true;   // can't book a start time that already passed today
+    // v157 QUOTETRUTH — THE BOOK BUTTON WAITS FOR THE PRICE. Pre-v157 it did
+    // not: the fair-use quote arrived 350ms later and the button was live the
+    // whole time, so a customer could commit at a number the server never
+    // agreed to. Now an unconfirmed or failed quote is simply not bookable.
+    if (quoteStatus !== "ok" || !pricingShown) return true;
     return false;
   }
 
   async function submit() {
     if (ctaDisabled()) return;
+    // v157 — defence in depth: no write on an unconfirmed price, ever.
+    if (quoteStatus !== "ok" || !pricingShown) return;
     if (submittingRef.current) return;   // synchronous double-tap guard
     submittingRef.current = true;
     setSubmitting(true);
@@ -5438,7 +5693,9 @@ function ScreenBooking({ state, setState, go, lang, config }) {
         // honors requestedCourts when free, else falls back. `courts` (count)
         // kept for backward compatibility.
         requestedCourts: pickedCourts.join(","),
-        useBirthday: bdayClaimed ? 1 : 0,
+        // v157 — see quoteReq above: `0` on the wire is the string "0", which
+        // the server reads as a CLAIM. Omitted unless the gift was claimed.
+        useBirthday: bdayClaimed ? 1 : undefined,
         source: "Web",
         clientRequestId: intentRequestId(_iKey)
       });
@@ -5507,11 +5764,12 @@ function ScreenBooking({ state, setState, go, lang, config }) {
         showToast(_err || t("error", null, lang), "error");
         return;
       }
-      // H3: stash the client quote so the confirm screen can reconcile it
-      // against the server's settled total and flag any mismatch.
-      // v71: quote from the fair-use-aware shown price so an honest cap /
-      // premium adjustment is never flagged as a mismatch.
-      const quotedTotal = pricingShown ? pricingShown.total : (pricing ? pricing.total : null);
+      // H3: stash the quote so the confirm screen can reconcile it against
+      // the server's settled total and flag any mismatch.
+      // v157: pricingShown IS the server's confirmed quote — there is no
+      // client-computed fallback any more, so this comparison is now a real
+      // quote-vs-charge check rather than a comparison of two guesses.
+      const quotedTotal = pricingShown ? pricingShown.total : null;
       const requestedCourts = pickedCourts.join(",");
       setState(s => ({ ...s, confirmation: r.confirmation, quotedTotal: quotedTotal, requestedCourts: requestedCourts }));
       // M9 fix: persist so a refresh on the confirmation screen restores it
@@ -5752,7 +6010,18 @@ function ScreenBooking({ state, setState, go, lang, config }) {
               {pricingShown.discountPct > 0 && pricingShown.discountPct < 100 && (
                 <div className="price-row discount">
                   <span className="k">
-                    {pricingShown.fairUse && pricingShown.fairUse.maxCourtsPerDay > 0
+                    {/* v157 DEFECT 5 (the mirror) — THE PROMOTION IS SHOWN.
+                        It exists on the server (PROMO_ACTIVE / PROMO_PCT /
+                        PROMO_LABEL, applied inside calculatePrice) and the
+                        customer site did not read it at all, so the owner
+                        would have paid for a launch offer his own booking
+                        page never displayed. The quote carries promoApplied
+                        / promoPct / promoLabel; this is where they land. */}
+                    {pricingShown.promoApplied
+                      ? (pricingShown.promoLabel
+                          ? pricingShown.promoLabel + " −" + pricingShown.promoPct + "%"
+                          : t("q_promo_disc", { n: pricingShown.promoPct }, lang))
+                      : pricingShown.fairUse && pricingShown.fairUse.maxCourtsPerDay > 0
                       ? t("b_fairuse_disc", { n: pricingShown.fairUse.maxCourtsPerDay }, lang)
                       : (isFounding ? t("b_founding_disc", null, lang) : t("b_member_disc", null, lang))}
                     {/* v112 — ENTRY POINT (c): a quiet "ⓘ what's this?" next to
@@ -5820,10 +6089,65 @@ function ScreenBooking({ state, setState, go, lang, config }) {
                 <span>{t("b_pay_at_counter", null, lang)}</span>
               </div>
             </>
-          ) : (
-            <div style={{ padding: 10, textAlign: "center", opacity: 0.7 }}>
-              <BouncingBall size="sm" />
+          ) : quoteStatus === "error" ? (
+            /* v157 DEFECT 2 — A FAILED QUOTE IS LOUD. Pre-v157 the request
+               failed silently and the page kept showing the cheaper
+               client-computed number for ever, with no spinner and no error.
+               There is now no number to keep: the row says so, the reason the
+               server gave is printed, Book is not actionable, and Retry
+               re-asks. Styling is inline — v157 adds NO CSS to this file. */
+            <div className="price-quote-failed" style={{ padding: "10px 2px" }}>
+              <div className="price-row" style={{ color: "var(--clay)", fontWeight: 700 }}>
+                <span className="k">{t("q_failed_h", null, lang)}</span>
+                <span className="v">—</span>
+              </div>
+              {quoteError ? (
+                <div className="hint" style={{ margin: "2px 0 6px", color: "var(--clay)", opacity: 0.9 }}>
+                  {quoteError}
+                </div>
+              ) : null}
+              <div className="hint" style={{ margin: "2px 0 8px" }}>{t("q_failed_note", null, lang)}</div>
+              <button
+                className="quote-retry"
+                onClick={() => serverQuoteState.retry()}
+                style={{
+                  background: "var(--ink)", color: "var(--cream)", border: "none",
+                  padding: "8px 18px", fontFamily: "var(--mono)", fontSize: 12,
+                  letterSpacing: "0.1em", cursor: "pointer", borderRadius: 2
+                }}
+              >
+                {t("q_retry", null, lang)}
+              </button>
             </div>
+          ) : (
+            /* v157 — CONFIRMING. The line items are live and instant; the
+               money is not asserted until the server has spoken. When the
+               fair-use policy is OFF the rack figure IS a true ceiling
+               (every server discount only subtracts), so it is offered as
+               "up to $X" — never as the price, and never below the charge.
+               With the policy ON the surcharge can exceed the discount, so
+               no figure is shown at all. */
+            <>
+              {estimateCeiling != null ? (
+                <div className="price-row">
+                  <span className="k">
+                    {formatDuration(slots)} × {pickedCourts.length} {pickedCourts.length > 1 ? t("c_courts", null, lang).toLowerCase() : t("c_court", null, lang).toLowerCase()} · {peakLabel.toLowerCase()}
+                  </span>
+                  <span className="v" key={"v-ceil-" + estimateCeiling}>
+                    {t("q_upto", null, lang)} ${estimateCeiling.toFixed(2)}
+                  </span>
+                </div>
+              ) : null}
+              <div className="rule" style={{ margin: "10px 0 6px" }} />
+              <div className="price-row total">
+                <span className="k">{t("b_total", null, lang)}</span>
+                <span className="v">{t("q_confirming", null, lang)}</span>
+              </div>
+              <div className="hint" style={{ margin: "4px 0 10px", display: "flex", alignItems: "center", gap: 8 }}>
+                <BouncingBall size="sm" />
+                <span>{t("q_confirming_note", null, lang)}</span>
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -5910,6 +6234,11 @@ function ScreenConfirm({ state, setState, go, lang }) {
   // different number, surface a gentle informational notice (not an error).
   const quoted = (state.quotedTotal != null) ? Number(state.quotedTotal) : null;
   const priceMismatch = (quoted != null && c.total != null && Math.abs(quoted - c.total) > 0.01);
+  /* v157 QUOTETRUTH — quote >= charge is the promise. A charge BELOW the
+     quote is the promise working (the counter surprises you pleasantly) and
+     stays a quiet note. A charge ABOVE the quote is the promise BROKEN, and
+     the customer must be told loudly enough to raise it before they pay. */
+  const chargedAboveQuote = (quoted != null && c.total != null && (Number(c.total) - quoted) > 0.01);
 
   return (
     <div className="screen scr-pad-top">
@@ -6000,10 +6329,19 @@ function ScreenConfirm({ state, setState, go, lang }) {
           </span>
         </div>
         {priceMismatch && (
-          <div className="hint" style={{ marginTop: 6, color: "var(--ink)", opacity: 0.85 }}>
-            {lang === "km"
-              ? "តម្លៃ​ចុង​ក្រោយ​ត្រូវ​បាន​បញ្ជាក់​ត្រឹម $" + c.total.toFixed(2)
-              : "Final price confirmed at $" + c.total.toFixed(2)}
+          <div
+            className={chargedAboveQuote ? "hint price-above-quote" : "hint"}
+            style={chargedAboveQuote
+              ? { marginTop: 6, color: "var(--clay)", fontWeight: 700, opacity: 1 }
+              : { marginTop: 6, color: "var(--ink)", opacity: 0.85 }}
+          >
+            {chargedAboveQuote
+              ? (lang === "km"
+                  ? "តម្លៃ​ចុង​ក្រោយ $" + c.total.toFixed(2) + " ខ្ពស់​ជាង​តម្លៃ​ដែល​អ្នក​បាន​ឃើញ ($" + quoted.toFixed(2) + ") — សូម​ប្រាប់​បុគ្គលិក​នៅ​ទីលាន​មុន​ពេល​ទូទាត់។"
+                  : "The final price $" + c.total.toFixed(2) + " is HIGHER than the $" + quoted.toFixed(2) + " you were quoted — please raise this at the counter before you pay.")
+              : (lang === "km"
+                  ? "តម្លៃ​ចុង​ក្រោយ​ត្រូវ​បាន​បញ្ជាក់​ត្រឹម $" + c.total.toFixed(2)
+                  : "Final price confirmed at $" + c.total.toFixed(2))}
           </div>
         )}
       </div>
@@ -6451,10 +6789,28 @@ function ScreenMyBookings({ state, setState, go, lang, config }) {
                         {t("mb_edit", null, lang)}
                       </button>
                     )}
-                    <button className="ulink" style={{ fontSize: 12, color: "var(--clay)", borderColor: "var(--clay)" }}
-                      onClick={() => setCancelTarget(b)}>
-                      {t("mb_cancel", null, lang)}
-                    </button>
+                    {/* v158 §2.4 — A PAID BOOKING IS CANCELLED AT THE COUNTER.
+                        The server now REFUSES a self-cancellation once the
+                        money has moved (cancelBooking, the same rule open play
+                        has enforced since v53): cancelling marked the row
+                        cancelled, freed the courts and touched the ledger not
+                        at all, which left the customer's money on a row every
+                        revenue report skips. The small print saying refunds
+                        are handled at the counter was a sentence, not a rule.
+                        Rather than offer a button the server will refuse, the
+                        card says where to go. Same three conditions as the
+                        server: Paid, on an open tab, or settled in a POS
+                        sale. */}
+                    {(String(b.paymentStatus || "").toLowerCase() === "paid" || b.tabId || b.posSaleId) ? (
+                      <span style={{ fontSize: 12, color: "var(--clay)", opacity: 0.95 }}>
+                        {t("mb_cancel_at_counter", null, lang)}
+                      </span>
+                    ) : (
+                      <button className="ulink" style={{ fontSize: 12, color: "var(--clay)", borderColor: "var(--clay)" }}
+                        onClick={() => setCancelTarget(b)}>
+                        {t("mb_cancel", null, lang)}
+                      </button>
+                    )}
                   </span>
                 </div>
               </div>
@@ -6715,40 +7071,58 @@ function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, on
     });
   }, [config, state.isMember, state.member, date, time, slots, courtCount]);
 
-  // v71 FAIR-USE server quote (policy active + member only — config.fairUse
-  // exists only while active). excludeBookingId: repricing THIS booking must
-  // not count itself against the daily cap — same param updateMyBooking
-  // passes on the actual charge. Policy OFF → effect no-ops, UI unchanged.
-  const [fairQuote, setFairQuote] = useState(null);
-  useEffect(() => {
-    setFairQuote(null);
-    if (!config || !config.fairUse || !state.isMember) return;
-    let cancelled = false;
-    const tmr = setTimeout(() => {
-      api("calculatePrice", {
-        date: date, time: time, slots: slots, courts: courtCount,
-        requestedCourts: (chosenCourts.length ? chosenCourts.join(",") : String(booking.courtNumbers || "")),
-        excludeBookingId: booking.bookingId,
-        phone: state.phone || ""
-      }).then(r => { if (!cancelled && r && r.ok) setFairQuote(r); }).catch(() => {});
-    }, 350);
-    return () => { cancelled = true; clearTimeout(tmr); };
-  }, [config, state.isMember, date, time, slots, courtCount, chosenCourts.join(","), state.phone]);
+  /* v157 QUOTETRUTH — the edit screen asks the server for the price too,
+     always, not only while the fair-use policy is running. excludeBookingId:
+     repricing THIS booking must not count itself against the daily cap —
+     the same param updateMyBooking passes on the actual charge. */
+  const quoteReq = useMemo(() => ({
+    date: date, time: time, slots: slots, courts: courtCount,
+    requestedCourts: (chosenCourts.length ? chosenCourts.join(",") : String(booking.courtNumbers || "")),
+    excludeBookingId: booking.bookingId,
+    phone: state.phone || ""
+  }), [date, time, slots, courtCount, chosenCourts.join(","), booking.bookingId, booking.courtNumbers, state.phone]);
+  const serverQuoteState = useServerQuote(quoteReq);
+  const serverQuote = serverQuoteState.quote;
+  const quoteStatus = serverQuoteState.status;
+  const quoteError = serverQuoteState.error;
 
   const pricing = useMemo(() => {
-    if (!fairQuote || !clientPricing) return clientPricing;
+    if (quoteStatus !== "ok" || !serverQuote) return null;
     return {
-      ...clientPricing,
-      subtotal: fairQuote.subtotal,
-      discountPct: fairQuote.discountPct,
-      discountAmount: fairQuote.discountAmount,
-      total: fairQuote.total,
-      fairUse: fairQuote.fairUse || null
+      ...(clientPricing || {}),
+      subtotal: serverQuote.subtotal,
+      discountPct: serverQuote.discountPct,
+      discountAmount: serverQuote.discountAmount,
+      total: serverQuote.total,
+      isMember: !!serverQuote.isMember,
+      memberTier: serverQuote.memberTier || "",
+      promoApplied: !!serverQuote.promoApplied,
+      promoPct: serverQuote.promoPct || 0,
+      promoLabel: serverQuote.promoLabel || "",
+      fairUse: serverQuote.fairUse || null
     };
-  }, [clientPricing, fairQuote]);
+  }, [clientPricing, quoteStatus, serverQuote]);
+
+  /* v157 DEFECT 4 — NO SILENT REPRICE. Pre-v157 a self-edit recalculated the
+     price from scratch and wrote it to the sheet with no comparison and no
+     notice at all: reschedule an off-peak slot into peak, or reschedule
+     after a promotion ended, and the number changed under a green "Updated".
+     The customer now sees the old price, the new price and the difference,
+     and must acknowledge them before anything is written. */
+  const oldTotal = Number(booking.total || 0);
+  const newTotal = pricing ? Number(pricing.total) : null;
+  const priceDelta = (newTotal === null || isNaN(newTotal)) ? null : Math.round((newTotal - oldTotal) * 100) / 100;
+  const needsPriceAck = priceDelta !== null && Math.abs(priceDelta) > 0.005;
+  const [priceAck, setPriceAck] = useState(false);
+  // Any change to the booking invalidates an acknowledgement of the OLD one.
+  useEffect(() => { setPriceAck(false); }, [date, time, slots, courtCount, chosenCourts.join(","), newTotal]);
 
   async function submit(explicitCourts) {
     if (savingRef.current || saving) return;
+    // v157 — nothing is written on an unconfirmed price, and nothing is
+    // written on a CHANGED price the customer has not acknowledged.
+    if (quoteStatus !== "ok" || !pricing) return;
+    if (needsPriceAck && !priceAck) return;
     // With a server-provided court list we trust IT over the (possibly
     // stale) client grid; otherwise the picker gate applies as before.
     if (!explicitCourts && (!chosen || feasibleHere < courtCount)) return;
@@ -6873,7 +7247,7 @@ function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, on
           </div>
         </div>
 
-        {/* Price preview */}
+        {/* Price preview — v157: the SERVER's number, or nothing at all. */}
         {pricing && (
           <div style={{ marginTop: 14, padding: "10px 12px", background: "rgba(26,26,26,0.04)", borderRadius: 4, fontFamily: "var(--mono)", fontSize: 13, display: "flex", justifyContent: "space-between" }}>
             <span style={{ opacity: 0.7 }}>{t("eb_new_total", null, lang)}</span>
@@ -6885,6 +7259,67 @@ function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, on
                 </span>
               )}
             </span>
+          </div>
+        )}
+        {!pricing && quoteStatus === "error" && (
+          <div className="eb-quote-failed" style={{ marginTop: 14, padding: "10px 12px", border: "1.5px solid var(--clay)", borderRadius: 4, fontFamily: "var(--mono)", fontSize: 12, color: "var(--clay)" }}>
+            <div style={{ fontWeight: 700 }}>{t("q_failed_h", null, lang)}</div>
+            {quoteError ? <div style={{ marginTop: 4, opacity: 0.9 }}>{quoteError}</div> : null}
+            <button
+              className="quote-retry"
+              onClick={() => serverQuoteState.retry()}
+              disabled={saving}
+              style={{ marginTop: 8, background: "var(--ink)", color: "var(--cream)", border: "none", padding: "6px 14px", fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.1em", cursor: "pointer", borderRadius: 2 }}
+            >
+              {t("q_retry", null, lang)}
+            </button>
+          </div>
+        )}
+        {!pricing && quoteStatus !== "error" && (
+          <div className="eb-quote-pending" style={{ marginTop: 14, padding: "10px 12px", background: "rgba(26,26,26,0.04)", borderRadius: 4, fontFamily: "var(--mono)", fontSize: 13, display: "flex", justifyContent: "space-between" }}>
+            <span style={{ opacity: 0.7 }}>{t("eb_new_total", null, lang)}</span>
+            <span>{t("q_confirming", null, lang)}</span>
+          </div>
+        )}
+        {/* v157 DEFECT 4 — the reprice, itemised and acknowledged. */}
+        {needsPriceAck && (
+          <div className="eb-price-change" style={{ marginTop: 10, padding: 12, border: "1.5px solid var(--clay)", borderRadius: 4, background: "rgba(198,79,58,0.06)" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--clay)", marginBottom: 8 }}>
+              {t("eb_price_change_h", null, lang)}
+            </div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 12, display: "flex", justifyContent: "space-between" }}>
+              <span style={{ opacity: 0.75 }}>{t("eb_old_price", null, lang)}</span>
+              <span className="eb-old-price">${oldTotal.toFixed(2)}</span>
+            </div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 12, display: "flex", justifyContent: "space-between", marginTop: 3 }}>
+              <span style={{ opacity: 0.75 }}>{t("eb_new_price", null, lang)}</span>
+              <span className="eb-new-price">${Number(newTotal).toFixed(2)}</span>
+            </div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 12, fontWeight: 700, display: "flex", justifyContent: "space-between", marginTop: 3, color: "var(--clay)" }}>
+              <span>{t("eb_difference", null, lang)}</span>
+              <span className="eb-price-delta">
+                {(priceDelta > 0 ? "+" : "−") + "$" + Math.abs(priceDelta).toFixed(2)}
+                {" "}{priceDelta > 0 ? t("eb_more", null, lang) : t("eb_less", null, lang)}
+              </span>
+            </div>
+            {pricing && pricing.promoApplied && (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 11, marginTop: 6, opacity: 0.8 }}>
+                {pricing.promoLabel
+                  ? pricing.promoLabel + " −" + pricing.promoPct + "%"
+                  : t("q_promo_disc", { n: pricing.promoPct }, lang)}
+              </div>
+            )}
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 12, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                className="eb-price-ack"
+                checked={priceAck}
+                disabled={saving}
+                onChange={(e) => setPriceAck(e.target.checked)}
+              />
+              <span>{t("eb_ack", null, lang)}</span>
+            </label>
+            <div style={{ fontSize: 11, opacity: 0.65, marginTop: 6 }}>{t("eb_ack_note", null, lang)}</div>
           </div>
         )}
         {/* v76 — fair-use detail under the total when the policy shaped it */}
@@ -6951,10 +7386,16 @@ function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, on
             disabled={
               saving || availSlots === null ||
               (!courtPick && (!chosen || feasibleHere < courtCount)) ||
-              (courtPick && chosenCourts.length !== courtPick.needed)
+              (courtPick && chosenCourts.length !== courtPick.needed) ||
+              /* v157 — unconfirmed price, or an unacknowledged reprice. */
+              quoteStatus !== "ok" || !pricing ||
+              (needsPriceAck && !priceAck)
             }
           >
-            {saving ? t("loading", null, lang) : t("eb_confirm", null, lang)}
+            {saving ? t("loading", null, lang)
+              : quoteStatus === "error" ? t("q_cta_failed", null, lang)
+              : quoteStatus !== "ok" ? t("q_cta_confirming", null, lang)
+              : t("eb_confirm", null, lang)}
           </button>
         </div>
 
