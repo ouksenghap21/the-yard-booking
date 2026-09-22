@@ -3073,7 +3073,7 @@ h1.h-display{ text-wrap:balance; }
   // STEP 2 — refresh from network
   function refresh() {
     var url = API_URL + "?action=listPublicTournaments";
-    fetchWithTimeout(url, 8000)
+    fetchWithTimeout(url, 20000)   /* v179 — was 8000 ms, below the live floor outlier (9.4 s measured); listPublicTournaments measured 4.0 s */
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (!data || !data.ok) return;
@@ -3830,6 +3830,29 @@ function t(key, vars, lang) {
 /* v135 — the abort budget, named once instead of being a literal inside the
    fetch call. Unchanged at 25 s; see api()'s AbortError branch. */
 var API_TIMEOUT_MS = 25000;
+/* v179 — A PER-ACTION BUDGET, like admin.html has had since v134. One flat
+   25 s covered a 1-round-trip getFoundingStatus and a ~20-round-trip
+   createBooking that also waits up to 15 s on a script-wide lock shared with
+   the counter. MEASURED on the live deployment 2026-09-18: the per-request
+   floor on a no-op was 3.1 / 4.5 / 5.8 s (min / median / max), 9.4 s once;
+   getAvailability alone measured 8.0 s. A booking on a normal evening
+   (5.8 s floor + ~8 s work + a full 15 s lock wait) is ~29 s — over the
+   budget, with the court already booked when the abort fires. */
+var API_ACTION_TIMEOUT_MS = {
+  createBooking: 40000,
+  updateMyBooking: 40000,
+  cancelBooking: 30000,
+  registerForOpenPlay: 35000,
+  registerForTournament: 35000,
+  cancelMyOpenPlayRegistration: 30000,
+  cancelMyTournamentRegistration: 30000,
+  getAvailability: 30000,
+  getMyActivity: 30000
+};
+function _apiTimeoutMs(action) {
+  var t = API_ACTION_TIMEOUT_MS[action];
+  return (typeof t === "number" && t > 0) ? t : API_TIMEOUT_MS;
+}
 
 var MUTATING_ACTIONS = new Set([
   "createBooking", "cancelBooking", "updateMyBooking", "cancelMyOpenPlayRegistration",
@@ -3880,7 +3903,7 @@ function intentRequestId(key) {
 function retireIntent(key) { delete _intentIds[key]; }
 /* `timedOut` is set by api()'s AbortError branch below. A caller that reads
    it must not tell the customer the request failed. */
-function isUnknownOutcome(r) { return !!(r && r.ok === false && r.timedOut === true); }
+function isUnknownOutcome(r) { return !!(r && r.ok === false && (r.timedOut === true || r._transient === true)); }   // v179 F1 — a transport failure is an unknown outcome
 /* One sentence, in both languages, for "we do not know whether that went
    through". It never says failed and it never invites a second tap. */
 function unknownOutcomeText(what, lang) {
@@ -3892,10 +3915,50 @@ function unknownOutcomeText(what, lang) {
        + "please do not tap twice.");
 }
 
+/* v179 — A SOFT CACHE FOR THE TWO READS EVERY SCREEN ASKS FOR.
+   getFoundingStatus is fetched from four separate components (landing,
+   phone, booking, open play) with no cache and no de-duplication; getConfig
+   from the landing. Each is one small sheet read behind the 3-5 s
+   per-request floor measured on 2026-09-18 (getFoundingStatus: 5.1 s live).
+   A customer walking landing -> phone -> booking paid ~15 s of floor for one
+   338-cell answer. Both are read-only and change on the order of days, so a
+   short sessionStorage memo plus in-flight de-duplication costs nothing in
+   correctness and removes three cold executions from every visit. Mutations
+   never come through here. */
+var SOFT_CACHE_TTL_MS = { getFoundingStatus: 120000, getConfig: 300000 };
+var _softCacheInflight = {};
+function _softCacheGet(action) {
+  try {
+    var raw = sessionStorage.getItem("yard-soft:" + action);
+    if (!raw) return null;
+    var e = JSON.parse(raw);
+    if (!e || typeof e.t !== "number" || Date.now() - e.t > SOFT_CACHE_TTL_MS[action]) return null;
+    return e.d;
+  } catch (e) { return null; }
+}
+function _softCachePut(action, data) {
+  try { sessionStorage.setItem("yard-soft:" + action, JSON.stringify({ t: Date.now(), d: data })); } catch (e) {}
+}
+
 async function api(action, params) {
   if (!API_URL || API_URL.includes("PASTE_YOUR")) {
     return { ok: false, error: "API_URL not configured. Paste your deployed Apps Script /exec URL into the API_URL constant." };
   }
+  if (SOFT_CACHE_TTL_MS[action] && (!params || Object.keys(params).length === 0)) {
+    var _hit = _softCacheGet(action);
+    if (_hit) return _hit;
+    if (_softCacheInflight[action]) return _softCacheInflight[action];
+    _softCacheInflight[action] = _apiRaw(action, params).then(function (r) {
+      delete _softCacheInflight[action];
+      if (r && r.ok) _softCachePut(action, r);
+      return r;
+    }, function (e) { delete _softCacheInflight[action]; throw e; });
+    return _softCacheInflight[action];
+  }
+  return _apiRaw(action, params);
+}
+
+async function _apiRaw(action, params) {
 
   const url = new URL(API_URL);
   url.searchParams.set("action", action);
@@ -3927,10 +3990,15 @@ async function api(action, params) {
     // small writes and a longer budget would only delay a genuinely dead
     // request in a customer's hand.
     const ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
-    const timeoutId = ctrl ? setTimeout(() => ctrl.abort(), API_TIMEOUT_MS) : null;
+    const _budget = _apiTimeoutMs(action);
+    const timeoutId = ctrl ? setTimeout(() => ctrl.abort(), _budget) : null;
     const resp = await fetch(url.toString(), { method: "GET", signal: ctrl ? ctrl.signal : undefined });
     if (timeoutId) clearTimeout(timeoutId);
-    if (!resp.ok) return { ok: false, error: "HTTP " + resp.status };
+    /* v179 F1 (customer site) — an HTTP error is NOT a server verdict. A 500
+       or 429 out of the Apps Script front door says nothing about whether
+       the execution ran; for a mutation that is an unknown outcome, and the
+       intent id must survive so the next tap is recognised as a repeat. */
+    if (!resp.ok) return { ok: false, _transient: true, error: "HTTP " + resp.status };
     const data = await resp.json();
     return data;
   } catch (err) {
@@ -3946,12 +4014,31 @@ async function api(action, params) {
         timedOut: true,
         isMutation: MUTATING_ACTIONS.has(action),
         error: MUTATING_ACTIONS.has(action)
-          ? ("The connection timed out after " + Math.round(API_TIMEOUT_MS / 1000)
+          ? ("The connection timed out after " + Math.round(_apiTimeoutMs(action) / 1000)
              + "s. The server may still have completed this — reload and check before trying again.")
-          : ("Request timed out after " + Math.round(API_TIMEOUT_MS / 1000) + "s. Check your connection and retry.")
+          : ("Request timed out after " + Math.round(_apiTimeoutMs(action) / 1000) + "s. Check your connection and retry.")
       };
     }
-    return { ok: false, error: err.message || "Network error" };
+    /* v179 F1 (customer site) — the same fix admin.html got in v178: an
+       exception out of fetch() is NEVER a server verdict. This branch used
+       to return a bare {ok:false}, and submit() then RETIRED the intent id
+       ("if (!r.ok) retireIntent(...)"), so a customer on iPhone Safari whose
+       mobile connection dropped AFTER createBooking committed got a fresh
+       clientRequestId on the next tap — and a second booking. Every
+       exception is `_transient`; isUnknownOutcome reads it; the intent
+       survives; the server refuses the repeat. The wording is for the
+       customer, never for the classification. */
+    const _m = String(err && err.message ? err.message : err || "").toLowerCase();
+    const _net = _m.indexOf("failed to fetch") >= 0 || _m.indexOf("load failed") >= 0
+      || _m.indexOf("network connection was lost") >= 0 || _m.indexOf("networkerror") >= 0
+      || _m.indexOf("network request failed") >= 0 || _m.indexOf("internet connection") >= 0;
+    return {
+      ok: false, _transient: true, connectionLost: true,
+      isMutation: MUTATING_ACTIONS.has(action),
+      error: MUTATING_ACTIONS.has(action)
+        ? "The connection dropped before an answer came back. The server may still have completed this — reload and check before trying again."
+        : (_net ? "Network error. Check your connection and retry." : ("Connection problem (" + (err && err.message ? err.message : "no detail") + "). Check your connection and retry."))
+    };
   }
 }
 
@@ -5227,8 +5314,23 @@ function ScreenOTP({ state, setState, go, lang }) {
     setResendIn(60);
     const r = await api("sendOTP", { phone: state.phone });
     if (r.ok && r.sent !== false) otpSendGuardRecord();
-    if (!r.ok) showToast(r.error || t("error", null, lang), "error");
-    else showToast(lang === "km" ? "បាន​ផ្ញើ" : "Sent", "success");
+    if (!r.ok) { showToast(r.error || t("error", null, lang), "error"); return; }
+    /* v180 F8 — "SENT" WAS A LIE WHENEVER THE BUDGET CAPPED THE SEND.
+       sendOTP answers ok:true even when no SMS went out; the delivery result
+       is in r.sent, and since v178 F3 it routinely comes back
+       { ok:true, sent:false, error:… } when the daily SMS budget refuses the
+       message. This branch showed a green "Sent" for all of it, so a customer
+       whose code was never sent sat waiting for a text that was never coming
+       and re-tapped Resend into the same cap. Same shape as the FIRST-send
+       path in ScreenPhone: r.sent === false is explicit so a backend that
+       predates the field stays backward-compatible. */
+    if (r.sent === false) {
+      showToast(r.error || (lang === "km"
+        ? "មិនអាចផ្ញើកូដបានទេ។ សូមព្យាយាមម្តងទៀតនៅពេលក្រោយ។"
+        : "We couldn't send your code. Please try again in a moment."), "error");
+      return;
+    }
+    showToast(lang === "km" ? "បាន​ផ្ញើ" : "Sent", "success");
   }
 
   const last3 = state.phone ? state.phone.slice(-3) : "···";
