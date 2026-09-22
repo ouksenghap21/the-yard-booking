@@ -5786,6 +5786,12 @@ function setStoredPin(v) {
 function isAuthFailure(r) {
   if (!r || r.ok === true) return false;
   if (r.code === "FORBIDDEN_TAB" || r.code === "OWNER_ONLY") return false;
+  /* v178 F4 (panel half) — a gate that could not RUN is not a wrong PIN.
+     route() now refuses with code:"AUTH" + _transientGate:true when
+     _staffActionGate throws (a Sheets/Properties blip at busy hour). Without
+     this line that refusal wiped the stored PIN and dropped the cashier to
+     the login screen mid-shift. It is transient: keep the session, retry. */
+  if (r._transientGate === true) return false;
   if (r.code === "AUTH") return true;
   return /^unauthorized$/i.test(String((r && r.error) || "").trim());
 }
@@ -6041,6 +6047,95 @@ const API_CACHE_TTL = {
 const _apiCache = new Map();
 const _inflightFetches = new Map();
 
+/* ===========================================================================
+ * v179 P1 — THE TAB BUNDLE AND THE SCREEN'S OWN LOADERS STOP RACING.
+ * ===========================================================================
+ *
+ * WHAT WAS HAPPENING. go(id) called setScreen(id) and fireTabBundle(id) in
+ * the SAME TICK. fireTabBundle issues adminTabBundle{tab} with
+ * bypassCache:true; React then mounts the screen, whose mount effect fires
+ * its own loaders immediately. On POS that is the bundle plus posListProducts,
+ * posListSales, tabListOpen, adminListSettleableEntries and adminGetPosSettings
+ * — SIX cold Apps Script executions for one tab tap, four of which ask for
+ * exactly what the bundle is already fetching. The bundle's whole purpose is
+ * to make those four unnecessary, and it cannot, because it has not come back
+ * yet when they are issued. The comment on fireTabBundle has always claimed
+ * "when the Screen component mounts and fires its own loaders, they find data
+ * already cached and skip the network entirely" — that is the intent, and the
+ * ordering never delivered it.
+ *
+ * WHY THIS COSTS SECONDS AND NOT MILLISECONDS. Measured on the live
+ * deployment 2026-09-18: every web request pays a platform floor of 3.1 s
+ * min / 4.5 s median / 5.8 s max before the handler runs at all, and six
+ * requests issued in parallel each pay it INDEPENDENTLY — they do not queue
+ * behind one warm runtime. Fewer requests per screen is one of only two
+ * things that saves real time here.
+ *
+ * WHAT THIS DOES. fireTabBundle parks its in-flight promise here, one per
+ * tab. A screen's loader awaits it BEFORE it decides whether its cache is
+ * already hydrated. Three properties, all of them deliberate:
+ *
+ *   CAPPED. The await never blocks a screen for longer than
+ *   TAB_BUNDLE_AWAIT_CAP_MS. A bundle stuck behind a slow runtime delays the
+ *   screen by at most that, and then the loaders run as they always did.
+ *
+ *   FAILURE FALLS THROUGH. A rejected or ok:false bundle resolves this to
+ *   false and the loaders run — same as today's .catch(), which already says
+ *   "non-fatal; per-screen loaders will pick up the slack".
+ *
+ *   NO BUNDLE IN FLIGHT IS NOT A WAIT. With nothing registered this resolves
+ *   immediately, so a screen reached by any route other than go() — a deep
+ *   link, a re-render, the 60 s re-bundle window suppressing the call — is
+ *   completely unaffected.
+ *
+ * NOT FOR MONEY-BEARING READS. This only ever makes a loader wait for data
+ * the bundle was ALREADY fetching for it. It does not make the bundle
+ * authoritative for anything: tabGetDetail and the other deliberately
+ * uncached, money-bearing endpoints have no TTL in API_CACHE_TTL, are not
+ * bundle sections, and are untouched by this.
+ * ======================================================================== */
+const _tabBundleInFlight = new Map();     // tab -> Promise<boolean>
+const TAB_BUNDLE_AWAIT_CAP_MS = 8000;
+
+/* Called by fireTabBundle. `p` must resolve truthy only when the bundle
+ * actually hydrated the cache. Cleared when it settles, so a later mount
+ * never waits on a promise from a previous visit. */
+function _tabBundleRegister(tab, p) {
+  const key = String(tab || "");
+  const tracked = Promise.resolve(p).then(
+    ok => { if (_tabBundleInFlight.get(key) === tracked) _tabBundleInFlight.delete(key); return !!ok; },
+    () => { if (_tabBundleInFlight.get(key) === tracked) _tabBundleInFlight.delete(key); return false; }
+  );
+  _tabBundleInFlight.set(key, tracked);
+  return tracked;
+}
+
+/* Resolves true when this tab's bundle landed and hydrated, false for every
+ * other outcome — no bundle in flight, bundle failed, or the cap expired
+ * first. Never rejects: a loader must not be able to die because a
+ * prefetch did. */
+function awaitTabBundle(tab, capMs) {
+  const p = _tabBundleInFlight.get(String(tab || ""));
+  if (!p) return Promise.resolve(false);
+  const cap = (typeof capMs === "number" && capMs > 0) ? capMs : TAB_BUNDLE_AWAIT_CAP_MS;
+  return Promise.race([
+    p.then(ok => !!ok, () => false),
+    new Promise(resolve => setTimeout(() => resolve(false), cap))
+  ]);
+}
+
+/* v179 P1 — the day-view fetch window, at module scope so ScreenBookings and
+ * fireTabBundle cannot disagree about it. ScreenBookings fetches the selected
+ * date ± this many days; before v179 the bookings bundle fetched today ONLY,
+ * so it hydrated a cache key the screen never asked for and its timeline
+ * section was thrown away on every single tab switch. */
+const DAY_WINDOW_RADIUS = 3;
+function addDaysISO(iso, n) {
+  const d = new Date(iso + "T12:00:00");
+  d.setDate(d.getDate() + n);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
 // v70 — LEAK GUARD: a tab left open for days accumulates cache entries
 // forever. Keys include params (dates, month/period offsets, searches), so
 // each new day / each browsed period mints NEW keys while the old ones are
@@ -6144,7 +6239,7 @@ const _PERSIST_ENDPOINTS = new Set([
  * _hydrateCacheFromLocalStorage DELETES anything under the shared
  * "yard-cache-" root that is not in the CURRENT namespace, so
  * version-mismatched data is removed, not merely ignored. */
-const CLIENT_CACHE_VERSION = "yard-v175-kpitodate";
+const CLIENT_CACHE_VERSION = "yard-v182-intent";
 const _LS_CACHE_ROOT = "yard-cache-";
 const _LS_CACHE_PREFIX = _LS_CACHE_ROOT + CLIENT_CACHE_VERSION + ":";
 const _LS_MAX_AGE_MS = 24 * 60 * 60 * 1000;  // 24h — anything older is too stale to even show
@@ -6563,14 +6658,29 @@ var MUTATING_ACTIONS = new Set([
      adminPreDeployCheck is deliberately NOT here. It is READ-ONLY — driven in
      the v171 harness against a workbook whose every write method throws — and
      a read has nothing to dedupe and no cache to invalidate. */
-  "adminRepairPosDiscountSplits"
-  /* Deliberately NOT listed: adminDuplicateCoachingSession,
-     adminBroadcastTournamentSms, adminGenerateRoundRobin,
+  "adminRepairPosDiscountSplits",
+  /* v181 — LISTED NOW. v180 F11 put these three in the backend's
+     MUTATION_ACTIONS, and until this set matched, route()'s dedupe never
+     received an id for them: a double-tapped tournament broadcast sent the
+     whole roster twice (one SMS per recipient, force:true, so the content
+     dedupe could not catch it either). Their call sites also pass an
+     intent-keyed id, so a human re-tap is the SAME request, not a new one.
+
+     v182 — adminUploadSponsorshipFile's entry is DOCUMENTARY, and saying so
+     is the point. Its call site does NOT go through _doFetchRaw: the upload
+     is a bare POST through _postApi (base64 cannot fit in a GET URL), and
+     this Set is never consulted for it. The id that protects it is the one
+     written into the POST BODY, which doPost merges over e.parameter
+     (Backend :4305, `Object.assign({}, e.parameter || {}, params)`), and it
+     is the backend's OWN MUTATION_ACTIONS table (Backend :4361) that arms
+     route()'s dedupe for it. The name stays on this list because it belongs
+     on any list of the panel's mutations — but deleting the _postApi id in
+     the belief that this Set covers it would remove the only protection. */
+  "adminDuplicateCoachingSession", "adminBroadcastTournamentSms", "adminUploadSponsorshipFile"
+  /* Deliberately NOT listed: adminGenerateRoundRobin and
      adminClearAvailabilityValidation. The SERVER does not classify those as
-     mutations (route()'s isMutation misses Duplicate/Broadcast/Generate/
-     Clear), so it would ignore a clientRequestId and sending one would only
-     look like protection. They need a backend MUTATION_ACTIONS entry first —
-     see the ranked recommendations. */
+     mutations (verified: neither writes a sheet), so it would ignore a
+     clientRequestId and sending one would only look like protection. */
 ]);
 function genRequestId(){
   try { if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID(); } catch(e){}
@@ -6680,7 +6790,15 @@ function retireIntent(key) { _intentIds.delete(key); }
  * v169 harness by name. This is the same lesson as the v168 hardcoded caller
  * list — a rule that "everything rides on" must be enumerable, not assumed. */
 function isUnknownOutcome(r) {
-  return !!(r && r.ok === false && (r.timedOut === true || r.retryRefused === true));
+  /* v178 F1 — `_transient` is the THIRD flag, and it was the missing one.
+   * _isTransientFailure (the retry loop's test) reads timedOut || _transient;
+   * this function (every money call site's test) read timedOut ||
+   * retryRefused. A transport failure that exhausted its retries — or, on
+   * Safari, never got one — therefore satisfied the retry loop and failed
+   * this test, and the call site retired the intent as if the server had
+   * refused. The two classifiers must agree that a transport failure is an
+   * unknown outcome, because it is. */
+  return !!(r && r.ok === false && (r.timedOut === true || r.retryRefused === true || r._transient === true));
 }
 
 /* v170 F3 — THE MISSING-LEDGER-ROW HEADLINE, BUILT FROM THE PAYLOAD.
@@ -6873,7 +6991,81 @@ const API_ACTION_TIMEOUT_MS = {
   adminOpenPlayNoShowReport: 60000,
   // The heaviest single endpoint in the system — the whole transaction
   // ledger, the receivables and the aging buckets, in one pass.
-  adminAccountingReport: 120000
+  adminAccountingReport: 120000,
+
+  /* =====================================================================
+   * v179 — THE MUTATIONS THE COUNTER WAITS ON WERE NEVER IN THIS MAP.
+   *
+   * Every till write — tabClose, posCreateSale, adminSettleCombined,
+   * tabAddItem(s), tabOpen, adminMarkPaid — fell to the 25 s default. The
+   * budget a mutation actually needs is
+   *     platform floor + its own round trips + the FULL lock wait,
+   * because the lock is script-wide (99 sites, one mutex, shared with the
+   * public booking page) and a request that waits the whole tryLock() has
+   * spent that time before doing any work. MEASURED against the live
+   * deployment on 2026-09-18: the floor on a no-op `version` call was
+   * 3,080 / 4,457 / 5,756 ms (min / median / max), 9,432 ms once. So
+   *     tabClose  = 5.8 s floor + 14-16 RT × 0.4 s + 15 s lock = 26.4-27.2 s
+   * — over the 25 s budget on a NORMAL evening, and 30-32 s on the outlier.
+   * What happened next was worse than the wait: the abort fired, the panel
+   * retried once (+3 s), got "pending" back, polled twice more (each paying
+   * the floor again), and after ~46 s raised the unknown-charge banner — for
+   * a settle that had committed at second 26. Staff then re-rang it by hand.
+   *
+   * Budgets below = max floor (5.8 s) + measured round trips + full lock
+   * timeout, rounded up with headroom for the 9.4 s outlier. A request that
+   * takes this long is lock contention or a slow Sheets call, not a cold
+   * start — which is exactly the message the extended-budget branch of
+   * _doFetchOnce gives ("past a cold start — the server is still working").
+   * ================================================================== */
+  tabClose: 45000,                 // 14-16 RT + tryLock(15000)
+  adminSettleCombined: 45000,      // ~20 RT + tryLock(15000)
+  createBooking: 40000,            // ~20 RT + tryLock(15000)  (admin-side create shares the path)
+  adminCreateBooking: 40000,
+  posCreateSale: 35000,            // 7 RT + tryLock(10000)
+  tabAddItem: 30000,               // 5 RT + tryLock(10000)
+  tabAddItems: 30000,
+  tabOpen: 30000,
+  tabRemoveItem: 30000,
+  adminMarkPaid: 30000,            // ~7 RT + tryLock(8000)
+  adminMarkWalkInPlayerPaid: 30000,
+  adminMarkCoachingSessionsPaid: 30000,
+  adminTabBundle: 60000,           // runs posListSales + tabListOpen, each budgeted 60 s alone
+  /* adminPulse is LOWERED, not raised: a fingerprint poll that takes 20 s is
+     a system already in trouble and must not hold an execution slot open
+     while the till waits behind it. */
+  adminPulse: 20000,
+
+  /* =====================================================================
+   * v180 F12 — FIVE REPAIR ACTIONS WERE BUDGETED BELOW THEIR OWN LOCK.
+   *
+   * Every one of these takes the script-wide lock with a tryLock TIMEOUT of
+   * its own and then does a migration pass, yet all five fell to the 25 s
+   * default. adminFixLegacyTimeCells asks for tryLock(60000) alone — so the
+   * panel could abort it thirty-five seconds BEFORE the server had even given
+   * up waiting for the lock, and the abort says nothing about what the server
+   * then went on to commit. Aborting a half-applied migration is the worst of
+   * the three possible outcomes.
+   *
+   * Budget = max platform floor (5.8 s, measured 2026-09-18) + the action's
+   * own tryLock timeout + the pass itself, rounded up for the 9.4 s floor
+   * outlier. These deliberately EXCEED each action's lock wait so the panel
+   * is never the thing that gives up first.
+   * ================================================================== */
+  adminFixLegacyTimeCells: 90000,     // tryLock(60000) + a whole-column time migration
+  adminApplyValidationFixes: 50000,   // tryLock(30000) + validation rebuild
+  adminRepairCourtCells: 50000,       // tryLock(30000) + Availability sweep
+  adminRepairDataIntegrity: 40000,    // tryLock(20000) + multi-sheet audit + writes
+  adminRepairPosDiscountSplits: 40000,// tryLock(20000) + POS_Sales backfill
+
+  /* v180 F12 — and the two money calls v178 F5 made heavier. posVoidSale now
+     reads Consignment_Payouts, scans for an idempotency marker and appends a
+     contra row, all INSIDE the lock; adminMarkRefunded writes under the same
+     mutex the till shares. Neither was in this map. */
+  posVoidSale: 40000,
+  adminMarkRefunded: 30000,
+  // v182 — up to BROADCAST_BATCH_SIZE=100 real SMS per call; the 25 s default aborted into a still-running send.
+  adminBroadcastTournamentSms: 120000
 };
 function _apiTimeoutMs(action) {
   const t = API_ACTION_TIMEOUT_MS[action];
@@ -6992,7 +7184,10 @@ function _pendingPollDelayMs(pollIndex) {
 /* A transport-level failure: the server may or may not have seen/finished
    the request. (Set by _doFetchOnce; never set on a real JSON answer.) */
 function _isTransientFailure(r) {
-  return !!(r && r.ok === false && (r.timedOut === true || r._transient === true));
+  /* v178 F4 — `_transientGate` (the permission gate could not run; nothing
+     was dispatched, nothing written) gets the retry the server promises. It
+     is deliberately NOT an unknown outcome: the gate runs before dispatch. */
+  return !!(r && r.ok === false && (r.timedOut === true || r._transient === true || r._transientGate === true));
 }
 
 async function _doFetchRaw(action, params) {
@@ -7074,7 +7269,14 @@ async function _doFetchRaw(action, params) {
       if (_isMut) {
         try { if (typeof showToast === "function") showToast("Connection is busy — retrying…", "default", 2600); } catch (e) {}
       }
-      _markRetry();
+      /* v181 — A RE-SEND AFTER `_transientGate` IS A FIRST ATTEMPT. The gate
+       * runs before dispatch and before the idempotency marker is kept (v180
+       * removes it), so nothing ran and nothing is in flight. Marking this
+       * re-send clientRetry=1 sent it into route()'s "marked retry with no
+       * record" refusal — retryRefused + timedOut — and the till froze on the
+       * unknown-charge banner anyway, two executions in instead of four. The
+       * v180 removal and this guard together deliver what v180 claimed. */
+      if (r && r._transientGate === true) url.searchParams.delete("clientRetry"); else _markRetry();
       await _retrySleep(_retryDelayMs(attempt + 1, _isMut));
     }
     /* Mutation replay bookkeeping: duplicate+pending means the FIRST
@@ -7187,10 +7389,35 @@ async function _doFetchOnce(action, url, authBody) {
           : "This took longer than " + _secs + "s, which is past a cold start — the server is still working but the panel stopped waiting. Retry once; if it happens again, ask for a shorter period."
       };
     }
-    if (e.message && e.message.toLowerCase().indexOf("failed to fetch") >= 0) {
-      return { ok: false, _transient: true, error: "Network error. Check your connection and retry." };
-    }
-    return { ok: false, error: e.message || "Unknown error" };
+    /* v178 F1 — AN EXCEPTION OUT OF fetch() IS NEVER A SERVER VERDICT.
+     *
+     * This used to recognise a network failure by the words "failed to fetch"
+     * — which is CHROME's wording. The counter iPads run Safari/WebKit, whose
+     * network errors read "Load failed" or "The network connection was lost."
+     * Those fell through to the last line below and came back with NEITHER
+     * `_transient` NOR `timedOut`, so every call site read them as a refusal
+     * the server had actually made: no retry, the idempotency intent retired
+     * (processCharge's `if (!r.ok) retireIntent(iKey)`), the cart left on
+     * screen, and the next tap minting a FRESH clientRequestId that route()'s
+     * dedupe had never seen. A wifi blip AFTER the sale committed therefore
+     * charged the customer twice, on the exact hardware the till runs — and
+     * every guard built since v135 was standing right there, unreached.
+     *
+     * The classification cannot depend on a browser's error prose. The only
+     * thing an exception here proves is that this panel did not receive a
+     * parsed JSON answer, and "did not receive an answer" IS the unknown
+     * outcome. So every exception is `_transient`; the wording is used for
+     * the message to staff and for nothing else. */
+    const _msg = String(e && e.message ? e.message : e || "").toLowerCase();
+    const _looksNetwork = _msg.indexOf("failed to fetch") >= 0 || _msg.indexOf("load failed") >= 0
+      || _msg.indexOf("network connection was lost") >= 0 || _msg.indexOf("networkerror") >= 0
+      || _msg.indexOf("network request failed") >= 0 || _msg.indexOf("the internet connection") >= 0;
+    return {
+      ok: false, _transient: true, connectionLost: true,
+      error: _looksNetwork
+        ? "Network error. Check your connection and retry."
+        : "The connection dropped before an answer came back (" + (e && e.message ? e.message : "no detail") + "). The server may have completed the request — check before repeating it."
+    };
   }
 }
 
@@ -8218,6 +8445,25 @@ function reportSaleFailure(r, fallback) {
   return false;
 }
 
+/* v178 F1 (the mark-paid sites) — A COLLECTION WHOSE OUTCOME IS UNKNOWN IS
+   NOT "FAILED". The mark-paid buttons on the timeline, the pending queue and
+   the walk-in/open-play/coaching rosters all ended in
+   `showToast(r.error || "Failed — try again")` — which, after a Safari
+   network drop that landed AFTER the server wrote the row, told the cashier
+   the money was NOT taken. The server is idempotent for these (a second tap
+   answers alreadyPaid), so no money is doubled — but the screen lied, and a
+   cashier who believes it collects again by hand. Route every such branch
+   through this: unknown → sticky, honest, "refresh before repeating";
+   anything else → the plain failure it always was. */
+function reportWriteFailure(r, what, fallback) {
+  if (isUnknownOutcome(r)) {
+    showStickyToast("\u26a0 " + unknownWriteMessage(what || "this change", r) + TOAST_DISMISS_HINT, "error");
+    return true;
+  }
+  showToast((r && r.error) || fallback || "Failed — try again", "error");
+  return false;
+}
+
 /* =============================================================================
  * v162 F9 — THE CASHIER IS TOLD ABOUT A LATE COLLECTION.
  *
@@ -8445,7 +8691,14 @@ function ConfirmHost() {
               borderLeft: "3px solid " + (request.destructive ? "var(--clay)" : "var(--green)"),
               marginBottom: 16,
               fontSize: 13,
-              lineHeight: 1.5
+              lineHeight: 1.5,
+              /* v180 F1 — opt-in ONLY. A refusal whose text is a bulleted
+                 list of line items (posVoidSale's CONSIGNMENT_SHARE_UNPRICEABLE)
+                 collapsed to one unreadable paragraph here. Existing callers
+                 pass single paragraphs and are untouched. */
+              whiteSpace: request.preformatted ? "pre-wrap" : undefined,
+              maxHeight: request.preformatted ? "46vh" : undefined,
+              overflowY: request.preformatted ? "auto" : undefined
             }}>
               <strong style={{ display: "block", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 4, color: request.destructive ? "var(--clay)" : "var(--green)" }}>
                 {request.destructive ? "What will happen" : "Confirm"}
@@ -8477,9 +8730,15 @@ function ConfirmHost() {
             </div>
           )}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-            <button className="btn" onClick={() => close(false)} autoFocus={!needsType}>
-              {request.cancelLabel || "Cancel"}
-            </button>
+            {/* v180 F1 — acknowledgeOnly renders ONE button. A refusal the
+                server has already applied ("nothing was voided") is not a
+                choice, and offering Cancel/Confirm on it invites a staff
+                member to press Confirm and be refused a second time. */}
+            {!request.acknowledgeOnly && (
+              <button className="btn" onClick={() => close(false)} autoFocus={!needsType}>
+                {request.cancelLabel || "Cancel"}
+              </button>
+            )}
             <button
               className={"btn " + (request.destructive ? "danger" : "primary")}
               onClick={() => close(true)}
@@ -8958,15 +9217,10 @@ function ScreenLogin({ onAuth }) {
 
   useEffect(() => {
     setTimeout(() => { if (inputRef.current) inputRef.current.focus(); }, 50);
-    // SPEED WIN: Pre-warm the Apps Script runtime the moment the login screen
-    // mounts. By the time the staff member finishes typing their 6-digit PIN
-    // (~3-5 seconds), the cold-start cost (often 2-8s) is already absorbed.
-    // The first dashboard fetch then feels nearly instant instead of the
-    // user waiting a beat after PIN entry.
-    //
-    // We fire-and-forget — failure here doesn't matter, the real auth call
-    // still runs when they submit the PIN.
-    fetch(API_URL + "?action=adminPing", { method: "GET" }).catch(() => {});
+    /* v180 F13b — the pre-warm fetch that used to live here is GONE: v179
+       measured the premise and it is false (every request pays the 3-5 s
+       platform floor whether or not one just ran, so nothing stays warm),
+       which made it one extra cold execution per login and nothing else. */
   }, []);
 
   async function tryAuth(pin) {
@@ -9662,8 +9916,9 @@ function ScreenDashboard() {
     //   returns, we replace state with complete data, secondary widgets
     //   light up.
     //
-    // We don't await Stage 1 before starting Stage 2 — they fire in
-    // sequence at the server (Apps Script serializes anyway) but the
+    // We don't await Stage 1 before starting Stage 2 — they run as two
+    // independent executions (v179: measured, Apps Script does NOT
+    // serialise web requests — six parallel calls finished together) and the
     // client sets state from Stage 1 the moment it arrives, even if
     // Stage 2 is still in flight. This makes the dashboard FEEL ~5x
     // faster on cold loads even though total server time is similar.
@@ -10831,6 +11086,31 @@ function OperationalKpiPanel({ data }) {
   const u = data.utilization || {};
   const am = data.activeMembers || {};
   const ss = data.selfService || {};
+  /* =========================================================================
+   * v180 F2 — PRINT THE WINDOW THESE RATIOS WERE COMPUTED OVER.
+   *
+   * adminOperationalKpi used to divide month-to-date bookings by WHOLE-MONTH
+   * capacity, so the card was structurally capped at daysElapsed /
+   * daysInMonth: on 5 September, with every elapsed peak court-hour sold out,
+   * it read 15% against a 60% target and painted a red "behind" bar. The
+   * backend now clamps both halves to today and returns the clamped window as
+   * `period`; this prints it, so "288 / 288 court-hrs · 1–5 Sep" says what it
+   * is instead of leaving the reader to assume a whole month.
+   *
+   * The fallback is silence, not a guessed label: a response from a backend
+   * that predates v180 carries no period and must not be captioned as if it
+   * did.
+   * ====================================================================== */
+  const _kpiPeriod = data.period || null;
+  const _kpiWindow = (function () {
+    if (!_kpiPeriod || !_kpiPeriod.fromStr || !_kpiPeriod.toStr) return "";
+    const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const d1 = parseInt(String(_kpiPeriod.fromStr).substring(8, 10), 10);
+    const d2 = parseInt(String(_kpiPeriod.toStr).substring(8, 10), 10);
+    const mo = MON[parseInt(String(_kpiPeriod.toStr).substring(5, 7), 10) - 1] || "";
+    if (!isFinite(d1) || !isFinite(d2) || !mo) return "";
+    return " \u00b7 " + d1 + "\u2013" + d2 + " " + mo;
+  })();
 
   // When a target is set, pace from backend dictates color.
   // When no target, fall back to absolute-value coloring (>=60% green, >=30% wood, else clay).
@@ -10861,7 +11141,7 @@ function OperationalKpiPanel({ data }) {
       target: u.peak ? u.peak.target : 0,
       pace: u.peak ? u.peak.pace : null,
       isPercentage: true,
-      denom: u.peak ? Math.round(u.peak.usedHours) + " / " + u.peak.capacityHours + " court-hrs" : ""
+      denom: u.peak ? Math.round(u.peak.usedHours) + " / " + u.peak.capacityHours + " court-hrs" + _kpiWindow : ""
     },
     {
       label: "Off-Peak Utilization",
@@ -10870,25 +11150,31 @@ function OperationalKpiPanel({ data }) {
       target: u.offPeak ? u.offPeak.target : 0,
       pace: u.offPeak ? u.offPeak.pace : null,
       isPercentage: true,
-      denom: u.offPeak ? Math.round(u.offPeak.usedHours) + " / " + u.offPeak.capacityHours + " court-hrs" : ""
+      denom: u.offPeak ? Math.round(u.offPeak.usedHours) + " / " + u.offPeak.capacityHours + " court-hrs" + _kpiWindow : ""
     },
     {
       label: "Active Members",
       sub: "booked in last 30 days or upcoming",
+      /* v180 F6b — the field is `bookedRecentOrUpcoming` now: the code counts
+         an active member with any NON-CANCELLED booking dated in the last 30
+         days OR in the future, paid or not, which is what this card's caption
+         has always said and what `recent30d` never did. */
       pct: am.target > 0
-        ? Math.min(100, Math.round((am.recent30d / am.target) * 100))
+        ? Math.min(100, Math.round(((am.bookedRecentOrUpcoming || 0) / am.target) * 100))
         : (am.totalActive > 0 ? am.pct : 0),
       target: am.target || 0,
       pace: am.pace,
       isPercentage: false,
-      actualValue: am.recent30d,
+      actualValue: am.bookedRecentOrUpcoming || 0,
       denom: am.target > 0
-        ? am.recent30d + " / " + am.target + " target · " + am.totalActive + " in system"
+        ? (am.bookedRecentOrUpcoming || 0) + " / " + am.target + " target · " + am.totalActive + " in system"
         : am.totalActive + " total · " + am.pct + "% of system"
     },
     {
       label: "Self-Service Bookings",
-      sub: "this month — Web vs admin-entered",
+      /* v180 F2 — this counter shares adminOperationalKpi's window, which now
+         stops at today, so it is month-TO-DATE like the two above it. */
+      sub: "month to date — Web vs admin-entered",
       pct: ss.pct,
       target: 0,
       pace: null,
@@ -11081,7 +11367,7 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking, blocked }) {
         next.delete(bookingId);
         return next;
       });
-      showToast(r.error || "Failed — try again", "error");
+      reportWriteFailure(r, "this collection", "Failed — try again");
     }
   }
 
@@ -11110,7 +11396,7 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking, blocked }) {
       // collected with, and adminPaymentBreakdown subtracts it from the day's
       // takings. Staff who believed the old wording would go and reverse the
       // same money a second time through POS.
-      consequence: "The full amount is reversed out of today's Cash/ABA takings automatically, on the method it came in on. Hand the cash back at the counter — do NOT also void or refund it through POS. Tick it only AFTER the money has actually left the till. There is no undo.",
+      consequence: "The amount this booking actually COLLECTED is reversed out of today's Cash/ABA takings automatically, on the method it came in on — for a court settled inside a discounted tab that is less than the listed price, and the exact figure is shown after you confirm. Hand that amount back at the counter — do NOT also void or refund it through POS. Tick it only AFTER the money has actually left the till. There is no undo.",
       confirmLabel: "Yes, refund was paid out",
       destructive: true
     });
@@ -11120,7 +11406,16 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking, blocked }) {
       setOptimisticRefunded(prev => new Set([...prev, bookingId]));
       const r = await api("adminMarkRefunded", { bookingId: bookingId });
       if (r.ok) {
-        showToast("Refunded " + (row && row.total ? fmtMoney(row.total) : "") + " — reversed in today's takings", "success");
+        /* v178 F6 (panel half) — say the figure the SERVER reversed. Since F6
+           a booking settled inside a discounted sale refunds its COLLECTED
+           share, not Bookings!Q; printing row.total here told the cashier to
+           hand back more than the ledger took out. r.refunded is authoritative;
+           r.cappedByPosCollected says why when the two differ. */
+        const _rf = (typeof r.refunded === "number" && r.refunded > 0) ? r.refunded : (row && row.total ? row.total : 0);
+        const _capNote = (r.cappedByPosCollected && typeof r.cappedByPosCollected.total === "number" && r.cappedByPosCollected.total > _rf + 0.005)
+          ? " (not " + fmtMoney(r.cappedByPosCollected.total) + " — this court was settled inside discounted sale " + (r.cappedByPosCollected.saleId || "") + ", and " + fmtMoney(_rf) + " is what it actually collected)"
+          : "";
+        showToast("Refunded " + fmtMoney(_rf) + " — reversed in today's takings" + _capNote, _capNote ? "warning" : "success");
         onMarkPaid && onMarkPaid();
       } else {
         setOptimisticRefunded(prev => {
@@ -11128,7 +11423,7 @@ function ActionQueuePanel({ data, onMarkPaid, onOpenBooking, blocked }) {
           next.delete(bookingId);
           return next;
         });
-        showToast(r.error || "Failed — try again", "error");
+        reportWriteFailure(r, "this collection", "Failed — try again");
       }
     } finally {
       actingRef.current.delete(_k);
@@ -11972,11 +12267,10 @@ function ScreenBookings() {
   // to any day INSIDE this window is pure client-side filtering — instant, no
   // network. We only refetch when the selected date reaches the window edge.
   const [loadedRange, setLoadedRange] = useState(null);
-  const addDaysISO = (iso, n) => {
-    const d = new Date(iso + "T12:00:00");
-    d.setDate(d.getDate() + n);
-    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-  };
+  /* v179 P1 — addDaysISO and DAY_WINDOW_RADIUS moved to module scope (beside
+   * awaitTabBundle) so fireTabBundle can ask the bundle for THE SAME WINDOW
+   * this screen is about to ask for. Two copies of the radius would have made
+   * the bundle hydrate a key the screen never reads, which is the bug. */
 
   const range = useMemo(() => {
     const d = new Date(date + "T12:00:00");
@@ -12007,7 +12301,6 @@ function ScreenBookings() {
   // (and skip refetching) while the date stays strictly inside it. So clicking
   // between nearby days does ZERO network and is instant — a refetch happens
   // only when the date reaches the window edge or jumps far away.
-  const DAY_WINDOW_RADIUS = 3;
   const fetchRange = useMemo(() => {
     if (view !== "day") return range;
     if (loadedRange &&
@@ -12020,7 +12313,18 @@ function ScreenBookings() {
 
   async function load(opts) {
     const silent = opts && opts.silent;
-    // Synchronous cache hit: render stale data instantly so the tab/date switch feels instant
+    /* v179 P1 — the bookings tab bundle is fetching this exact window (see
+     * fireTabBundle), so let it land before deciding whether the cache is
+     * hydrated. Resolves immediately when no bundle is in flight — which is
+     * every date change, every poll and every re-entry inside the 60 s
+     * re-bundle window — so this only ever costs the first load after a tab
+     * tap, and only up to TAB_BUNDLE_AWAIT_CAP_MS. The silent 20 s poll
+     * bypasses the cache on purpose and must not wait for anything. */
+    /* v180 — the synchronous cache render runs BEFORE the await, for the
+     * reason spelled out in ScreenPOS's mount: it touches no network, so
+     * making it wait on the bundle turned an instant tab switch into an
+     * up-to-8-second one. The await now sits immediately above the fetch it
+     * exists to de-duplicate. */
     if (!silent) {
       const cached = getCachedApi("adminListTimelineEntries", { dateFrom: fetchRange.from, dateTo: fetchRange.to });
       if (cached && cached.ok) {
@@ -12042,6 +12346,10 @@ function ScreenBookings() {
         setLoading(true);
       }
     }
+    /* v180 — the await lands HERE, immediately above the fetch it exists to
+     * de-duplicate, rather than above the cached render. The silent 20 s poll
+     * still bypasses it entirely. */
+    if (!silent) await awaitTabBundle("bookings");
     const r = await api(
       "adminListTimelineEntries",
       { dateFrom: fetchRange.from, dateTo: fetchRange.to },
@@ -12920,7 +13228,7 @@ function BookingRow({ booking, onAction, onOpen }) {
           courts: booking.courtNumbers, total: _collected,
           paymentMethod: mth
         }));
-      } else { setOptimisticPaid(false); showToast(r.error || "Failed", "error"); }
+      } else { setOptimisticPaid(false); reportWriteFailure(r, "this collection", "Failed"); }
     } finally {
       actingRef.current = false;
     }
@@ -13618,7 +13926,8 @@ function BookingDetailModal({ booking, onClose, onAction, peers, initialPanel })
     if (r.ok) {
       showToast(
         action === "adminConfirmArrival" ? "Arrival confirmed"
-        : action === "adminMarkRefunded" ? "Marked refunded"
+        : action === "adminMarkRefunded" ? ("Marked refunded" + (typeof r.refunded === "number" && r.refunded > 0 ? " — " + fmtMoney(r.refunded) + " reversed" : "")
+            + (r.cappedByPosCollected && typeof r.cappedByPosCollected.total === "number" ? " (not " + fmtMoney(r.cappedByPosCollected.total) + ": settled inside discounted sale " + (r.cappedByPosCollected.saleId || "") + ")" : ""))
         : "Done",
         "success"
       );
@@ -15218,7 +15527,7 @@ function WalkInBlockModal({ block, onClose, onChanged, onRetry }) {
       // Revert
       retireIntent(iKey);
       setPlayers(before);
-      showToast(r.error || "Failed — try again", "error");
+      reportWriteFailure(r, "this collection", "Failed — try again");
     }
   }
 
@@ -16740,7 +17049,17 @@ function SessionsView({ coaches, sessions, loading, dateFrom, setDateFrom, dateT
 
   async function duplicate(s) {
     if (!confirm("Duplicate this session to one week from now?")) return;
-    const r = await api("adminDuplicateCoachingSession", { sessionId: s.sessionId, offsetDays: 7 });
+    const iKey = intentKey("adminDuplicateCoachingSession", [s.sessionId, 7]);   // v181 — one intent, one session
+    const r = await api("adminDuplicateCoachingSession", { sessionId: s.sessionId, offsetDays: 7,
+      clientRequestId: intentRequestId(iKey) });
+    /* v182 — RETIRE ON A DEFINITE ANSWER. The id was minted and never retired,
+       so for the next 120 s the server answered a REWORKED second tap with the
+       first one's stored bytes — and a definite refusal ("session not found")
+       was replayed as the same refusal even after the cause was fixed. Success
+       retires; so does a refusal the server actually made. An UNKNOWN outcome
+       (timeout / transport) keeps the id, which is the whole point of v135. */
+    if (r.ok) retireIntent(iKey);
+    if (!r.ok && !isUnknownOutcome(r)) retireIntent(iKey);
     if (r.ok) {
       showToast("Duplicated to next week (" + r.sessionId + ")", "success");
       reload();
@@ -18540,12 +18859,50 @@ function ScreenPOS() {
   }
 
   useEffect(() => {
-    loadProducts();
-    loadTodayStats();
-    loadTabCount();
-    // Prefetch settleable entries — fired-and-forgotten, populates cache so
-    // when user clicks "Attach booking" the modal opens instantly.
-    api("adminListSettleableEntries").catch(() => {});
+    /* v179 P1 — WAIT FOR THE TAB BUNDLE THAT IS ALREADY FETCHING THESE.
+     *
+     * go() fires adminTabBundle{tab:"pos"} in the same tick as setScreen, and
+     * the bundle's four sections ARE posListProducts, posListSales{today},
+     * tabListOpen and adminListSettleableEntries — every call below except
+     * the POS settings. Firing them here immediately meant six cold Apps
+     * Script executions per tab tap, each paying the 3.1–5.8 s platform floor
+     * independently, four of them asking for what was already in flight.
+     *
+     * awaitTabBundle resolves at once when no bundle is in flight, is capped
+     * at TAB_BUNDLE_AWAIT_CAP_MS, and resolves false on any failure — in all
+     * three cases the loaders below run exactly as they did before. When it
+     * resolves true the per-endpoint cache is hydrated and api() serves these
+     * four from it without touching the network. Nothing here is money-
+     * bearing: every one of them has a TTL in API_CACHE_TTL and is a read.
+     *
+     * NOT awaited: adminGetPosSettings, in its own effect below — it is not a
+     * bundle section, so waiting for the bundle would delay it for nothing. */
+    let cancelled = false;
+    /* v180 — PAINT FROM CACHE FIRST. v179 put the whole mount behind the
+     * bundle await, which also trapped the SYNCHRONOUS cache renders inside
+     * loadProducts/loadTabCount ("Sync cache hit for instant render"). On a
+     * revisit with a warm cache the product grid used to paint in 0 ms; it
+     * then waited on the bundle — up to TAB_BUNDLE_AWAIT_CAP_MS. That is a
+     * regression against the very complaint v179 was written for, and it is
+     * pure ordering: the cached render touches no network, so it belongs
+     * ABOVE the await. The await still does its job — it stops the four
+     * network fetches racing the bundle that is already asking for them. */
+    try {
+      const _cp = getCachedApi("posListProducts");
+      if (_cp && _cp.ok) applyProducts(_cp);
+      const _ct = getCachedApi("tabListOpen");
+      if (_ct && _ct.ok) setOpenTabCount((_ct.tabs || []).length);
+    } catch (_ePaint) { /* a cache miss is the normal first-visit case */ }
+    awaitTabBundle("pos").then(() => {
+      if (cancelled) return;
+      loadProducts();
+      loadTodayStats();
+      loadTabCount();
+      // Prefetch settleable entries — fired-and-forgotten, populates cache so
+      // when user clicks "Attach booking" the modal opens instantly.
+      api("adminListSettleableEntries").catch(() => {});
+    });
+    return () => { cancelled = true; };
   }, []);
 
   // LIVE UPDATE: refresh products (stock changes), today stats, and tab count
@@ -21801,8 +22158,63 @@ function SaleHistoryModal({ onClose }) {
     });
     if (!ok) return;
     setWorking(true);
-    const r = await api("posVoidSale", { saleId: saleId });
+    /* v178 F5 — a stable intent id per (saleId), so a human re-tap after a
+       dropped answer is the SAME request to the server's dedupe, not a new
+       one. The server-side reversal scan is the brace; this is the belt. */
+    const _voidIKey = intentKey("posVoidSale", [saleId]);
+    let r = await api("posVoidSale", { saleId: saleId, clientRequestId: intentRequestId(_voidIKey) });
     setWorking(false);
+    /* v178 F5 — A CONSIGNMENT PAYOUT ALREADY PAID ON THIS SALE.
+       Same component pattern as chargeWithConsignmentGuard above: the SERVER
+       decides, refuses ONCE with the whole sentence staff need, and this shows
+       it and re-sends the identical void with the explicit acknowledgement.
+       It is a warning, not a block — the owner may still want the void, and on
+       confirm the server writes the contra row into Consignment_Payouts BEFORE
+       it flips the sale, so the cash that left stays on the books. */
+    if (r && r.ok === false && r.voidPaidConsignmentWarning === true) {
+      const goAnyway = await confirmAction({
+        title: "Already paid out to a consignor",
+        message: saleId,
+        consequence: r.error,
+        confirmLabel: "Yes, void anyway",
+        destructive: true,
+        typeToConfirm: saleId
+      });
+      if (!goAnyway) return;
+      setWorking(true);
+      r = await api("posVoidSale", { saleId: saleId, confirmVoidPaidConsignment: "true", clientRequestId: intentRequestId(intentKey("posVoidSale", [saleId, "confirm"])) });
+      setWorking(false);
+    }
+    /* =====================================================================
+     * v180 F1 — THE UNPRICEABLE REFUSAL, RENDERED.
+     *
+     * v180 moved CONSIGNMENT_SHARE_UNPRICEABLE off voidPaidConsignmentWarning
+     * (it was opening a type-to-confirm dialog whose confirm re-sent the
+     * request straight back into the same refusal, because the server checks
+     * it BEFORE it looks at the acknowledgement). With that flag gone it fell
+     * to the generic branch below — `showToast(r.error || "Failed")` — and
+     * that branch CANNOT show it: .toast is a fixed-width pill with
+     * text-transform:uppercase and no newline handling, and this refusal is a
+     * multi-line bulleted list naming each line item, its payout id and what
+     * to correct on POS_Sale_Items. Staff would have seen a shouted fragment
+     * of the first sentence and nothing about what to fix.
+     *
+     * So it is shown in the dialog, preformatted, with ONE button: there is
+     * nothing here to confirm. Placed before the ok/else so the refusal is
+     * never also toasted as a plain "Failed".
+     * ================================================================== */
+    if (r && r.ok === false && r.voidPaidConsignmentUnpriceableWarning === true) {
+      await confirmAction({
+        title: "This sale's consignment share cannot be priced",
+        message: saleId,
+        consequence: r.error,
+        preformatted: true,
+        acknowledgeOnly: true,
+        confirmLabel: "OK — nothing was voided",
+        destructive: true
+      });
+      return;
+    }
     if (r.ok) {
       // v111: the server's summary names the attached bookings / walk-ins /
       // coaching sessions reversed to Pending and any coach payout reclaimed.
@@ -21819,10 +22231,30 @@ function SaleHistoryModal({ onClose }) {
         detail: r.restored !== undefined
       });
       showToast(r.message || "Sale voided", "success", 8000);
+      /* v178 F5 — say the contra row out loud. A second toast, not a line
+         appended to the first: the void succeeding and money having left the
+         building on a payout are two different facts and the second one is
+         the one somebody has to act on. */
+      if (r.consignmentReversal && r.consignmentReversal.payoutId) {
+        showToast("Consignment payout reversal " + r.consignmentReversal.payoutId
+          + " written for $" + Math.abs(Number(r.consignmentReversal.amount) || 0).toFixed(2)
+          + " \u2014 that cash was already paid to "
+          + (r.consignmentReversal.consignee || "the consignor")
+          + ". Recover the stock or set it against their next payout.", "error", 15000);
+      }
       setSelected(null);
       load();
     } else {
-      showToast(r.error || "Failed", "error");
+      /* v180 F1 — AND A DROPPED CONNECTION AFTER A COMMITTED VOID IS NOT
+         "Failed". Every other money call site in this file routes its failure
+         through reportWriteFailure (v178 F1); this one did not, so a Safari
+         network drop that landed AFTER the server reversed the sale told the
+         cashier the takings had NOT been put back — and a cashier who
+         believes that reverses it again by hand. posVoidSale is idempotent
+         (v178 F5 gave it a stable intent id and a reversal scan), so the
+         honest answer for an unknown outcome is "refresh and check", which is
+         what the helper says. */
+      reportWriteFailure(r, "this void", "Failed");
     }
   }
 
@@ -22267,7 +22699,7 @@ function SaleHistoryModal({ onClose }) {
                             no provenance at all — while the server had been
                             computing `splitNote` for every sale row since
                             v171 (Backend:20246) for a panel that read neither
-                            it nor `splitSource`. admin:41437 is the rule:
+                            it nor `splitSource`. admin:22703 is the rule:
                             "A label that is not rendered is not a label."
                             ================================================= */}
                         {/* v174 F2 — all THREE words are rendered now, not just
@@ -22800,7 +23232,15 @@ function AttachPickerModal({ alreadyAttached, onClose, onPick }) {
  * category the picker offers, so they cannot drift apart in a later release.
  */
 function posCategoryNeverEligible(category) {
-  return String(category == null ? "" : category).trim().toLowerCase() === "food";
+  /* v180 — DRINKS JOINED FOOD. The owner's rule is "paddles and accessories
+     (not food and drinks)", and the server's _posCategoryNeverEligible now
+     refuses a ticked Member_Eligible on a drink exactly as it refuses one on
+     a food row. This mirror moves with it: v171 §S5 asserts the two agree
+     category by category over every option the picker offers, so leaving it
+     behind would have shown an enabled, tickable box for a value the server
+     stores as false — the "control that is a lie" v171 §5 exists to stop. */
+  const c = String(category == null ? "" : category).trim().toLowerCase();
+  return c === "food" || c === "drinks";
 }
 
 function ProductModal({ product, onClose, onSaved }) {
@@ -23053,9 +23493,12 @@ function ProductModal({ product, onClose, onSaved }) {
                 unticked, because the server refuses to store TRUE there
                 whatever the panel sends. A control that can be set to a
                 value the server will discard is a lie. */}
-            {posCategoryNeverEligible(form.category)
-              ? "(Food is never eligible — the kitchen is a consignee and the member 10% would eat the whole margin)"
-              : "(drinks typically not eligible)"}
+            {/* v180 — and the sentence names whichever rule is firing. */}
+            {String(form.category || "").trim().toLowerCase() === "drinks"
+              ? "(Drinks are never eligible — the member 10% is pro shop only: paddles and accessories)"
+              : posCategoryNeverEligible(form.category)
+                ? "(Food is never eligible — the kitchen is a consignee and the member 10% would eat the whole margin)"
+                : "(the member 10% applies to this category)"}
           </span>
         </div>
 
@@ -27159,6 +27602,48 @@ function ConsignmentReportModal({ onClose }) {
                     {o.wholePeriod ? " — covers this ENTIRE range" : ""}
                   </div>
                 ))}
+                {/* v178 F5 — void reversals are listed SEPARATELY and are NOT in the
+                    total above. A contra row nets a real payout to $0.00 if summed,
+                    which is the double-payment the banner exists to prevent. */}
+                {(report.settledReversals || []).length > 0 && (
+                  <div style={{ fontWeight: 400, marginTop: 6 }}>
+                    …less {money(report.settledReversedTotal || 0)} booked BACK by {(report.settledReversals || []).length} void reversal(s) — not subtracted from the figure above:
+                    {(report.settledReversals || []).map(o => (
+                      <div key={o.payoutId}>· {o.payoutId} — {o.consignee}, {money(Math.abs(o.amount || 0))}{o.datePaid ? ", " + o.datePaid : ""}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* v178 F5 — PAID, THEN VOIDED. A line a recorded payout already covered
+                sits on a sale that has since been voided. Two halves, because they
+                need two different things from the owner: the reconciled half is
+                information; the open half is money that left the building with
+                nothing on paper yet. */}
+            {report.voidedCoveredWarning && (
+              <div style={{
+                padding: "12px 14px", marginBottom: 14,
+                background: (report.voidedCoveredNeedsAction ? "rgba(198,79,58,0.16)" : "rgba(60,60,60,0.08)"),
+                border: "2px solid " + (report.voidedCoveredNeedsAction ? "var(--clay)" : "var(--wood,#A8744A)"),
+                fontFamily: "var(--mono)", fontSize: 12, color: (report.voidedCoveredNeedsAction ? "var(--clay)" : "inherit"), fontWeight: 700, lineHeight: 1.7
+              }}>
+                {(report.voidedCoveredOpen || []).length > 0 && (
+                  <div>
+                    ⚠ PAID, THEN VOIDED — NOT YET BOOKED BACK: {(report.voidedCoveredOpen || []).length} line(s), {money(report.voidedCoveredOpenTotal || 0)} already handed to the consignor for sales that no longer exist. Recover the stock, or set it against that consignor's next payout, then void the sale again with confirmation so the reversal is on paper.
+                    {(report.voidedCoveredOpen || []).map((v, i) => (
+                      <div key={(v.saleId || "") + "|" + (v.sku || "") + i} style={{ fontWeight: 400 }}>· {v.saleId} — {v.sku}, {v.consignee}, {money(v.amount || v.lineOwed || 0)} (payout {v.payoutId})</div>
+                    ))}
+                  </div>
+                )}
+                {(report.voidedCoveredReversed || []).length > 0 && (
+                  <div style={{ fontWeight: 400, marginTop: (report.voidedCoveredOpen || []).length ? 8 : 0 }}>
+                    ✓ Already booked back: {(report.voidedCoveredReversed || []).length} line(s), {money(report.voidedCoveredReversedTotal || 0)} — reconciled by a void reversal, nothing to do.
+                    {(report.voidedCoveredReversed || []).map((v, i) => (
+                      <div key={(v.saleId || "") + "|" + (v.sku || "") + i}>· {v.saleId} — {v.sku}, reversed by {v.reversedBy}</div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -28629,7 +29114,15 @@ function ScreenFinances() {
    ==================================================================== */
 function CostAndLossesModal({ onClose }) {
   const now = new Date();
-  const iso = (d) => d.toISOString().slice(0, 10);
+  /* v178 F8 — LOCAL COMPONENTS, NOT toISOString(). toISOString() is UTC;
+     Phnom Penh is UTC+7, so a Date built at LOCAL midnight on the 1st is
+     17:00 on the last day of the previous month in UTC — at every hour of
+     the day, not just near midnight. "This month" therefore always started
+     on the last day of the month before, and "YTD" on 31 December of the
+     prior year, and all three money reports below ran over that range. The
+     sibling modal at the `const iso =` two thousand lines up already does
+     this correctly; this is that line, verbatim. */
+  const iso = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   const [fromStr, setFromStr] = useState(iso(new Date(now.getFullYear(), now.getMonth() - 2, 1)));
   const [toStr, setToStr] = useState(todayISO());
   const [margin, setMargin] = useState(null);
@@ -28709,12 +29202,43 @@ function CostAndLossesModal({ onClose }) {
           <div style={head}>Gross margin — POS products</div>
           {!margin ? <div style={{ ...mono, opacity: 0.6 }}>—</div> : (
             <div>
+              {/* ===============================================================
+                  v176 — THE HEADLINE STATES ITS BASIS ON ITS FACE.
+
+                  What the owner read on 2026-09-13, verbatim:
+
+                    "Product line revenue $10879.45 · cost $2.78 ·
+                     gross profit $6.97 · 71.5%"
+
+                  Whole-revenue beside subset-profit. The $2.78 and the $6.97
+                  are the cost and the profit of $9.75 of costed lines; the
+                  $10,879.45 is every product line in the period, at LIST
+                  price. Three figures on one line, two of them computed over
+                  a set a thousand times smaller than the third, and the word
+                  CEILING eight lines further down the card.
+
+                  The sentence now comes from the SERVER (marginBasisNote),
+                  composed beside the figures it describes so it cannot drift
+                  from them, and it leads with its own denominator. The raw
+                  totals stay — the owner has to be able to reconcile to the
+                  till — but they are now LABELLED as the whole-period figures
+                  they are, beneath the margin rather than mixed into it.
+                  =============================================================== */}
               <div style={{ ...mono, fontSize: 12, fontWeight: 700, lineHeight: 1.7 }}>
-                Product line revenue ${Number(margin.lineRevenue || 0).toFixed(2)} ·
-                {" "}cost ${Number(margin.cogs || 0).toFixed(2)} ·
-                {" "}gross profit <span style={{ color: "var(--green)" }}>${Number(margin.grossProfit || 0).toFixed(2)}</span>
-                {margin.grossMarginPct !== null && margin.grossMarginPct !== undefined
-                  ? " · " + Number(margin.grossMarginPct).toFixed(1) + "%" : " · n/a"}
+                {margin.marginBasisNote
+                  ? margin.marginBasisNote
+                  : (<span>
+                      Gross margin on the ${Number(margin.costedLineCollected || 0).toFixed(2)} of lines with a
+                      {" "}recorded cost: cost ${Number(margin.cogs || 0).toFixed(2)} ·
+                      {" "}gross profit <span style={{ color: "var(--green)" }}>${Number(margin.grossProfit || 0).toFixed(2)}</span>
+                      {margin.grossMarginPct !== null && margin.grossMarginPct !== undefined
+                        ? " · " + Number(margin.grossMarginPct).toFixed(1) + "%" : " · n/a"}
+                    </span>)}
+              </div>
+              <div style={{ ...mono, opacity: 0.75, lineHeight: 1.6 }}>
+                Whole period, every product line: ${Number(margin.lineCollected || 0).toFixed(2)} collected
+                {" "}(${Number(margin.lineRevenue || 0).toFixed(2)} at list price) over
+                {" "}{Number(margin.lines || 0)} line{Number(margin.lines || 0) === 1 ? "" : "s"}.
               </div>
               <div style={{ ...mono, opacity: 0.75, lineHeight: 1.6 }}>
                 of which own stock ${Number(margin.ownStockCost || 0).toFixed(2)} ·
@@ -28793,15 +29317,81 @@ function CostAndLossesModal({ onClose }) {
                   {" "}<strong>Do not put a cost price on them.</strong>
                 </div>
               )}
+              {/* v176 — THE THREE CENTS, RECONCILED RATHER THAN LEFT TO BE NOTICED.
+                  The card showed "Rental Paddle · 494 sold · $494.00" in the product
+                  list and "$493.97 of that came from 253 rental / service lines" in
+                  the sentence above it. Both were right and they differed on two
+                  axes at once: LIST price against COLLECTED, and UNITS against
+                  LINES. An unexplained three-cent gap on a screen about money is a
+                  reason to distrust every other figure on it. */}
+              {!!margin.nonStockReconcileNote && (
+                <div style={{ ...mono, opacity: 0.75, lineHeight: 1.6 }}>
+                  {margin.nonStockReconcileNote}
+                </div>
+              )}
               {margin.costCoveragePct !== null && margin.costCoveragePct !== undefined && margin.costCoveragePct < 100 && (
                 <div style={{ ...mono, color: "var(--clay)", lineHeight: 1.6 }}>
                   Cost is known for {Number(margin.costCoveragePct).toFixed(1)}% of the product line revenue that
-                  {" "}CAN be costed — read the margin above as a CEILING. ${Number(margin.uncostedLineCollected || 0).toFixed(2)} of sales
-                  {" "}have no cost price on file
+                  {" "}CAN be costed — read the margin above as a CEILING.
+                </div>
+              )}
+              {/* =================================================================
+                  v176 — "NO COST PRICE ON FILE" WAS ONE SENTENCE OVER TWO
+                  DIFFERENT FACTS, AND FOR MOST OF THE MONEY IT WAS FALSE.
+
+                  What the owner read on 2026-09-13, verbatim:
+
+                    "$10024.49 of sales have no cost price on file: Pocari
+                     (Bottle), Cambodia Water (1.5L), Cambodia Water (500ml),
+                     … Fill in the cost price in Manage Stock for these"
+
+                  POS_Products holds Cost_USD 0.73 for PB1 Pocari (Bottle),
+                  0.12 for CW1, 0.319 for CWB15 and 1.50 for HYD12. The cost
+                  IS on file. What those sales lack is a STAMP on the line —
+                  Cost_At_Sale (L) did not exist when they were rung up, and
+                  nothing is ever written backwards into it (v167's rule, and
+                  it is the right rule). The card sent the owner to go and fix
+                  a screen that was already correct, which is the same mistake
+                  v168 F1 fixed for rentals, one column along.
+
+                  Two causes, two sentences, two different remedies — and the
+                  one that says "fill it in" now appears over the products
+                  that actually need it and no others.
+                  ============================================================= */}
+              {!!margin.awaitingStampNote && (
+                <div style={{ ...mono, opacity: 0.85, lineHeight: 1.6 }}>
+                  {margin.awaitingStampNote}
+                </div>
+              )}
+              {!!margin.noCostPriceNote && (
+                <div style={{ ...mono, color: "var(--clay)", lineHeight: 1.6 }}>
+                  {margin.noCostPriceNote}
+                </div>
+              )}
+              {/* An un-redeployed backend sends neither note. Rather than print
+                  nothing about ten thousand dollars of uncosted sales, fall back
+                  to the v170 wording — which is wrong about the remedy, so it
+                  says so. */}
+              {!margin.awaitingStampNote && !margin.noCostPriceNote
+                && Number(margin.uncostedLineCollected || 0) > 0 && (
+                <div style={{ ...mono, color: "var(--clay)", lineHeight: 1.6 }}>
+                  ${Number(margin.uncostedLineCollected || 0).toFixed(2)} of sales have no cost recorded on the
+                  {" "}sale line
                   {(margin.uncostedProducts || []).length > 0
                     ? ": " + (margin.uncostedProducts || []).slice(0, 8).map(u => (u.name || u.sku)).join(", ")
                     : ""}
-                  . Fill in the cost price in Manage Stock for these; nothing is back-filled onto sales already rung up.
+                  . Some of these already have a cost price in Manage Stock and simply predate cost stamping —
+                  {" "}this panel is newer than the backend it is talking to and cannot yet tell you which.
+                </div>
+              )}
+              {/* v176 — THE ORPHAN CODES, SURFACED AT LAST. The register asked
+                  for them; the card grouped by SKU and then displayed by NAME
+                  ONLY, so the owner saw two rows called "គោងៀត​​(small)",
+                  two called "បាយ​ក្តាំង" and two called "Water Hydro6 (1,5L)"
+                  with nothing to tell him why. */}
+              {!!margin.orphanSkuNote && (
+                <div style={{ ...mono, color: "var(--clay)", lineHeight: 1.6 }}>
+                  {margin.orphanSkuNote}
                 </div>
               )}
               {/* v170 F7 — THE UNCOSTED LINES THAT MANAGE STOCK CANNOT FIX.
@@ -28825,16 +29415,53 @@ function CostAndLossesModal({ onClose }) {
                 </div>
               )}
               <div style={{ maxHeight: 190, overflowY: "auto", marginTop: 8 }}>
+                {/* =============================================================
+                    v176 — THE ROW CARRIES ITS SKU AND ITS MARGIN'S BASIS.
+
+                    What the owner read on 2026-09-13, verbatim:
+
+                      "Pocari (Bottle) · cost partly unknown · 882 sold ·
+                       $1323.00 · cost $1.46 · 51.3%"
+
+                    $1.46 is TWO units at $0.73, and 51.3% is (3.00 − 1.46) /
+                    3.00 — the margin of those two units, printed at the end of
+                    a row whose other number is eight hundred and eighty-two.
+                    "cost partly unknown" is true and tells him nothing about
+                    how partly. "cost recorded on 2 of 882 units" does.
+
+                    And the SKU is printed, because rows are grouped by SKU and
+                    displayed by name: without it, two codes selling the same
+                    thing are two identical-looking rows.
+                    ========================================================= */}
                 {(margin.products || []).map(p => (
                   <div key={p.sku} className="modal-detail-row" style={{ ...mono }}>
                     <span className="k" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {p.name || p.sku}{p.fullyCosted ? "" : " ·"}
-                      {p.fullyCosted ? "" : <span style={{ color: "var(--clay)" }}> cost partly unknown</span>}
+                      {p.name || p.sku}
+                      {" "}<span style={{ opacity: 0.55 }}>[{p.sku}]</span>
+                      {p.skuInProductList === false && (
+                        <span style={{ color: "var(--clay)" }}> · SKU no longer in product list</span>
+                      )}
                     </span>
                     <span className="v">
-                      {p.units} sold · ${Number(p.revenue).toFixed(2)} · cost ${Number(p.cost).toFixed(2)} ·
-                      {" "}<strong>{p.grossMarginPct === null || p.grossMarginPct === undefined
-                        ? "margin n/a" : Number(p.grossMarginPct).toFixed(1) + "%"}</strong>
+                      {p.units} sold · ${Number(p.revenue).toFixed(2)}
+                      {p.nonStock
+                        ? <span style={{ opacity: 0.75 }}> · no cost of goods (rental / service)</span>
+                        : <span>
+                            {" · cost recorded on "}
+                            <span style={{ color: p.marginOnAllUnits ? "inherit" : "var(--clay)" }}>
+                              {Number(p.costedUnits === undefined ? 0 : p.costedUnits)} of {p.units}
+                              {" "}unit{Number(p.units) === 1 ? "" : "s"}
+                            </span>
+                            {" · cost $"}{Number(p.cost).toFixed(2)}
+                          </span>}
+                      {" · "}
+                      <strong>{p.grossMarginPct === null || p.grossMarginPct === undefined
+                        ? "margin n/a"
+                        : (Number(p.grossMarginPct).toFixed(1) + "%"
+                           + (p.marginOnAllUnits === false
+                              ? " on those " + Number(p.costedUnits === undefined ? 0 : p.costedUnits)
+                                + " unit" + (Number(p.costedUnits) === 1 ? "" : "s") + " only"
+                              : ""))}</strong>
                     </span>
                   </div>
                 ))}
@@ -29412,7 +30039,41 @@ function FinancesRangeView({ data, granularity, opOnly }) {
     ? h.operationalRev
     : (h.courtRev + h.walkinRev + h.coachingRev + h.posRev + (h.openPlayRev || 0));
   const displayedTotal = opOnly ? operationalRev : (h.totalRevenue || 0);
-  const pct = (n) => displayedTotal > 0 ? Math.round((n / displayedTotal) * 100) : 0;
+  /* =========================================================================
+   * v180 F7 — A SHARE OF A TOTAL THAT CONTAINS A NEGATIVE IS NOT A SHARE.
+   *
+   * These percentages divided by displayedTotal, which folds in
+   * tournamentNet — and tournamentNet is a NET, negative whenever an event's
+   * paid expenses exceed its received revenue. A $1,000 court month with a
+   * −$400 tournament gave a $600 denominator and rendered "Court 167%", with
+   * every other card inflated by the same factor. The total itself is right;
+   * it is simply not a base for a share.
+   *
+   * The base is now the sum of the POSITIVE streams inside displayedTotal, so
+   * the shares of a period's income sum to 100% and no card can exceed it. A
+   * stream that is itself negative has no share of income at all and prints
+   * "n/a" rather than a number — a loss-making tournament is real and belongs
+   * on its own card (it has one, with its in and out figures), not as a
+   * percentage of income it did not produce.
+   * ====================================================================== */
+  const _shareStreams = opOnly
+    ? [h.courtRev, h.walkinRev, h.coachingRev, h.posRev, h.openPlayRev]
+    : [h.courtRev, h.walkinRev, h.coachingRev, h.posRev, h.openPlayRev,
+       h.sponsorshipRev, h.membershipRev, h.tournamentNet];
+  const shareBase = _shareStreams.reduce((s, v) => s + Math.max(0, Number(v) || 0), 0);
+    /* v181 — SAY WHICH TOTAL THE PERCENTAGES ARE OF. v180 F7 fixed "Court
+       167%" by taking shares over Σ max(0, stream); but the hero card still
+       prints totalRevenue, which folds a NEGATIVE tournament net back in. On
+       a $1,000 court / −$400 tournament month the screen read "Total $600"
+       beside "Court 100%" with the court figure $1,000 — a plausible number
+       where there used to be an absurd one, computed over a base nobody
+       could see. The two bases are identical whenever every stream is
+       non-negative, so this note appears only in the case F7 exists for. */
+    const shareBaseNote = (Math.abs(shareBase - (Number(displayedTotal) || 0)) > 0.005)
+      ? ("Percentages are shares of " + fmtMoney(shareBase) + " of income; the total shown is " + fmtMoney(displayedTotal) + " after negative streams.")
+      : "";
+  const pct = (n) => shareBase > 0 ? Math.round((Math.max(0, Number(n) || 0) / shareBase) * 100) : 0;
+  const pctText = (n) => ((Number(n) || 0) < 0 ? "n/a" : fmtPct(pct(n), 0));
   const series = data.series || [];
   const maxVal = Math.max(1, ...series.map(s => s.total));
 
@@ -29466,6 +30127,9 @@ function FinancesRangeView({ data, granularity, opOnly }) {
             {opOnly ? "Operational revenue" : "Total revenue"}
           </div>
           <div className="value" style={{ color: "var(--cream)", fontSize: heroFontSize, whiteSpace: "nowrap" }}>{fmtMoney(displayedTotal)}</div>
+          {shareBaseNote && (
+            <div className="sub" style={{ color: "var(--cream)", opacity: 0.85, fontSize: 11, marginTop: 4 }}>{shareBaseNote}</div>
+          )}
           <div className="sub" style={{ color: "var(--cream)", opacity: 0.7 }} title={_txnTitle}>
             {/* v136 A5 — the non-operational sum omitted TOURNAMENTS, which
                 totalRevenue includes as tournamentNet, so "incl. $X
@@ -29482,7 +30146,7 @@ function FinancesRangeView({ data, granularity, opOnly }) {
         <div className="stat-card">
           <div className="label">Court rental</div>
           <div className="value">{fmtMoneyWhole(h.courtRev)}</div>
-          <div className="sub">{fmtPct(pct(h.courtRev), 0)} · {fmtInt(data.summary.paidBookings)} paid bookings</div>
+          <div className="sub">{pctText(h.courtRev)} · {fmtInt(data.summary.paidBookings)} paid bookings</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}
           title={"Walk-in: " + fmtMoney(h.openPlayRev || 0)
@@ -29491,32 +30155,32 @@ function FinancesRangeView({ data, granularity, opOnly }) {
             + (showLegacyWalkin ? " The legacy Walk_In_Blocks stream is non-zero this period and has its own card: " + fmtMoney(h.walkinRev) + "." : "")}>
           <div className="label">◉ Walk-in</div>
           <div className="value" style={{ color: "var(--peach,#D9785C)" }}>{fmtMoneyWhole(h.openPlayRev || 0)}</div>
-          <div className="sub">{fmtPct(pct(h.openPlayRev || 0), 0)}{openPlayPlayers != null ? " · " + fmtInt(openPlayPlayers) + " players" : ""}</div>
+          <div className="sub">{pctText(h.openPlayRev || 0)}{openPlayPlayers != null ? " · " + fmtInt(openPlayPlayers) + " players" : ""}</div>
         </div>
         {showLegacyWalkin && (
           <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}
             title={"Walk-in blocks (legacy Walk_In_Blocks / Walk_In_Players sheets): " + fmtMoney(h.walkinRev) + " from " + fmtInt(_sum.paidWalkInPlayers || 0) + " players. Shown because it is not zero — normally this facility records walk-ins as Open Play sessions and this card is hidden."}>
             <div className="label">◉ Walk-in blocks (legacy)</div>
             <div className="value" style={{ color: "var(--peach,#D9785C)" }}>{fmtMoneyWhole(h.walkinRev)}</div>
-            <div className="sub">{fmtPct(pct(h.walkinRev), 0)} · {fmtInt(_sum.paidWalkInPlayers || 0)} players</div>
+            <div className="sub">{pctText(h.walkinRev)} · {fmtInt(_sum.paidWalkInPlayers || 0)} players</div>
           </div>
         )}
         <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
           <div className="label">★ Coaching</div>
           <div className="value" style={{ color: "var(--wood)" }}>{fmtMoneyWhole(h.coachingRev)}</div>
-          <div className="sub">{fmtPct(pct(h.coachingRev), 0)} · {fmtInt(data.summary.paidCoachingSessions)} sessions</div>
+          <div className="sub">{pctText(h.coachingRev)} · {fmtInt(data.summary.paidCoachingSessions)} sessions</div>
         </div>
         <div className="stat-card">
           <div className="label">POS</div>
           <div className="value">{fmtMoneyWhole(h.posRev)}</div>
-          <div className="sub">{fmtPct(pct(h.posRev), 0)} · {fmtInt(data.summary.posTransactions)} txns</div>
+          <div className="sub">{pctText(h.posRev)} · {fmtInt(data.summary.posTransactions)} txns</div>
         </div>
         {!opOnly && (
           <div className="stat-card" style={{ borderColor: "var(--clay)" }}>
             <div className="label">⬛ Sponsorships</div>
             <div className="value" style={{ color: "var(--clay)" }}>{fmtMoneyWhole(h.sponsorshipRev || 0)}</div>
             <div className="sub">
-              {fmtPct(pct(h.sponsorshipRev || 0), 0)}
+              {pctText(h.sponsorshipRev || 0)}
               {(h.sponsorshipMonthly || h.sponsorshipOneOff || h.sponsorshipScheduled) ? " · " + [h.sponsorshipMonthly ? "MRR " + fmtMoneyWhole(h.sponsorshipMonthly) : "", h.sponsorshipOneOff ? "one-off " + fmtMoneyWhole(h.sponsorshipOneOff) : "", h.sponsorshipScheduled ? "installments " + fmtMoneyWhole(h.sponsorshipScheduled) : ""].filter(Boolean).join(" + ") : ""}
             </div>
           </div>
@@ -29544,7 +30208,7 @@ function FinancesRangeView({ data, granularity, opOnly }) {
               {fmtMoneyWhole(h.membershipRev)}
             </div>
             <div className="sub">
-              {fmtPct(pct(h.membershipRev), 0)}
+              {pctText(h.membershipRev)}
               {((h.newFoundingCount || 0) + (h.newStandardCount || 0)) > 0 && (
                 <> · {fmtInt(h.newFoundingCount || 0)} F + {fmtInt(h.newStandardCount || 0)} S</>
               )}
@@ -29836,7 +30500,41 @@ function FinancesView({ data, onChanged, opOnly, blocked }) {
     ? h.operationalRev
     : (h.courtRev + h.walkinRev + h.coachingRev + h.posRev + (h.openPlayRev || 0));
   const displayedTotal = opOnly ? operationalRev : (h.totalRevenue || 0);
-  const pct = (n) => displayedTotal > 0 ? Math.round((n / displayedTotal) * 100) : 0;
+  /* =========================================================================
+   * v180 F7 — A SHARE OF A TOTAL THAT CONTAINS A NEGATIVE IS NOT A SHARE.
+   *
+   * These percentages divided by displayedTotal, which folds in
+   * tournamentNet — and tournamentNet is a NET, negative whenever an event's
+   * paid expenses exceed its received revenue. A $1,000 court month with a
+   * −$400 tournament gave a $600 denominator and rendered "Court 167%", with
+   * every other card inflated by the same factor. The total itself is right;
+   * it is simply not a base for a share.
+   *
+   * The base is now the sum of the POSITIVE streams inside displayedTotal, so
+   * the shares of a period's income sum to 100% and no card can exceed it. A
+   * stream that is itself negative has no share of income at all and prints
+   * "n/a" rather than a number — a loss-making tournament is real and belongs
+   * on its own card (it has one, with its in and out figures), not as a
+   * percentage of income it did not produce.
+   * ====================================================================== */
+  const _shareStreams = opOnly
+    ? [h.courtRev, h.walkinRev, h.coachingRev, h.posRev, h.openPlayRev]
+    : [h.courtRev, h.walkinRev, h.coachingRev, h.posRev, h.openPlayRev,
+       h.sponsorshipRev, h.membershipRev, h.tournamentNet];
+  const shareBase = _shareStreams.reduce((s, v) => s + Math.max(0, Number(v) || 0), 0);
+    /* v181 — SAY WHICH TOTAL THE PERCENTAGES ARE OF. v180 F7 fixed "Court
+       167%" by taking shares over Σ max(0, stream); but the hero card still
+       prints totalRevenue, which folds a NEGATIVE tournament net back in. On
+       a $1,000 court / −$400 tournament month the screen read "Total $600"
+       beside "Court 100%" with the court figure $1,000 — a plausible number
+       where there used to be an absurd one, computed over a base nobody
+       could see. The two bases are identical whenever every stream is
+       non-negative, so this note appears only in the case F7 exists for. */
+    const shareBaseNote = (Math.abs(shareBase - (Number(displayedTotal) || 0)) > 0.005)
+      ? ("Percentages are shares of " + fmtMoney(shareBase) + " of income; the total shown is " + fmtMoney(displayedTotal) + " after negative streams.")
+      : "";
+  const pct = (n) => shareBase > 0 ? Math.round((Math.max(0, Number(n) || 0) / shareBase) * 100) : 0;
+  const pctText = (n) => ((Number(n) || 0) < 0 ? "n/a" : fmtPct(pct(n), 0));
   // Choose grid columns dynamically (hero + 4 ops + optional legacy-walkin/sponsor/member/tournament)
   const showMember = !opOnly && hasMembership;
   const showTournament = !opOnly && hasTournament;
@@ -29870,6 +30568,9 @@ function FinancesView({ data, onChanged, opOnly, blocked }) {
             {opOnly ? "Operational revenue" : "Total revenue"}
           </div>
           <div className="value" style={{ color: "var(--cream)", fontSize: heroFontSize, whiteSpace: "nowrap" }}>{fmtMoney(displayedTotal)}</div>
+          {shareBaseNote && (
+            <div className="sub" style={{ color: "var(--cream)", opacity: 0.85, fontSize: 11, marginTop: 4 }}>{shareBaseNote}</div>
+          )}
           <div className="sub" style={{ color: "var(--cream)", opacity: 0.7 }} title={_txnTitle}>
             {/* v136 A5 — the non-operational sum omitted TOURNAMENTS, which
                 totalRevenue includes as tournamentNet, so "incl. $X
@@ -29886,7 +30587,7 @@ function FinancesView({ data, onChanged, opOnly, blocked }) {
         <div className="stat-card">
           <div className="label">Court rental</div>
           <div className="value" style={valueFitStyle(h.courtRev)} title={"Court rental this month: " + fmtMoney(h.courtRev) + " from " + fmtInt(data.summary.paidBookings) + " paid bookings"}>{fmtMoneyWhole(h.courtRev)}</div>
-          <div className="sub">{fmtPct(pct(h.courtRev), 0)} · {fmtInt(data.summary.paidBookings)} paid bookings</div>
+          <div className="sub">{pctText(h.courtRev)} · {fmtInt(data.summary.paidBookings)} paid bookings</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}>
           <div className="label">◉ Walk-in</div>
@@ -29894,31 +30595,31 @@ function FinancesView({ data, onChanged, opOnly, blocked }) {
             + (openPlayPlayers != null ? " from " + fmtInt(openPlayPlayers) + " paid players" : "")
             + " (Open Play sessions — the walk-in stream this facility runs)."
             + (showLegacyWalkin ? " The legacy Walk_In_Blocks stream is non-zero this month and has its own card: " + fmtMoney(h.walkinRev) + "." : "")} style={Object.assign({ color: "var(--peach,#D9785C)" }, valueFitStyle(h.openPlayRev || 0))}>{fmtMoneyWhole(h.openPlayRev || 0)}</div>
-          <div className="sub">{fmtPct(pct(h.openPlayRev || 0), 0)}{openPlayPlayers != null ? " · " + fmtInt(openPlayPlayers) + " players" : ""}</div>
+          <div className="sub">{pctText(h.openPlayRev || 0)}{openPlayPlayers != null ? " · " + fmtInt(openPlayPlayers) + " players" : ""}</div>
         </div>
         {showLegacyWalkin && (
           <div className="stat-card" style={{ borderColor: "var(--peach,#D9785C)" }}>
             <div className="label">◉ Walk-in blocks (legacy)</div>
             <div className="value" title={"Walk-in blocks (legacy Walk_In_Blocks / Walk_In_Players sheets): " + fmtMoney(h.walkinRev) + " from " + fmtInt(_sum.paidWalkInPlayers || 0) + " players. Shown because it is not zero — normally this facility records walk-ins as Open Play sessions and this card is hidden."} style={Object.assign({ color: "var(--peach,#D9785C)" }, valueFitStyle(h.walkinRev))}>{fmtMoneyWhole(h.walkinRev)}</div>
-            <div className="sub">{fmtPct(pct(h.walkinRev), 0)} · {fmtInt(_sum.paidWalkInPlayers || 0)} players</div>
+            <div className="sub">{pctText(h.walkinRev)} · {fmtInt(_sum.paidWalkInPlayers || 0)} players</div>
           </div>
         )}
         <div className="stat-card" style={{ borderColor: "var(--wood)" }}>
           <div className="label">★ Coaching</div>
           <div className="value" title={"Coaching facility share: " + fmtMoney(h.coachingRev) + " across " + fmtInt(data.summary.paidCoachingSessions) + " sessions"} style={Object.assign({ color: "var(--wood)" }, valueFitStyle(h.coachingRev))}>{fmtMoneyWhole(h.coachingRev)}</div>
-          <div className="sub">{fmtPct(pct(h.coachingRev), 0)} · {fmtInt(data.summary.paidCoachingSessions)} sessions</div>
+          <div className="sub">{pctText(h.coachingRev)} · {fmtInt(data.summary.paidCoachingSessions)} sessions</div>
         </div>
         <div className="stat-card">
           <div className="label">POS</div>
           <div className="value" style={valueFitStyle(h.posRev)} title={"POS revenue: " + fmtMoney(h.posRev) + " across " + fmtInt(data.summary.posTransactions) + " transactions"}>{fmtMoneyWhole(h.posRev)}</div>
-          <div className="sub">{fmtPct(pct(h.posRev), 0)} · {fmtInt(data.summary.posTransactions)} txns</div>
+          <div className="sub">{pctText(h.posRev)} · {fmtInt(data.summary.posTransactions)} txns</div>
         </div>
         {!opOnly && (
           <div className="stat-card" style={{ borderColor: "var(--clay)" }}>
             <div className="label">⬛ Sponsorships</div>
             <div className="value" style={Object.assign({ color: "var(--clay)" }, valueFitStyle(h.sponsorshipRev || 0))}>{fmtMoneyWhole(h.sponsorshipRev || 0)}</div>
             <div className="sub">
-              {fmtPct(pct(h.sponsorshipRev || 0), 0)}
+              {pctText(h.sponsorshipRev || 0)}
               {(h.sponsorshipMonthly || h.sponsorshipOneOff || h.sponsorshipScheduled) ? " · " + [h.sponsorshipMonthly ? "MRR " + fmtMoneyWhole(h.sponsorshipMonthly) : "", h.sponsorshipOneOff ? "one-off " + fmtMoneyWhole(h.sponsorshipOneOff) : "", h.sponsorshipScheduled ? "installments " + fmtMoneyWhole(h.sponsorshipScheduled) : ""].filter(Boolean).join(" + ") : ""}
             </div>
           </div>
@@ -29946,7 +30647,7 @@ function FinancesView({ data, onChanged, opOnly, blocked }) {
               {fmtMoneyWhole(h.membershipRev)}
             </div>
             <div className="sub">
-              {fmtPct(pct(h.membershipRev), 0)}
+              {pctText(h.membershipRev)}
               {((h.newFoundingCount || 0) + (h.newStandardCount || 0)) > 0 && (
                 <> · {fmtInt(h.newFoundingCount || 0)} F + {fmtInt(h.newStandardCount || 0)} S</>
               )}
@@ -30068,7 +30769,25 @@ function FinancesView({ data, onChanged, opOnly, blocked }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 28, marginBottom: 24 }}>
         <div>
           <div className="section-label">
-            <span><span className="num">02</span><span className="name">Member vs Guest Revenue</span></span>
+            {/* v180 F6a — THE TITLE NAMES THE BASIS, because the basis is
+                narrower than the title was. memberRev / nonMemberRev are
+                built from paid COURT BOOKINGS and the paid legacy walk-in
+                roster and from nothing else — coaching, POS, open play,
+                memberships, sponsorships and tournaments never touch them.
+                Titled "Member vs Guest Revenue", $100 member court + $100
+                guest court + $500 member coaching + $400 member POS rendered
+                a 50% member bar over a period whose true member share of the
+                $1,100 was 90.9%. The numbers were right; the title was the
+                lie. Same remedy as v176's margin headline: ship the basis
+                with the figures and print it beside them. Widening the split
+                to every stream is a bigger change and is not attempted here. */}
+            <span><span className="num">02</span><span className="name">Member vs Guest · court revenue</span></span>
+            <span className="right" title="Coaching, POS, open play, memberships, sponsorships and tournaments are NOT split by membership here — this bar covers paid court bookings and the paid legacy walk-in roster only.">
+              {fmtMoney(splits.memberVsNonMember.basisTotal !== undefined
+                ? splits.memberVsNonMember.basisTotal
+                : ((splits.memberVsNonMember.member || 0) + (splits.memberVsNonMember.nonMember || 0)))}
+              {" of "}{splits.memberVsNonMember.basis || "court revenue"}
+            </span>
           </div>
           <SplitBar
             segments={[
@@ -30160,9 +30879,30 @@ function DailyRevenueChart({ daily }) {
           })();
           const mem = d.membership || 0;
           const trn = d.tournament || 0;
+          /* =================================================================
+           * v180 F5 — OPEN PLAY WAS IN THE BAR AND IN NOTHING ELSE.
+           *
+           * The bar's HEIGHT comes from d.total, which includes d.openplay;
+           * the stack was built from court/coaching/walkin/pos/membership/
+           * tournament only, and the tooltip's parenthesis summed the same
+           * six. A day of $10 court + $90 open play therefore drew a
+           * full-height bar that was 100% "Court" and said
+           * "$100.00 ($10 court · $0 walk-in · $0 coaching · $0 POS)" —
+           * a printed total whose own breakdown came to $10.
+           *
+           * `openplay` is the Open_Play stream this facility actually runs
+           * its walk-ins on and it carries the "walk-in" label (v126's
+           * naming, as in the range view). `walkin` is the LEGACY
+           * Walk_In_Blocks stream, permanently $0 here, kept and gated on
+           * !== 0 so a negative legacy balance surfaces instead of hiding —
+           * and so a dead $0 term never appears at all.
+           * ============================================================== */
+          const opl = d.openplay || 0;
+          const lwk = d.walkin || 0;
           const tip = d.date + " · $" + d.total.toFixed(2)
-            + " ($" + d.court.toFixed(0) + " court · $" + d.walkin.toFixed(0) + " walk-in · $"
+            + " ($" + d.court.toFixed(0) + " court · $" + opl.toFixed(0) + " walk-in · $"
             + d.coaching.toFixed(0) + " coaching · $" + d.pos.toFixed(0) + " POS"
+            + (lwk !== 0 ? " · $" + lwk.toFixed(0) + " walk-in blocks (legacy)" : "")
             + (mem > 0 ? " · $" + mem.toFixed(0) + " memberships" : "")
             + (trn !== 0 ? " · " + (trn >= 0 ? "+$" : "−$") + Math.abs(trn).toFixed(0) + " tournaments net" : "")
             + ")";
@@ -30171,7 +30911,14 @@ function DailyRevenueChart({ daily }) {
               <div className="stack" style={{ height: h + "%" }}>
                 {d.court > 0 && <div className="seg seg-court" style={{ flex: d.court }} />}
                 {d.coaching > 0 && <div className="seg seg-coach" style={{ flex: d.coaching }} />}
-                {d.walkin > 0 && <div className="seg seg-walk" style={{ flex: d.walkin }} />}
+                {/* v180 F5 — Open Play, the stream this facility runs its walk-ins
+                    on. Inline style rather than a new CSS rule, so v135's
+                    "the panel's ACTUAL CSS is byte-identical" pin stays true:
+                    same peach as the legacy Walk_In_Blocks swatch so the two
+                    read as one kind of money, dimmed so they can never be
+                    confused with each other. */}
+                {opl > 0 && <div className="seg" style={{ flex: opl, background: "var(--peach, #D9785C)", opacity: 0.6 }} />}
+                {lwk !== 0 && <div className="seg seg-walk" style={{ flex: Math.abs(lwk) }} />}
                 {d.pos > 0 && <div className="seg seg-pos" style={{ flex: d.pos }} />}
                 {mem > 0 && <div className="seg seg-member" style={{ flex: mem }} />}
                 {trn > 0 && <div className="seg seg-tournament" style={{ flex: trn }} />}
@@ -30184,7 +30931,10 @@ function DailyRevenueChart({ daily }) {
       <div className="finance-chart-legend">
         <span className="leg-item"><i className="leg-swatch seg-court" /> Court</span>
         <span className="leg-item"><i className="leg-swatch seg-coach" /> Coaching</span>
-        <span className="leg-item"><i className="leg-swatch seg-walk" /> Walk-in</span>
+        <span className="leg-item"><i className="leg-swatch" style={{ background: "var(--peach, #D9785C)", opacity: 0.6 }} /> Walk-in</span>
+        {daily.some(d => (d.walkin || 0) !== 0) && (
+          <span className="leg-item"><i className="leg-swatch seg-walk" /> Walk-in blocks (legacy)</span>
+        )}
         <span className="leg-item"><i className="leg-swatch seg-pos" /> POS</span>
         {daily.some(d => (d.membership || 0) > 0) && (
           <span className="leg-item"><i className="leg-swatch seg-member" /> Memberships</span>
@@ -30346,7 +31096,7 @@ function OutstandingPanel({ outstanding, headline, onChanged, blocked }) {
         next.delete(key);
         return next;
       });
-      showToast(r.error || "Failed — try again", "error");
+      reportWriteFailure(r, "this collection", "Failed — try again");
     }
   }
 
@@ -30396,7 +31146,7 @@ function OutstandingPanel({ outstanding, headline, onChanged, blocked }) {
     } else {
       retireIntent(iKey);
       setOptimisticPaid(prev => { const next = new Set(prev); next.delete(key); return next; });
-      showToast(r.error || "Failed — try again", "error");
+      reportWriteFailure(r, "this collection", "Failed — try again");
     }
   }
 
@@ -31609,7 +32359,9 @@ function OpenPlayCreateModal({ onClose, onCreated }) {
   // Default to today + 1, weekday off-peak (good for filling slow hours)
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
-  const defaultDate = tomorrow.toISOString().substring(0, 10);
+  /* v178 F8 — local Y-M-D, not toISOString() (UTC): between 06:00 and 06:59
+     local, "tomorrow" in UTC is still today, so the default meant today. */
+  const defaultDate = tomorrow.getFullYear() + "-" + String(tomorrow.getMonth() + 1).padStart(2, "0") + "-" + String(tomorrow.getDate()).padStart(2, "0");
 
   const [form, setForm] = useState({
     date: defaultDate,
@@ -31716,7 +32468,7 @@ function OpenPlayCreateModal({ onClose, onCreated }) {
               type="date"
               value={form.date}
               onChange={(e) => setForm({ ...form, date: e.target.value })}
-              min={new Date().toISOString().substring(0, 10)}
+              min={todayISO()}
               style={{ width: "100%" }}
             />
           </div>
@@ -32993,7 +33745,11 @@ function ScreenTournaments() {
       <div className="main-head">
         <div>
           <div className="title">
-            {summary.upcoming || 0} upcoming · {summary.inProgress || 0} live · {summary.past || 0} past
+            {/* v180 F4 — the plain word "past" means ALL past events; the
+                stat card below is the one captioned "Past this year" and it
+                now reads the year-filtered count. Falls back to summary.past
+                for a response that predates v180. */}
+            {summary.upcoming || 0} upcoming · {summary.inProgress || 0} live · {summary.pastAllTime !== undefined ? summary.pastAllTime : (summary.past || 0)} past
           </div>
           <h1>Tournaments</h1>
         </div>
@@ -33035,12 +33791,24 @@ function ScreenTournaments() {
           <div className="value">{fmtInt(summary.past || 0)}</div>
           <div className="sub">completed events</div>
         </div>
-        <div className="stat-card" style={{ borderColor: "var(--clay)" }}>
+        <div className="stat-card" style={{ borderColor: "var(--clay)" }}
+          title={"Cash basis: entry fees and revenue lines marked RECEIVED, less expenses marked PAID, for events that have already started this year. "
+            + "This is the same basis the Finances pages and the accounting report use, so this card and the books agree.\n\n"
+            + (summary.netProfitAccrualIncludingUpcoming !== undefined
+              ? "Accrual, including events not yet held: " + fmtMoney(summary.netProfitAccrualIncludingUpcoming)
+                + " — every revenue line whether or not the money has arrived, less every expense whether or not it has been paid. Planning figure, not a book figure."
+              : "")}>
           <div className="label">Net profit YTD</div>
           <div className="value" style={{ color: (summary.netProfitYTD || 0) >= 0 ? "var(--green)" : "var(--clay)" }}>
             {fmtMoney(summary.netProfitYTD || 0)}
           </div>
-          <div className="sub">revenue − expenses across all</div>
+          {/* v180 F4 — this card summed ACCRUAL net over every non-cancelled
+              event of the year INCLUDING upcoming ones, so a $2,000 pending
+              pledge on an event that had not happened sat in a "YTD profit"
+              headline: $2,200 on the card against $700 in the books. It is
+              cash basis now, past and live events only, and the caption says
+              so. */}
+          <div className="sub">cash received − cash paid · events held this year</div>
         </div>
       </div>
 
@@ -34603,12 +35371,31 @@ function BroadcastSmsModal({ tournamentId, tournamentName, players, onClose }) {
     let cumulative = { sent: 0, deduped: 0, failed: 0, total: 0 };
     let lastErr = null;
     for (;;) {
+      /* v181 — keyed on the message and the batch offset, so a re-tap of
+         the same send is refused as a repeat while a genuinely new batch
+         (next offset) or a reworded message goes through.
+         v182 — THE FULL BODY, NOT ITS FIRST 80 CHARACTERS. The key sliced the
+         message, so two DIFFERENT messages that shared an opening — a greeting,
+         a venue name, "Hi {name}, the tournament on Saturday…" — were the same
+         intent. Staff who spotted a wrong time, reworded the tail and re-sent
+         inside the 120 s window got the FIRST send's stored answer back and a
+         green "sent" toast, with the corrected text never leaving the building.
+         The offset stays in the key: a deliberate re-broadcast at a different
+         offset is a different intent and must go through. */
+      const iKey = intentKey("adminBroadcastTournamentSms", [tournamentId, target, offset, String(body || "")]);
       const r = await api("adminBroadcastTournamentSms", {
+        clientRequestId: intentRequestId(iKey),
         tournamentId: tournamentId,
         body: body,
         targetGroup: target,
         offset: offset
       });
+      /* v182 — RETIRE ON A DEFINITE ANSWER, so a refusal the server really made
+         (bad tournament id, SMS budget exhausted) is not replayed out of the
+         idempotency window for the next two minutes. An unknown outcome keeps
+         the id: there the send may well have gone out. */
+      if (r.ok) retireIntent(iKey);
+      if (!r.ok && !isUnknownOutcome(r)) retireIntent(iKey);
       if (!r.ok) { lastErr = r.error || "Failed"; break; }
       cumulative.sent += r.sent;
       cumulative.deduped += (r.deduped || 0);
@@ -35161,7 +35948,12 @@ function SponsorshipModal({ banner, onClose, onSaved, onChanged }) {
     });
     const text = await r.text();
     try { return JSON.parse(text); }
-    catch (e) { return { ok: false, error: "Server returned a non-JSON response" }; }
+    /* v182 — a non-JSON reply is what Apps Script sends when the execution
+       died or timed out AFTER the request reached it: the outcome is UNKNOWN,
+       not a refusal. `_transient` makes isUnknownOutcome() say so, so the
+       upload site keeps its intent id instead of minting a fresh one and
+       storing the same file twice on the retry. */
+    catch (e) { return { ok: false, error: "Server returned a non-JSON response", _transient: true }; }
   }
 
   async function uploadFile(file, inputEl) {
@@ -35179,12 +35971,26 @@ function SponsorshipModal({ banner, onClose, onSaved, onChanged }) {
         rd.onerror = reject;
         rd.readAsDataURL(file);
       });
+      /* v181 — _postApi bypasses api(), so the id rides in the body; doPost
+         merges it into e.parameter and route()'s dedupe sees it.
+         v182 — lastModified joins the key. Name+size alone collide on the two
+         files a phone camera produces back to back (IMG_0001.jpg, identical
+         byte count), so replacing a just-uploaded banner artwork with a second
+         shot of the same size was answered out of the idempotency window and
+         the OLD file came back as the result. */
+      const iKey = intentKey("adminUploadSponsorshipFile", [banner.bannerId, file.name, file.size, file.lastModified]);
       const r = await _postApi("adminUploadSponsorshipFile", {
+        clientRequestId: intentRequestId(iKey),
         bannerId: banner.bannerId,
         fileName: file.name,
         mimeType: file.type || "application/octet-stream",
         data: b64
       });
+      /* v182 — RETIRE ON A DEFINITE ANSWER. Without this a server refusal
+         ("banner not found", "unsupported type") was replayed for 120 s, so
+         fixing the cause and re-picking the file reproduced the old error. */
+      if (r.ok) retireIntent(iKey);
+      if (!r.ok && !isUnknownOutcome(r)) retireIntent(iKey);
       if (r.ok) {
         setFiles(prev => [...prev, r.file]);
         invalidateApiCache("adminListSponsorships");
@@ -40712,18 +41518,20 @@ function App() {
       }
     };
 
-    // SPEED: previously fired adminBootstrapSecondary in parallel, but
-    // Apps Script can only execute ONE function per project at a time —
-    // so "parallel" calls actually queue and delay the primary's response.
-    // Fixing this: defer secondary by 2 seconds so the dashboard has already
-    // received its data and rendered before we start the secondary scan.
-    setTimeout(() => {
-      api("adminBootstrapSecondary").then(r2 => {
-        if (r2 && r2.sections) {
-          hydrateSections(r2.sections, Date.now());
-        }
-      }).catch(() => { /* secondary failures are silent; per-screen fallback covers it */ });
-    }, 2000);
+    /* v179 — THE 2-SECOND DELAY IS GONE, AND SO IS THE BELIEF BEHIND IT.
+     * This used to wait 2,000 ms before firing adminBootstrapSecondary, on
+     * the stated premise that "Apps Script can only execute ONE function per
+     * project at a time — so parallel calls actually queue". MEASURED on the
+     * live deployment on 2026-09-18: six `version` calls fired at once each
+     * took 2.5-4.1 s and finished together (wall 4.1 s). Parallel requests
+     * do NOT queue on each other; each gets its own execution. The delay
+     * therefore bought nothing and cost every login two seconds. Fired now,
+     * in parallel with the primary. */
+    api("adminBootstrapSecondary").then(r2 => {
+      if (r2 && r2.sections) {
+        hydrateSections(r2.sections, Date.now());
+      }
+    }).catch(() => { /* secondary failures are silent; per-screen fallback covers it */ });
 
     api("adminBootstrap").then(r => {
       // ---- v133 P0-1 — ONLY AN AUTHENTICATION FAILURE MAY SIGN ANYONE OUT --
@@ -40781,18 +41589,15 @@ function App() {
       // serializing 15+ requests behind each other.
       const today = todayISO();
       const now = new Date();
-      setTimeout(() => {
-        // Use { date: today } not { dateFrom, dateTo } — the dashboard's
-        // own fetch uses { date }, so the cache key must match for the
-        // prewarm to actually serve as a cache hit. Same data, different
-        // cache key — without matching shape the prewarm is wasted.
-        api("adminListTimelineEntries", { date: today }).catch(() => {});
-        api("tabListOpen").catch(() => {});
-      }, 200);
-      setTimeout(() => {
-        api("adminDashboardKpi").catch(() => {});
-        api("adminOperationalKpi").catch(() => {});
-      }, 800);
+      /* v179 — the 200 ms and 800 ms staggers rested on the same disproven
+       * "Apps Script serialises" premise as the 2 s delay above. Fired
+       * together: they are four independent executions and the dashboard
+       * paints when the first of them lands, not the last. Cache-key shape
+       * note kept: { date: today } must match the dashboard's own fetch. */
+      api("adminListTimelineEntries", { date: today }).catch(() => {});
+      api("tabListOpen").catch(() => {});
+      api("adminDashboardKpi").catch(() => {});
+      api("adminOperationalKpi").catch(() => {});
       // All other tabs (Settings, Sponsorships, Walk-in, Tournaments,
       // Customers, SMS, POS history, Finances) are now lazy: the per-screen
       // useEffect fetches on first navigation. With server-side caching
@@ -40813,9 +41618,26 @@ function App() {
     const ping = () => {
       api("adminPing", {}, { bypassCache: true }).catch(() => {});
     };
-    const intervalId = setInterval(ping, 4 * 60 * 1000);
+    /* v179 — a ping on every wake is a cold execution that warms nothing.
+     * MEASURED 2026-09-18: every web request pays the same 3-5 s floor
+     * whether or not one just ran; there is no warm runtime for adminPing
+     * to keep alive. It still has one honest use — refreshing the server
+     * cache after a long idle — so it fires on wake only if the previous
+     * ping is more than four minutes old.
+     *
+     * v180 F13a — AND THE INTERVAL USES THE TRACKED WRAPPER. setInterval was
+     * given the UNTRACKED `ping`, so _lastPingAt only ever moved when a wake
+     * fired one — which meant the "previous ping is >4 min old" test above
+     * was blind to the twenty-odd pings the interval had made in between, and
+     * a tab brought back to the foreground pinged again even though one had
+     * just run seconds earlier. Both paths go through _pingTracked now, so
+     * the timestamp describes the last ping of ANY kind. Declared before the
+     * interval that uses it. */
+    let _lastPingAt = Date.now();
+    const _pingTracked = () => { _lastPingAt = Date.now(); ping(); };
+    const intervalId = setInterval(_pingTracked, 4 * 60 * 1000);
     const onVisibility = () => {
-      if (document.visibilityState === "visible") ping();
+      if (document.visibilityState === "visible" && Date.now() - _lastPingAt > 4 * 60 * 1000) _pingTracked();
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
@@ -41077,9 +41899,27 @@ function App() {
     const lastBundle = _bundledRef.current.has(lastKey) ? parseInt(localStorage.getItem(lastKey) || "0") : 0;
     if (lastBundle && (Date.now() - lastBundle) < 60000) return;
 
-    api("adminTabBundle", { tab: bundleTab }, { bypassCache: true })
+    /* v179 P1 — THE WINDOW THE BOOKINGS SCREEN WILL ACTUALLY ASK FOR.
+     * ScreenBookings mounts on today in day view and fetches
+     * adminListTimelineEntries for today ± DAY_WINDOW_RADIUS. The bookings
+     * bundle used to fetch today ONLY, so it hydrated
+     * adminListTimelineEntries{today,today} — a cache key nothing in the
+     * panel reads — and the screen's own loader fired a second, wider
+     * execution regardless. Ask for the window the screen reads, hydrate it
+     * under that key, and the screen's loader is a cache hit. */
+    const _bkFrom = addDaysISO(todayISO(), -DAY_WINDOW_RADIUS);
+    const _bkTo   = addDaysISO(todayISO(),  DAY_WINDOW_RADIUS);
+    const bundleParams = { tab: bundleTab };
+    if (bundleTab === "bookings") { bundleParams.dateFrom = _bkFrom; bundleParams.dateTo = _bkTo; }
+
+    /* v179 P1 — the promise is registered BEFORE it is awaited anywhere, and
+     * it resolves TRUE only once every section has been written into the
+     * per-endpoint cache. A screen loader awaiting this therefore either
+     * finds the cache hydrated or is told plainly that it was not. */
+    _tabBundleRegister(bundleTab,
+    api("adminTabBundle", bundleParams, { bypassCache: true })
       .then(r => {
-        if (!r || !r.ok || !r.sections) return;
+        if (!r || !r.ok || !r.sections) return false;
         // Hydrate each section into the per-endpoint cache, using the
         // same key shape api() would generate (no params, since bundle
         // sections use the default empty-param call shape).
@@ -41099,7 +41939,13 @@ function App() {
             const now = new Date();
             realParams = { year: now.getFullYear(), month: now.getMonth() + 1 };
           } else if (action === "adminListTimelineEntries") {
-            realParams = { dateFrom: todayISO(), dateTo: todayISO() };
+            /* v179 P1 — the bookings bundle now carries the screen's own
+             * ±DAY_WINDOW_RADIUS window, so it must be cached under THAT key
+             * or the hydration is silently thrown away. The dashboard bundle
+             * still asks for today only and keeps the today/today key. */
+            realParams = (bundleTab === "bookings")
+              ? { dateFrom: _bkFrom, dateTo: _bkTo }
+              : { dateFrom: todayISO(), dateTo: todayISO() };
           } else if (action === "posListSales") {
             realParams = { date: todayISO() };
           } else if (action === "adminListSmsLog") {
@@ -41114,8 +41960,10 @@ function App() {
         // Mark this tab as bundled — skip re-bundling for 60s
         _bundledRef.current.add(lastKey);
         localStorage.setItem(lastKey, String(Date.now()));
+        return true;   // v179 P1 — the cache really is hydrated now
       })
-      .catch(() => { /* non-fatal; per-screen loaders will pick up the slack */ });
+      .catch(() => { /* non-fatal; per-screen loaders will pick up the slack */ return false; })
+    );
   }
 
   let body;
@@ -41468,7 +42316,7 @@ root.render(<AppErrorBoundary><App /></AppErrorBoundary>);
 /** v171 §6 — the backend build this bundle was written against. Compared with
  *  what `?action=version` reports. tests/v171_splittrue_test.js pins this
  *  against BACKEND_BUILD in the .gs, so they cannot drift. */
-const PANEL_BACKEND_BUILD = "2026-08-14-v175-kpitodate";
+const PANEL_BACKEND_BUILD = "2026-08-14-v182-intent";
 
 /** v171 §6 — one banner, one wording, whichever of the three noticed. It is
  *  appended to <body> rather than rendered by React on purpose: a bundle
@@ -41582,8 +42430,17 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
     } catch (e) { /* offline, or the endpoint is older than this check — silent */ }
   }
   window.addEventListener("load", () => { setTimeout(check, 4000); });
+  /* v179 — once an hour on wake, not on every wake. Each check is a full
+   * cold execution (3-5 s measured) whose only output is a string compare;
+   * an iPad that sleeps and wakes forty times a shift was paying forty of
+   * them, alongside adminPing's forty. A build that changed is still caught
+   * within the hour, and the load-time check is unchanged. */
+  let _lastCheckAt = 0;
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") check();
+    if (document.visibilityState !== "visible") return;
+    if (Date.now() - _lastCheckAt < 60 * 60 * 1000) return;
+    _lastCheckAt = Date.now();
+    check();
   });
 })();
 
