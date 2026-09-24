@@ -4103,12 +4103,15 @@ function setToken(t) { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStora
 // M13: detect an auth/session failure from a server error string.
 function isSessionError(err) { return /session|token|expired|verify your phone/i.test(String(err || "")); }
 // M13: clear the stale token, drop it from app state, toast, and route to login.
-function handleSessionExpiry(setState, go, lang) {
+// v184 S1: `returnTo` (optional) is the screen ScreenOTP returns to after the code.
+function handleSessionExpiry(setState, go, lang, returnTo) {
   setToken("");
-  if (setState) setState(s => ({ ...s, token: "" }));
+  if (setState) setState(s => ({ ...s, token: "", authReturn: returnTo || null }));
   showToast(lang === "km" ? "សម័យ​បាន​ផុត​កំណត់ — សូម​ចូល​ម្ដង​ទៀត" : "Session expired — please sign in again.", "error");
   if (go) go("phone");
 }
+// v184 S1 (K5/K6): the server's explicit "sign in with the SMS code first" refusal.
+function isAuthRequired(r) { return !!(r && r.ok === false && r.code === "AUTH_REQUIRED"); }
 function getStoredPhone() { try { return localStorage.getItem(PHONE_KEY) || ""; } catch (e) { return ""; } }
 function setStoredPhone(p) { try { p ? localStorage.setItem(PHONE_KEY, p) : localStorage.removeItem(PHONE_KEY); } catch (e) {} }
 function getLang() { try { return localStorage.getItem(LANG_KEY) || "en"; } catch (e) { return "en"; } }
@@ -4286,14 +4289,18 @@ function isBirthdayEligibleClient(member, dateStr, windowDays) {
   const bMonth = parts[0], bDay = parts[1];
   if (!bMonth || !bDay) return false;
 
-  const checkDate = new Date(dateStr + "T12:00:00");
-  const thisYear = checkDate.getFullYear();
+  // v184 S4: noon-to-noon (both ends at 12:00, in UTC so the device's zone
+  // and DST cannot move it) — a symmetric ±N-day window, as the server has.
+  const dp = String(dateStr || "").split("-").map(Number);
+  const checkDate = Date.UTC(dp[0], dp[1] - 1, dp[2], 12, 0, 0);
+  const thisYear = dp[0];
   // M12: a birthday on Jan-2 checked on Dec-31 is only ~2 days away, but
   // measuring against this year alone reports ~363. Compare against the
   // birthday in the previous, current, and next year and take the smallest
   // absolute day-diff so the window wraps correctly across Jan 1 / Dec 31.
   const MS_PER_DAY = 1000 * 60 * 60 * 24;
   let diffDays = Infinity;
+  let nearestYear = thisYear;
   for (const yr of [thisYear - 1, thisYear, thisYear + 1]) {
     // FINAL-QA fix: Feb-29 birthdays roll to Mar 1 in non-leap years via the
     // Date constructor; policy (matches backend) = celebrate Feb 28 instead.
@@ -4302,16 +4309,18 @@ function isBirthdayEligibleClient(member, dateStr, windowDays) {
       const isLeap = (yr % 4 === 0 && yr % 100 !== 0) || yr % 400 === 0;
       if (!isLeap) d29 = 28;
     }
-    const bday = new Date(yr, bMonth - 1, d29);
+    const bday = Date.UTC(yr, bMonth - 1, d29, 12, 0, 0);
     const d = Math.abs((checkDate - bday) / MS_PER_DAY);
-    if (d < diffDays) diffDays = d;
+    if (d < diffDays) { diffDays = d; nearestYear = yr; }
   }
 
   const win = windowDays != null ? windowDays : 3;
   if (diffDays > win) return false;
 
+  // v184 S4: "used" is per BIRTHDAY year (the nearest one), as the server
+  // writes and checks it — not the booking's calendar year.
   const usedYear = parseInt(member.birthdayUsedYear) || 0;
-  if (usedYear >= thisYear) return false;
+  if (usedYear >= nearestYear) return false;
 
   return true;
 }
@@ -4445,7 +4454,10 @@ function formatDurationKm(slots) {
 function normalizePhone(p) {
   if (!p) return "";
   let s = String(p).replace(/[\s\-\(\)\+]/g, "");
-  if (s.startsWith("855")) s = s.substring(3);
+  if (s.startsWith("00")) s = s.substring(2);
+  // v184 S3 (K7): "855" is the country code only on a full international
+  // number (≥ 11 digits); "85512345" is a local number, as on the server.
+  if (s.startsWith("855") && s.replace(/\D/g, "").length >= 11) s = s.substring(3);
   if (s.startsWith("0")) s = s.substring(1);
   return s.replace(/\D/g, "");
 }
@@ -4577,7 +4589,8 @@ function TierBadge({ tier, number }) {
 
 /* ============== DateStrip — horizontal scroll of days ============== */
 function DateStrip({ value, onChange, daysAhead = 14, lang }) {
-  const today = useMemo(() => new Date(), []);
+  // v184 S5: Cambodia's today (not the device clock's), held at local noon.
+  const today = useMemo(() => { const c = nowInCambodia(); return new Date(c.y, c.mo - 1, c.d, 12, 0, 0); }, []);
   const days = useMemo(() => {
     const arr = [];
     for (let i = 0; i < daysAhead; i++) arr.push(addDays(today, i));
@@ -5286,14 +5299,17 @@ function ScreenOTP({ state, setState, go, lang }) {
       return;
     }
     setToken(r.token);
+    // v184 S1: back to where a sign-in refusal sent them from, else booking.
+    const _ret = (state.authReturn === "myBookings" || state.authReturn === "openplay") ? state.authReturn : "booking";
     setState(s => ({
       ...s,
       token: r.token,
       isMember: r.isMember,
       member: r.member,
-      guest: r.guest || null
+      guest: r.guest || null,
+      authReturn: null
     }));
-    go("booking");
+    go(_ret);
   }
 
   async function resend() {
@@ -5811,6 +5827,7 @@ function ScreenBooking({ state, setState, go, lang, config }) {
         return;
       }
       if (!r.ok) retireIntent(_iKey);
+      if (isAuthRequired(r)) { handleSessionExpiry(setState, go, lang, "booking"); return; }   // v184 K6
       if (!r.ok) {
         // M13: graceful session-expiry re-auth. If the backend rejected us on
         // an auth/session problem, the token is stale — clear it and bounce to
@@ -6689,11 +6706,13 @@ function ScreenMyBookings({ state, setState, go, lang, config }) {
     if (universalCancel.kind === "openplay") {
       r = await api("cancelMyOpenPlayRegistration", {
         registrationId: universalCancel.registrationId,
+        token: state.token || "",
         phone: state.phone || ""
       });
     } else if (universalCancel.kind === "tournament") {
       r = await api("cancelMyTournamentRegistration", {
         registrationId: universalCancel.registrationId,
+        token: state.token || "",
         phone: state.phone || ""
       });
     } else {
@@ -6706,7 +6725,7 @@ function ScreenMyBookings({ state, setState, go, lang, config }) {
     setCancelling(false);
     setUniversalCancel(null);
     if (!r.ok) {
-      if (isSessionError(r.error)) { handleSessionExpiry(setState, go, lang); return; }
+      if (isAuthRequired(r) || isSessionError(r.error)) { handleSessionExpiry(setState, go, lang, "myBookings"); return; }
       showToast(r.error || t("error", null, lang), "error"); return;
     }
     showToast(lang === "km" ? "បាន​បោះបង់" : "Cancelled", "success");
@@ -7699,8 +7718,9 @@ function ScreenOpenPlay({ state, setState, go, lang, config }) {
     // Fire both fetches in parallel
     const [sRes, mRes] = await Promise.all([
       api("listOpenPlaySessions"),
-      myPhone ? api("myOpenPlayRegistrations", { phone: myPhone }) : Promise.resolve({ ok: true, registrations: [] })
+      myPhone ? api("myOpenPlayRegistrations", { phone: myPhone, token: state.token || "" }) : Promise.resolve({ ok: true, registrations: [] })
     ]);
+    if (isAuthRequired(mRes)) { handleSessionExpiry(setState, go, lang, "openplay"); return; }   // v184 S1
     setSessions(sRes.ok ? (sRes.sessions || []) : []);
     setMyRegs(mRes.ok ? (mRes.registrations || []) : []);
     setLoadErr(sRes.ok ? null : (sRes.error || "load_failed"));
@@ -8170,17 +8190,21 @@ function OpenPlaySessionModal({ session, myReg, profile, state, setState, go, la
     }
     if (confirmTimerRef.current) { clearTimeout(confirmTimerRef.current); confirmTimerRef.current = null; }
     setConfirmingCancel(false);
+    // v184 S1 (K5): the server only hands out registrationId to a signed-in
+    // caller; without one (or a token) this cancel cannot work — sign in first.
+    if (!myReg.registrationId || !state.token) { onClose && onClose(); handleSessionExpiry(setState, go, lang, "openplay"); return; }
     inFlightRef.current = true;
     setSubmitting(true);
     try {
       const r = await api("cancelMyOpenPlayRegistration", {
         registrationId: myReg.registrationId,
+        token: state.token || "",
         phone: myReg.phone || phone
       });
       if (r.ok) {
         setMode("cancelled");
       } else {
-        if (isSessionError(r.error)) { onClose && onClose(); handleSessionExpiry(setState, go, lang); return; }
+        if (isAuthRequired(r) || isSessionError(r.error)) { onClose && onClose(); handleSessionExpiry(setState, go, lang, "openplay"); return; }
         setError(r.error || "Failed to cancel");
       }
     } finally {
@@ -9413,6 +9437,14 @@ function App() {
       const PUBLIC_SCREENS = new Set(["phone", "otp", "membership", "about", "fairuse"]);
       const target = validHashes.includes(hash) ? hash : (state.token ? "booking" : "phone");
       if (!state.token && !PUBLIC_SCREENS.has(target)) {
+        /* v184r R16 — REMEMBER WHERE THEY WERE GOING. A signed-out visitor
+           sent to #myBookings (the tournament page's "sign in to cancel"
+           link) was forced to #phone and, after the SMS code, dropped on
+           Booking. The target is kept in authReturn — the state ScreenOTP
+           already returns to after the code (v184 S1). */
+        if (target === "myBookings" || target === "openplay") {
+          setState(s => (s.authReturn === target ? s : { ...s, authReturn: target }));
+        }
         // Force to phone screen and rewrite URL so Back works properly.
         if (screen !== "phone") setScreen("phone");
         try { history.replaceState(null, "", "#phone"); } catch (e) {}
