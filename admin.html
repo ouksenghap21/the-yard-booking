@@ -6097,6 +6097,20 @@ const _inflightFetches = new Map();
 const _tabBundleInFlight = new Map();     // tab -> Promise<boolean>
 const TAB_BUNDLE_AWAIT_CAP_MS = 8000;
 
+/* v183 R3 — WHICH KEYS A BUNDLE ACTUALLY WROTE.
+ *
+ * awaitTabBundle answers a question about the BUNDLE ("did it land?"), and
+ * POS and Bookings both rely on that boolean, so it keeps its contract. But a
+ * bundle whose adminFinancesMonth SECTION failed still lands: fireTabBundle
+ * skips an ok:false section (`if (!data || data.ok === false) continue;`) and
+ * resolves true anyway. A loader that read "true" as "my key is hydrated"
+ * would then skip its own fetch over whatever the cache happened to hold, and
+ * retire the v142 staleness marker on an entry this bundle never wrote.
+ *
+ * tab -> Set of _apiCacheKey strings, reset when a bundle for that tab is
+ * fired and filled only by a section that really reached cacheApi(). */
+const _tabBundleHydratedKeys = {};
+
 /* Called by fireTabBundle. `p` must resolve truthy only when the bundle
  * actually hydrated the cache. Cleared when it settles, so a later mount
  * never waits on a promise from a previous visit. */
@@ -6122,6 +6136,24 @@ function awaitTabBundle(tab, capMs) {
     p.then(ok => !!ok, () => false),
     new Promise(resolve => setTimeout(() => resolve(false), cap))
   ]);
+}
+
+/* v184 C11 — THE v183 SKIP TEST, ONCE. ScreenFinances.load and
+ * OutstandingPanel spell it out inline; the Dashboard and Settings loaders
+ * use this. Returns the cache entry only when THIS tab's bundle recorded
+ * THIS exact key as hydrated AND the entry is ok, in-session (never a disk
+ * copy — v142) and inside its own API_CACHE_TTL. Anything else → null, and
+ * the caller fetches exactly as before. Call it only after
+ * awaitTabBundle(tab) resolved true. */
+function _tabBundleFreshEntry(tab, action, params) {
+  try {
+    const keys = _tabBundleHydratedKeys[String(tab || "")];
+    if (!keys || !keys.has(_apiCacheKey(action, params || {}))) return null;
+    const e = getCachedApiEntry(action, params || {});
+    const ttl = API_CACHE_TTL[action] || 0;
+    if (e && e.data && e.data.ok && !e.fromDisk && ttl > 0 && (Date.now() - e.time) < ttl) return e;
+  } catch (_eFresh) { /* a lookup failure is a miss, never a throw */ }
+  return null;
 }
 
 /* v179 P1 — the day-view fetch window, at module scope so ScreenBookings and
@@ -6239,7 +6271,7 @@ const _PERSIST_ENDPOINTS = new Set([
  * _hydrateCacheFromLocalStorage DELETES anything under the shared
  * "yard-cache-" root that is not in the CURRENT namespace, so
  * version-mismatched data is removed, not merely ignored. */
-const CLIENT_CACHE_VERSION = "yard-v182-intent";
+const CLIENT_CACHE_VERSION = "yard-v184-audit";
 const _LS_CACHE_ROOT = "yard-cache-";
 const _LS_CACHE_PREFIX = _LS_CACHE_ROOT + CLIENT_CACHE_VERSION + ":";
 const _LS_MAX_AGE_MS = 24 * 60 * 60 * 1000;  // 24h — anything older is too stale to even show
@@ -6917,6 +6949,7 @@ async function chargeWithConsignmentGuard(action, payload, intentParts) {
   if (!confirm(r.error + "\n\nOK — charge it anyway.\nCancel — go back and change the discount.")) {
     return { result: r, key: key, declined: true };
   }
+  retireIntent(key);   // v184 D2 — the warning was a DEFINITE answer; the caller only ever retires the ack key below
   key = intentKey(action, intentParts.concat(["confirmConsignmentLoss"]));
   r = await api(action, Object.assign({}, payload, {
     confirmConsignmentLoss: "true",
@@ -7030,11 +7063,37 @@ const API_ACTION_TIMEOUT_MS = {
   adminMarkPaid: 30000,            // ~7 RT + tryLock(8000)
   adminMarkWalkInPlayerPaid: 30000,
   adminMarkCoachingSessionsPaid: 30000,
+  /* v184 C15 — the counter's other lock-taking writes, all on the 25 s
+     default until now while the backend raised several tryLocks to 10 s.
+     Same formula as above: max floor (5.8 s, 9.4 s outlier) + the action's
+     own tryLock + its round trips. adminMarkPaid / adminMarkRefunded keep
+     their 30 s, which already clears 9.4 + 10 + ~7 RT × 0.4 = 22.2 s. */
+  adminCancelOpenPlaySession: 40000,  // tryLock(15000) + cell release + registrations
+  adminCancelBooking: 35000,          // tryLock(10000) + ~10 RT (cells, payments reversal)
+  adminPayCoach: 30000,               // tryLock(10000) + ~8 RT
+  adminRefundCoachingSession: 30000,  // tryLock(10000) + ~8 RT
+  adminRenewMember: 30000,            // tryLock(10000) + ~6 RT
+  adminCancelTournament: 45000,       // tryLock(15000) + reverses every paid entry
+  adminAddTournamentPlayer: 35000,    // tryLock(15000) + ~6 RT
+  adminAddWalkInPlayer: 30000,        // tryLock(10000) + ~6 RT
+  adminFlagNoShow: 30000,             // tryLock(10000) + ~6 RT
+  adminCreateMember: 30000,           // tryLock(10000) + ~6 RT
+  /* v184r R15 — the lock-taking writes v184b gave a tryLock(10000), still on
+     the 25 s default (9.4 s floor outlier + 10 s lock + work > 25 s). The
+     budget is PER ATTEMPT: a timed-out or busy first attempt is re-sent once
+     (_RETRY_MAX_MUT) after ~2.5–3.2 s, so the worst wait is 2 × budget + 3.2 s. */
+  adminUpdateCoachingSession: 35000,  // tryLock(10000) + ~15-20 RT (reprice, court cells, ledger)
+  adminAddTournamentRevenue: 30000,   // tryLock(10000) + ~4 RT
+  adminAddTournamentExpense: 30000,   // tryLock(10000) + ~4 RT
+  adminDeleteTournamentRevenue: 30000,// tryLock(10000) + ~5 RT
+  adminDeleteTournamentExpense: 30000,// tryLock(10000) + ~4 RT
   adminTabBundle: 60000,           // runs posListSales + tabListOpen, each budgeted 60 s alone
   /* adminPulse is LOWERED, not raised: a fingerprint poll that takes 20 s is
      a system already in trouble and must not hold an execution slot open
      while the till waits behind it. */
   adminPulse: 20000,
+  // v183 F5 — two whole-sheet scans (Coaches + Coaching_Sessions) behind the platform floor, and a finances-bundle section now: the 25 s default aborted a call the server still went on to answer.
+  adminListCoachPayments: 60000,
 
   /* =====================================================================
    * v180 F12 — FIVE REPAIR ACTIONS WERE BUDGETED BELOW THEIR OWN LOCK.
@@ -7186,8 +7245,11 @@ function _pendingPollDelayMs(pollIndex) {
 function _isTransientFailure(r) {
   /* v178 F4 — `_transientGate` (the permission gate could not run; nothing
      was dispatched, nothing written) gets the retry the server promises. It
-     is deliberately NOT an unknown outcome: the gate runs before dispatch. */
-  return !!(r && r.ok === false && (r.timedOut === true || r._transient === true || r._transientGate === true));
+     is deliberately NOT an unknown outcome: the gate runs before dispatch.
+     v184 C5 — `busy` (K1: the script lock timed out before the handler ran;
+     nothing was written and the server did NOT store it under the request id)
+     is the same class: a definite refusal worth one re-send. */
+  return !!(r && r.ok === false && (r.timedOut === true || r._transient === true || r._transientGate === true || r.busy === true));
 }
 
 async function _doFetchRaw(action, params) {
@@ -7261,9 +7323,18 @@ async function _doFetchRaw(action, params) {
   if (_isMut) _mutationsInFlight++;
   try {
     let r = null;
+    /* v184 D3 — the FIRST unknown outcome (timedOut / _transient) this loop
+       saw. A later gate/busy refusal says only that THE RE-SEND did not run;
+       the earlier attempt may have committed, so it must not be reported as
+       a definite "nothing saved". */
+    let _priorUnknown = null;
+    /* v184 C5/D3 — a DEFINITE "nothing ran" refusal: the gate could not run,
+       or the lock was busy. Local, so every lifted copy of this loop carries it. */
+    const _nothingRan = (x) => !!(x && x.ok === false && (x._transientGate === true || x.busy === true));
     for (let attempt = 0; ; attempt++) {
       r = await _doFetchOnce(action, url, _authBody);
       if (!_isTransientFailure(r)) break;
+      if (_priorUnknown === null && !_nothingRan(r)) _priorUnknown = r;
       if (attempt >= _maxExtra) break;
       if (document.hidden) break;   // a backgrounded tab must not add load
       if (_isMut) {
@@ -7277,8 +7348,16 @@ async function _doFetchRaw(action, params) {
        * unknown-charge banner anyway, two executions in instead of four. The
        * v180 removal and this guard together deliver what v180 claimed. */
       if (r && r._transientGate === true) url.searchParams.delete("clientRetry"); else _markRetry();
+      /* v184 C5 — `busy` (K1) is the same case as the gate: the lock timed
+       * out before the handler ran and the server stored nothing under this
+       * id, so the re-send is a first attempt and goes UNMARKED (the v182
+       * symmetric guard: a mark an earlier retry left on the shared URL is
+       * deleted, not merely not re-set). */
+      if (r && r.busy === true) url.searchParams.delete("clientRetry");
       await _retrySleep(_retryDelayMs(attempt + 1, _isMut));
     }
+    /* v184 D3 — unknown-then-refused is still UNKNOWN. */
+    if (_priorUnknown !== null && _nothingRan(r)) r = _priorUnknown;
     /* Mutation replay bookkeeping: duplicate+pending means the FIRST
        execution is still running (or its stored answer was unavailable).
        Poll briefly for the stored original; then be honest. */
@@ -7579,6 +7658,8 @@ function _invalidateForMutation(action, result) {
   );
   const isTournamentMutation = (
     /^(adminCreateTournament|adminCancelTournament|adminUpdateTournament|adminAddTournamentPlayer|adminRemoveTournamentPlayer|adminAddTournamentRevenue|adminAddTournamentExpense|registerForTournament|adminMarkTournamentPlayerPaid)/.test(action)
+    // v184 C10 — the revenue/expense line edits and deletes (Delete matched no prefix above)
+    || /^(adminUpdateTournamentRevenue|adminDeleteTournamentRevenue|adminUpdateTournamentExpense|adminDeleteTournamentExpense)$/.test(action)
   );
   // v101 — adminStocktake SETS stock on N products in one call, so the
   // cached posListProducts payload is stale the moment it returns.
@@ -7602,7 +7683,7 @@ function _invalidateForMutation(action, result) {
     /^tab(Open|Close|Cancel|AddItem|RemoveItem|Attach|Detach|Update)/.test(action)
   );
   const isMemberMutation = (
-    /^(adminCreateMember|adminUpdateMember|adminDeleteMember|adminCancelMember)/.test(action)
+    /^(adminCreateMember|adminUpdateMember|adminDeleteMember|adminCancelMember|adminRenewMember)/.test(action)   // v184 C10 — + renew
   );
   const isSponsorshipMutation = (
     /^(adminCreateSponsorship|adminUpdateSponsorship|adminCancelSponsorship|adminMarkSponsorshipInstallmentPaid|adminUnmarkSponsorshipInstallmentPaid)/.test(action)
@@ -7622,7 +7703,8 @@ function _invalidateForMutation(action, result) {
   const touchesDashboard = (
     isBookingMutation || isWalkInMutation || isCoachingMutation ||
     isOpenPlayMutation || isTournamentMutation || isPosMutation ||
-    isTabMutation || isSponsorshipMutation
+    isTabMutation || isSponsorshipMutation ||
+    isMemberMutation   // v184 C10 — a membership fee / renewal is dashboard + finances money
   );
   if (touchesDashboard) {
     wipe("adminDashboard");
@@ -8356,6 +8438,19 @@ function _toastSweep() {
   toastTimeout = d === null ? null : setTimeout(_toastSweep, d);
 }
 
+/* v184s F3 — THE STACK IS FULL: DROP THE OLDEST *TIMED* ENTRY FIRST.
+ * Truncating the array dropped the oldest entry whatever it was — so a
+ * sticky "IS voided … Do NOT void again" vanished under two routine
+ * "Saved" toasts. A sticky entry is dropped only when every slot is sticky
+ * (then the oldest sticky goes, as before). */
+function _toastTrim() {
+  while (_toastStack.length > TOAST_SLOT_IDS.length) {
+    let drop = -1;
+    for (let i = _toastStack.length - 1; i >= 0; i--) { if (!_toastStack[i].sticky) { drop = i; break; } }
+    _toastStack.splice(drop >= 0 ? drop : _toastStack.length - 1, 1);
+  }
+}
+
 function showToast(text, kind = "default", ms) {
   const life = (typeof ms === "number" && ms > 0) ? ms : TOAST_DEFAULT_MS;
   const body = String(text === undefined || text === null ? "" : text);
@@ -8368,7 +8463,7 @@ function showToast(text, kind = "default", ms) {
     _toastStack.unshift(only);
   } else {
     _toastStack.unshift({ text: body, kind: kind, until: now + life });
-    if (_toastStack.length > TOAST_SLOT_IDS.length) _toastStack.length = TOAST_SLOT_IDS.length;
+    _toastTrim();   // v184s F3
   }
   _renderToasts();
   clearTimeout(toastTimeout);
@@ -8415,7 +8510,7 @@ function showStickyToast(text, kind = "error") {
        or not — and a guarantee nothing can break is a guarantee nothing
        tests. (v174 F7's companion lesson, applied to v174 F4.) */
     _toastStack.unshift({ text: body, kind: kind, until: 0, sticky: true });
-    if (_toastStack.length > TOAST_SLOT_IDS.length) _toastStack.length = TOAST_SLOT_IDS.length;
+    _toastTrim();   // v184s F3
   }
   _renderToasts();
   clearTimeout(toastTimeout);
@@ -9902,6 +9997,42 @@ function ScreenDashboard() {
       if (cok && cok.ok) setOpKpiData(cok);
     }
 
+    /* v184 C11 — THE v183 PATTERN ON THE DASHBOARD. go() (or a hover) has
+     * fired adminTabBundle{tab:"dashboard"}, whose four sections ARE this
+     * refresh's four legs — adminDashboard, the { date: today } timeline,
+     * adminDashboardKpi and adminOperationalKpi. Firing Core + Combined
+     * regardless meant two more cold executions racing the one already
+     * computing them. The paint above stays ABOVE this await (v180 §A4); the
+     * await resolves at once with no bundle in flight, is capped, and
+     * resolves false on failure. The fetch is skipped only when EVERY leg's
+     * key was hydrated by this bundle and is fresh and in-session — any
+     * miss, and both stages run exactly as before. A { fresh } refresh (the
+     * pulse, a mutation, the marker's button) never waits here. */
+    if (!bypass) {
+      const _dashHyd = await awaitTabBundle("dashboard");
+      if (_dashHyd) {
+        const _eD = _tabBundleFreshEntry("dashboard", "adminDashboard", {});
+        const _eB = _tabBundleFreshEntry("dashboard", "adminListTimelineEntries", { date: today });
+        const _eK = _tabBundleFreshEntry("dashboard", "adminDashboardKpi", {});
+        const _eO = _tabBundleFreshEntry("dashboard", "adminOperationalKpi", {});
+        if (_eD && _eB && _eK && _eO) {
+          setData(_eD.data);
+          setBookings(_eB.data.entries || []);
+          setKpiData(_eK.data);
+          setOpKpiData(_eO.data);
+          /* Each leg's OWN fresh in-session ok payload — the one thing that
+           * may retire its v142/v143 stale marker. */
+          const _bl = _staleLegsRef.current;
+          _bl.dashboard = false; _bl.timeline = false; _bl.kpi = false; _bl.opKpi = false;
+          setStaleInfo(null);
+          const _asOf = Math.min(_eD.time, _eB.time, _eK.time, _eO.time);
+          setLastUpdated(new Date(_asOf));
+          lastFullRefreshRef.current = _asOf;
+          return;
+        }
+      }
+    }
+
     // TWO-STAGE FETCH for perceived speed:
     //
     // Stage 1: adminDashboardCore — fast call (~500ms) returning only
@@ -10140,6 +10271,24 @@ function ScreenDashboard() {
     // when something actually changed. Initial value "" means "fetch on
     // first pulse so we have a baseline".
     let lastFingerprint = "";
+    /* v184 C9(a) — NO BLIND WINDOW. The first tick after a (re)load only
+     * recorded a baseline, so a change made on the OTHER iPad between the
+     * refresh and that tick moved the fingerprint without anyone noticing,
+     * and nothing refreshed until the 5-minute failsafe. A pulse taken as the
+     * refresh STARTS describes a state no newer than the figures that refresh
+     * will paint, so it is the baseline the first tick compares against: a
+     * later change always differs. (Worst case is one redundant refresh, never
+     * a missed one.) One light adminPulse per reset, none while hidden. */
+    let _seedSeq = 0;
+    function seedFingerprint() {
+      if (document.hidden) return;
+      const mySeq = ++_seedSeq;
+      api("adminPulse", {}, { bypassCache: true }).then(r => {
+        if (mySeq !== _seedSeq) return;
+        if (r && r.ok && r.fingerprint && lastFingerprint === "") lastFingerprint = r.fingerprint;
+      }).catch(() => { /* the first tick records the baseline, as before */ });
+    }
+    seedFingerprint();
 
     async function checkPulse() {
       // Skip if tab is in background — no point fetching for a hidden tab
@@ -10216,6 +10365,7 @@ function ScreenDashboard() {
         // we don't fire a second one redundantly.
         refresh({ fresh: true });
         lastFingerprint = "";  // force next pulse to set baseline
+        seedFingerprint();     // v184 C9(a) — …taken now, not at the next tick
         startPolling();
       }
     }
@@ -10227,6 +10377,7 @@ function ScreenDashboard() {
     function onDataChanged() {
       refresh({ fresh: true });
       lastFingerprint = "";  // next pulse will pick up the new baseline
+      seedFingerprint();     // v184 C9(a) — …taken as this refresh starts
     }
 
     if (!document.hidden) startPolling();
@@ -12267,6 +12418,7 @@ function ScreenBookings() {
   // to any day INSIDE this window is pure client-side filtering — instant, no
   // network. We only refetch when the selected date reaches the window edge.
   const [loadedRange, setLoadedRange] = useState(null);
+  const loadTokenRef = useRef(0);   // v184 D15 — see load()
   /* v179 P1 — addDaysISO and DAY_WINDOW_RADIUS moved to module scope (beside
    * awaitTabBundle) so fireTabBundle can ask the bundle for THE SAME WINDOW
    * this screen is about to ask for. Two copies of the radius would have made
@@ -12313,6 +12465,13 @@ function ScreenBookings() {
 
   async function load(opts) {
     const silent = opts && opts.silent;
+    /* v184 D15 — ONLY THE LATEST LOAD MAY APPLY. A load parked on
+     * awaitTabBundle (up to 8 s) could land AFTER a load for a newer window
+     * and overwrite it with the older window's rows. A non-silent load takes a
+     * new token; a silent poll rides the current one — so either is dropped
+     * the moment a newer non-silent load has started (ScreenFinances'
+     * fetchTokenRef, same idea). */
+    const myToken = silent ? loadTokenRef.current : ++loadTokenRef.current;
     /* v179 P1 — the bookings tab bundle is fetching this exact window (see
      * fireTabBundle), so let it land before deciding whether the cache is
      * hydrated. Resolves immediately when no bundle is in flight — which is
@@ -12355,6 +12514,7 @@ function ScreenBookings() {
       { dateFrom: fetchRange.from, dateTo: fetchRange.to },
       { bypassCache: !!silent }  // periodic polls bypass; initial/explicit reads use cache
     );
+    if (myToken !== loadTokenRef.current) return;   // v184 D15 — superseded; the newer load owns the screen
     if (r.ok) {
       setEntries(r.entries || []);
       if (!silent && view === "day") setLoadedRange({ from: fetchRange.from, to: fetchRange.to });
@@ -13907,23 +14067,23 @@ function BookingDetailModal({ booking, onClose, onAction, peers, initialPanel })
           paymentMethod: payMethod
         }));
       } else {
-        showToast(r.error || "Didn't save — please retry", "error");
+        reportWriteFailure(r, "this collection", "Didn't save — please retry");   // v184 C14
       }
       return;
     }
 
-    // Optimistic: close the modal and refresh the list immediately so the
-    // action feels instant; the write runs in the background. The modal holds
-    // no source-of-truth data, so closing early is safe. onAction() reconciles
-    // the list (stale-while-revalidate keeps it visible, no spinner); on
-    // failure we surface an error and refresh again to restore the real state.
-    onClose && onClose();
-    onAction && onAction();
+    /* v184 C14 — the modal closes only on r.ok. It used to close before the
+       write, so a refusal (or an unknown outcome) left the cashier with a
+       toast and nothing on screen to act on. onAction() still reconciles the
+       list either way. */
     /* v159 F11 — adminMarkRefunded writes a negative Payments row down this
        generic path, so it carries the cashier for the same reason cancel does. */
     const params = { bookingId: booking.bookingId, cashier: actingCashier() };
+    setActing(true);
     const r = await api(action, params);
+    setActing(false);
     if (r.ok) {
+      onClose && onClose();
       showToast(
         action === "adminConfirmArrival" ? "Arrival confirmed"
         : action === "adminMarkRefunded" ? ("Marked refunded" + (typeof r.refunded === "number" && r.refunded > 0 ? " — " + fmtMoney(r.refunded) + " reversed" : "")
@@ -13932,7 +14092,7 @@ function BookingDetailModal({ booking, onClose, onAction, peers, initialPanel })
         "success"
       );
     } else {
-      showToast(r.error || "Didn't save — please retry", "error");
+      reportWriteFailure(r, "this change to " + (booking.name || "the booking"), "Didn't save — please retry");   // v184 C14
     }
     onAction && onAction();
   }
@@ -16223,7 +16383,7 @@ function AddMemberModal({ foundingFull, onClose, onCreated }) {
       // receipt is dismissed. Receipt-only — no POS sale, so no double-count.
       setReceiptItem(membershipReceipt({ memberNumber: r.memberNumber, name: form.name, phone: form.phone, tier: form.tier, paymentMethod: form.paymentMethod }));
     } else {
-      showToast(r.error || "Failed", "error");
+      reportWriteFailure(r, "this new member (and their fee)", "Failed");   // v184 C14
     }
   }
 
@@ -16501,7 +16661,8 @@ function EditMemberModal({ member, onClose, onSaved }) {
       if (r.warning) showToast(r.warning, "warning", 9000);
       onSaved && onSaved();
     } else {
-      showToast(r.error || "Failed to renew", "error");
+      // v184 C10 — a dropped answer is NOT "Failed to renew": it may have charged.
+      reportWriteFailure(r, "this renewal of " + (member.name || "the member"), "Failed to renew");
     }
   }
 
@@ -18408,22 +18569,28 @@ function PayCoachesView({ data, coaches, loading, reload }) {
     if (!payoutModal) return;
     const coachId = payoutModal.coach.coachId;
     const sessionIds = payoutModal.sessions.map(s => s.sessionId);
-    setExpandedCoachId(null);
-    setPayoutModal(null);
+    /* v184 C14 — the payout modal closes only on r.ok, so a refusal keeps the
+       method/date/notes the owner entered; and one id per (coach, sessions,
+       method, date), so a re-tap after an unknown outcome is the same request. */
+    const iKey = intentKey("adminPayCoach", [coachId, JSON.stringify(sessionIds.slice().sort()), method, payoutDate]);
     const r = await api("adminPayCoach", {
       coachId: coachId,
       sessionIds: JSON.stringify(sessionIds),
       method: method,
       payoutDate: payoutDate,
-      notes: notes || ""
+      notes: notes || "",
+      clientRequestId: intentRequestId(iKey)
     });
+    if (r && (r.ok || !isUnknownOutcome(r))) retireIntent(iKey);
     if (r.ok) {
+      setExpandedCoachId(null);
+      setPayoutModal(null);
       const tillNote = r.affectsTill ? " · cash out of till" : " · " + method + " (till unchanged)";
-      showToast(`Paid ${r.coachName || "coach"} $${r.amount.toFixed(2)} · ${r.paidSessions} session${r.paidSessions === 1 ? "" : "s"}${tillNote}`, "success");
+      showToast(`Paid ${r.coachName || "coach"} $${Number(r.amount || 0).toFixed(2)} · ${r.paidSessions} session${r.paidSessions === 1 ? "" : "s"}${tillNote}`, "success");
       setCoachSessions(prev => { const next = { ...prev }; delete next[coachId]; return next; });
       reload();
     } else {
-      showToast((r.error || "Failed to record payout") + " — refreshing", "error");
+      reportWriteFailure(r, "this coach payout", "Failed to record payout");
       reload();
     }
   }
@@ -18932,6 +19099,72 @@ function ScreenPOS() {
     return () => window.removeEventListener("yard:data-changed", onDataChanged);
   }, []);
 
+  /* v184 C9(b) — THE OTHER iPAD'S CHANGES REACH THIS TILL.
+   * The comment above leaned on "the 10s dashboard pulse" for cross-device
+   * changes, but the dashboard is not mounted while POS is, so a sale, a tab
+   * or a stock change rung up on the other counter iPad never appeared here
+   * until a TTL happened to expire under a local action. A light pulse: the
+   * same adminPulse fingerprint the dashboard polls, every ~15 s, skipped
+   * while hidden and while this device is doing money (yardBusyHold — a
+   * money modal open or a mutation in flight). When the fingerprint MOVES,
+   * the three reads above re-run from a wiped cache — the same refresh a
+   * local change triggers. The first tick fires at mount, as the loaders
+   * start, so its baseline is no newer than what they paint. No cart,
+   * discount or customer state is touched. */
+  useEffect(() => {
+    let alive = true, inFlight = false, lastFp = "";
+    /* v184r R5 — THIS TILL'S OWN WRITE IS NOT "THE OTHER iPAD". Every sale
+       rung up here moves the fingerprint too, so the next tick reloaded
+       products, sales and tabs that the sale's own deltas had already
+       patched. A local mutation (api() → yard:data-changed) now clears the
+       baseline and bumps a generation: the next tick RECORDS the new
+       fingerprint instead of reloading, and a tick already in flight when
+       the write landed is discarded. Changes arriving after that re-baseline
+       are caught exactly as before. */
+    let fpGen = 0;
+    /* v184s F2 — BUT A RUSH MUST NOT BLIND THE TILL. With a sale rung up here
+       every few seconds, every tick found the baseline cleared and only
+       re-baselined — the other iPad's changes never compared. prevFp is the
+       last fingerprint this pulse saw (never cleared by an own write) and
+       lastCompareAt the last time a tick really compared. Once that is more
+       than 45 s ago, a tick with a cleared baseline compares against prevFp
+       anyway and reloads on a change (at worst one extra reload that also
+       covers this till's own writes), so cross-device staleness is capped at
+       about a minute. */
+    let prevFp = "", lastCompareAt = Date.now();
+    function onOwnWrite() { lastFp = ""; fpGen++; }
+    window.addEventListener("yard:data-changed", onOwnWrite);
+    async function posPulse() {
+      if (!alive || inFlight || document.hidden) return;
+      if (typeof yardBusyHold === "function" && yardBusyHold()) return;
+      inFlight = true;
+      const _gen = fpGen;
+      try {
+        const r = await api("adminPulse", {}, { bypassCache: true });
+        if (!alive || !r || !r.ok || !r.fingerprint) return;
+        const _now = Date.now();
+        const _stale = !lastFp && !!prevFp && (_now - lastCompareAt) > 45000;   // v184s F2
+        if (_gen !== fpGen && !_stale) return;   // v184r R5 — a local write landed mid-tick; the next tick baselines
+        const _base = lastFp || (_stale ? prevFp : "");
+        if (_base) lastCompareAt = _now;
+        prevFp = r.fingerprint;
+        if (_base && r.fingerprint !== _base) {
+          invalidateApiCache("posListProducts");
+          invalidateApiCache("posListSales");
+          invalidateApiCache("tabListOpen");
+          invalidateApiCache("adminListSettleableEntries");
+          loadProducts();
+          loadTodayStats();
+          loadTabCount();
+        }
+        if (_gen === fpGen) lastFp = r.fingerprint;
+      } catch (e) { /* next tick retries */ } finally { inFlight = false; }
+    }
+    posPulse();
+    const id = setInterval(posPulse, (typeof pollJitterMs === "function") ? pollJitterMs(15000) : 15000);
+    return () => { alive = false; clearInterval(id); window.removeEventListener("yard:data-changed", onOwnWrite); };
+  }, []);
+
   // Categories present in products
   const categories = useMemo(() => {
     const set = new Set();
@@ -19146,6 +19379,10 @@ function ScreenPOS() {
     // events fire before the disabled state hits the DOM. Without this
     // guard, the second tap creates a duplicate sale.
     if (submitting) return;
+    /* v184 C2 — the last charge's outcome is UNKNOWN: a second charge now is
+       the double charge. The desktop button was disabled for this; the mobile
+       till's was not, and nothing here re-checked it. Both do now. */
+    if (unknownCharge) return;
     if (lookingUpTier) return showToast("Pricing updating — try again in a moment", "error");
     if (cart.length === 0 && attached.length === 0) return showToast("Cart is empty", "error");
     if (paymentMethod === "Cash" && total > 0 && !(parseFloat(cashReceived) >= total)) {
@@ -19290,6 +19527,12 @@ function ScreenPOS() {
         showToast("Charged $" + r.total.toFixed(2) + " (updated from $" + total.toFixed(2) + " shown — an attached line changed). Verify cash collected.", "error");
       }
       reportLateCollection(r);   // v162 F3/F9 — a combined settle that collected against a CLOSED month
+      /* v184s F9 — and adminSettleCombined's plural list (the same lost
+         Stock_Movements row, from the settle writer), sticky for the same reason. */
+      if (r.postCommitWarnings && r.postCommitWarnings.length) showStickyToast("⚠ Sale " + (r.saleId || "") + " is recorded, but " + r.postCommitWarnings.join("; ") + "." + TOAST_DISMISS_HINT, "error");
+      /* v184r R2 — posCreateSale's committed-but-incomplete answer (a
+         Stock_Movements row that did not save) is said, and stays said. */
+      if (r.postCommitWarning) showStickyToast("⚠ " + r.postCommitWarning + TOAST_DISMISS_HINT, "error");
       setCart([]);
       setAttached([]);
       setDiscountPct(0);
@@ -19402,6 +19645,8 @@ function ScreenPOS() {
           submitting={submitting}
           lookingUpTier={lookingUpTier}
           processCharge={processCharge}
+          unknownCharge={unknownCharge}
+          onClearUnknownCharge={() => { setUnknownCharge(""); loadTodayStats(); loadProducts(); }}
         />
       ) : (
       <div className="pos-shell">
@@ -20111,7 +20356,10 @@ function TabDetailModal({ tabId, products, onClose }) {
   // the whole view — items, totals, everything. No client-side money math
   // becomes truth: the running totals only change on reconciliation.
   async function addItems(lines) {
-    setShowAddItem(false);
+    /* v184 C14 — the picker is no longer closed before the write: it closes
+       on r.ok (and on the partial / unknown outcomes, whose banner in THIS
+       modal is what the cashier must read), and stays open with the picked
+       lines on a definite refusal. */
     const stamp = Date.now();
     const pending = lines.map((ln, i) => ({
       itemId: "PENDING-" + stamp + "-" + i,
@@ -20137,6 +20385,7 @@ function TabDetailModal({ tabId, products, onClose }) {
     });
     if (r.ok) {
       retireIntent(iKey);
+      setShowAddItem(false);   // v184 C14
       /* ---- v151 M1b — SAY WHAT THE SERVER SAID, NOT WHAT WE ASKED FOR ----
        *
        * This toast used to be `lines.reduce(...)` — the quantity the STAFF
@@ -20188,6 +20437,7 @@ function TabDetailModal({ tabId, products, onClose }) {
        * unknown-write banner, and every money action stays blocked until a
        * refresh. The intent is NOT retired — tapping add again re-sends the
        * same id and is refused again, rather than doubling whatever landed. */
+      setShowAddItem(false);   // v184 C14 — the banner below must be visible
       if (r.detail && r.detail.ok) { setData(r.detail); setStale(""); }
       else setData(prev => prev ? Object.assign({}, prev, { items: prev.items.filter(it => !it._pending) }) : prev);
       setUnknownWrite(r.error || ("Part of this add landed on " + tabId + " and part did not — check the tab before settling."));
@@ -20207,6 +20457,7 @@ function TabDetailModal({ tabId, products, onClose }) {
        * UNKNOWN rather than failed, and every money action is blocked until a
        * refresh resolves it. The intent id is NOT retired: if they tap add
        * again, the server recognises the repeat and refuses it. */
+      setShowAddItem(false);   // v184 C14 — the unknown banner must be visible
       setData(prev => prev ? Object.assign({}, prev, {
         items: prev.items.map(it => it._pending ? Object.assign({}, it, { _unknown: true }) : it)
       }) : prev);
@@ -20224,8 +20475,17 @@ function TabDetailModal({ tabId, products, onClose }) {
        * pre-tap view is the true state. */
       retireIntent(iKey);
       setData(prev => prev ? Object.assign({}, prev, { items: prev.items.filter(it => !it._pending) }) : prev);
-      showToast(r.error || "Failed", "error");
+      reportWriteFailure(r, "these lines on " + tabId, "Failed");   // v184 C14 — the picker stays open with the lines picked
     }
+  }
+
+  /* v184 C14 — a failed remove/detach is reported through reportWriteFailure
+     (an unknown outcome is not "Failed"), and an unknown one also raises this
+     modal's unknown-write banner: the tab's total may have moved, so the
+     settle buttons are held until a refresh says which. */
+  function _tabWriteFailed(r, what) {
+    if (isUnknownOutcome(r)) setUnknownWrite(unknownWriteMessage(what, r));
+    reportWriteFailure(r, what, "Failed");
   }
 
   async function removeItem(itemId) {
@@ -20239,7 +20499,7 @@ function TabDetailModal({ tabId, products, onClose }) {
       // fallback shape as the v99 add-item path: no detail → refetch.
       if (r.detail && r.detail.ok) setData(r.detail); else load();
     }
-    else showToast(r.error || "Failed", "error");
+    else _tabWriteFailed(r, "the removal of this item from " + tabId);   // v184 C14
   }
 
   async function detachBooking(bookingId) {
@@ -20253,7 +20513,7 @@ function TabDetailModal({ tabId, products, onClose }) {
       // fallback shape as the v99 add-item path: no detail → refetch.
       if (r.detail && r.detail.ok) setData(r.detail); else load();
     }
-    else showToast(r.error || "Failed", "error");
+    else _tabWriteFailed(r, "the detach of this booking from " + tabId);   // v184 C14
   }
 
   async function detachPlayer(playerId) {
@@ -20267,7 +20527,7 @@ function TabDetailModal({ tabId, products, onClose }) {
       // fallback shape as the v99 add-item path: no detail → refetch.
       if (r.detail && r.detail.ok) setData(r.detail); else load();
     }
-    else showToast(r.error || "Failed", "error");
+    else _tabWriteFailed(r, "the detach of this player from " + tabId);   // v184 C14
   }
 
   async function detachOpenPlay(registrationId) {
@@ -20281,7 +20541,7 @@ function TabDetailModal({ tabId, products, onClose }) {
       // fallback shape as the v99 add-item path: no detail → refetch.
       if (r.detail && r.detail.ok) setData(r.detail); else load();
     }
-    else showToast(r.error || "Failed", "error");
+    else _tabWriteFailed(r, "the detach of this player from " + tabId);   // v184 C14
   }
 
   async function detachCoaching(sessionId) {
@@ -20295,7 +20555,7 @@ function TabDetailModal({ tabId, products, onClose }) {
       // fallback shape as the v99 add-item path: no detail → refetch.
       if (r.detail && r.detail.ok) setData(r.detail); else load();
     }
-    else showToast(r.error || "Failed", "error");
+    else _tabWriteFailed(r, "the detach of this coaching session from " + tabId);   // v184 C14
   }
 
   /* v133 P0-7 — THE CONFIRM NOW SAYS WHAT tabCancel ACTUALLY DOES.
@@ -20826,6 +21086,7 @@ function TabDetailModal({ tabId, products, onClose }) {
             coachingSessions={data.coachingSessions || []}
             onClose={() => setShowClose(false)}
             onClosed={(settleResult) => { setShowClose(false); onClose(settleResult); }}
+            onUnknown={(msg) => setUnknownWrite(msg)}
           />
         )}
       </div>
@@ -20884,14 +21145,17 @@ function AddItemToTabModal({ tabId, products, onClose, onAdd }) {
     });
   }
 
-  function submit() {
+  async function submit() {
+    if (working) return;   // v184 C14 — the picker now stays open during the add
     if (count === 0) { showToast("Pick a product", "error"); return; }
     // v99 — OPTIMISTIC: hand the picked lines (with the v98 row-stable
     // productId; sku kept as label) to the tab modal, which shows them
     // instantly in a pending style, fires ONE tabAddItems call, and
     // reconciles from the response's fresh detail — or rolls back with an
-    // error toast if the batch is refused. This modal closes immediately.
-    onAdd(selSkus.map(k => {
+    // error toast if the batch is refused. v184 C14: the tab modal closes
+    // this picker on r.ok; a definite refusal leaves it open, lines kept.
+    setWorking(true);
+    try { await onAdd(selSkus.map(k => {
       const p = bySku[k] || {};
       return {
         productId: p.productId || undefined,
@@ -20901,7 +21165,7 @@ function AddItemToTabModal({ tabId, products, onClose, onAdd }) {
         price: typeof p.price === "number" ? p.price : 0,
         quantity: sel[k]
       };
-    }));
+    })); } finally { setWorking(false); }
   }
 
   return (
@@ -21101,7 +21365,7 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
     // Falls back to the refetch whenever the server didn't manage to build
     // one, so behaviour is unchanged in the degraded case.
     if (r.ok) onAttached(r.detail && r.detail.ok ? r.detail : null);
-    else showToast(r.error || "Failed", "error");
+    else reportWriteFailure(r, "this attach to " + tabId, "Failed");   // v184 C14
   }
 
   // Sort: customer-phone matches first, then chronologically (earliest first)
@@ -21113,7 +21377,8 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
     // "85512345678" are recognized as the same customer here too.
     function normalize(p) {
       let s = String(p || "").replace(/\D/g, "");
-      if (s.startsWith("855")) s = s.substring(3);
+      if (s.startsWith("00855")) s = s.substring(2);
+      if (s.startsWith("855") && s.length >= 11) s = s.substring(3);   // v184r R14 — v184a A5's rule: 855 only on an international-length number
       if (s.startsWith("0")) s = s.substring(1);
       return s;
     }
@@ -21167,7 +21432,8 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
             {sorted.map(e => {
               function normalize(p) {
                 let s = String(p || "").replace(/\D/g, "");
-                if (s.startsWith("855")) s = s.substring(3);
+                if (s.startsWith("00855")) s = s.substring(2);
+                if (s.startsWith("855") && s.length >= 11) s = s.substring(3);   // v184r R14
                 if (s.startsWith("0")) s = s.substring(1);
                 return s;
               }
@@ -21234,7 +21500,7 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
   );
 }
 
-function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTotal, playerTotal, openPlayTotal, coachingTotal, customerPhone, customerName, items, bookings, walkInPlayers, openPlayPlayers, coachingSessions, onClose, onClosed }) {
+function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTotal, playerTotal, openPlayTotal, coachingTotal, customerPhone, customerName, items, bookings, walkInPlayers, openPlayPlayers, coachingSessions, onClose, onClosed, onUnknown }) {
   /* v148 — money modal: background polls hold while this is open. */
   useEffect(() => { if (typeof yardHoldPush === "function") { yardHoldPush(); return () => yardHoldPop(); } }, []);
   const [paymentMethod, setPaymentMethod] = useState("Cash");
@@ -21324,7 +21590,12 @@ function CloseTabModal({ tabId, total, itemTotal, eligibleItemTotal, bookingTota
        * Saying "Failed to settle" here is how a tab gets closed twice. The
        * modal stays open, says the outcome is unknown, and offers no second
        * settle: the only way on is to close this modal and refresh the tab. */
-      setUnknownSettle(unknownWriteMessage("this settle of " + tabId, r));
+      const _unkMsg = unknownWriteMessage("this settle of " + tabId, r);
+      setUnknownSettle(_unkMsg);
+      /* v184 C8 — and the TAB behind this modal is told too, so once this
+         modal is closed its "Close & Settle" is not offered again over
+         figures that may already be settled. */
+      try { if (typeof onUnknown === "function") onUnknown(_unkMsg); } catch (_eU) {}
       return;
     }
     if (!r.ok) retireIntent(iKey);
@@ -22163,6 +22434,9 @@ function SaleHistoryModal({ onClose }) {
        one. The server-side reversal scan is the brace; this is the belt. */
     const _voidIKey = intentKey("posVoidSale", [saleId]);
     let r = await api("posVoidSale", { saleId: saleId, clientRequestId: intentRequestId(_voidIKey) });
+    /* v184 D2 — retire on a DEFINITE answer. Kept, the id replayed a refusal
+       (or the warning) for the server's whole idempotency window — 900 s now. */
+    if (r && (r.ok || !isUnknownOutcome(r))) retireIntent(_voidIKey);
     setWorking(false);
     /* v178 F5 — A CONSIGNMENT PAYOUT ALREADY PAID ON THIS SALE.
        Same component pattern as chargeWithConsignmentGuard above: the SERVER
@@ -22182,7 +22456,9 @@ function SaleHistoryModal({ onClose }) {
       });
       if (!goAnyway) return;
       setWorking(true);
-      r = await api("posVoidSale", { saleId: saleId, confirmVoidPaidConsignment: "true", clientRequestId: intentRequestId(intentKey("posVoidSale", [saleId, "confirm"])) });
+      const _voidConfirmIKey = intentKey("posVoidSale", [saleId, "confirm"]);
+      r = await api("posVoidSale", { saleId: saleId, confirmVoidPaidConsignment: "true", clientRequestId: intentRequestId(_voidConfirmIKey) });
+      if (r && (r.ok || !isUnknownOutcome(r))) retireIntent(_voidConfirmIKey);   // v184 D2
       setWorking(false);
     }
     /* =====================================================================
@@ -22242,6 +22518,15 @@ function SaleHistoryModal({ onClose }) {
           + (r.consignmentReversal.consignee || "the consignor")
           + ". Recover the stock or set it against their next payout.", "error", 15000);
       }
+      /* v184r R2 — the void committed but something after the stamp did not
+         save (the −$ reversal row → ledgerPending, or a stock-movement row).
+         Sticky, because "Do NOT void again" must still be on screen when the
+         cashier looks back. */
+      if (r.postCommitWarning || r.ledgerPending) {
+        showStickyToast("⚠ " + (r.postCommitWarning
+          || ("Sale " + (r.saleId || saleId) + " IS voided, but its reversal did not save to the Payments ledger. It is flagged on the owner's pending-ledger banner — record it from there. Do NOT void again."))
+          + TOAST_DISMISS_HINT, "error");
+      }
       setSelected(null);
       load();
     } else {
@@ -22254,6 +22539,8 @@ function SaleHistoryModal({ onClose }) {
          (v178 F5 gave it a stable intent id and a reversal scan), so the
          honest answer for an unknown outcome is "refresh and check", which is
          what the helper says. */
+      /* v184r R2/R7 — a void that was STAMPED and then stopped says so. */
+      if (r && r.postCommitWarning) { showStickyToast("⚠ " + r.postCommitWarning + TOAST_DISMISS_HINT, "error"); load(); return; }
       reportWriteFailure(r, "this void", "Failed");
     }
   }
@@ -22699,7 +22986,7 @@ function SaleHistoryModal({ onClose }) {
                             no provenance at all — while the server had been
                             computing `splitNote` for every sale row since
                             v171 (Backend:20246) for a panel that read neither
-                            it nor `splitSource`. admin:22703 is the rule:
+                            it nor `splitSource`. admin:22990 is the rule:
                             "A label that is not rendered is not a label."
                             ================================================= */}
                         {/* v174 F2 — all THREE words are rendered now, not just
@@ -25172,7 +25459,7 @@ function ScreenCustomers() {
     }
   }
   useEffect(() => {
-    const id = setTimeout(load, 200);  // debounce search + filter typing
+    const id = setTimeout(load, 450);  // debounce search + filter typing (v184: 200 → 450 ms — one request per typed word, not per keystroke)
     return () => clearTimeout(id);
   }, [search, typeFilter, minVisits, visitedFrom, visitedTo, sortBy]);
 
@@ -27342,7 +27629,16 @@ function ConsignmentReportModal({ onClose }) {
       } else {
         base.amount = String(g.owed);
       }
-      let r = await api("adminConsignmentRecordPayout", base);
+      /* v184 C4 — ONE id per (consignee, period, amount), so a re-tap after a
+         dropped answer is the same request, not a second permanent record.
+         An UNKNOWN outcome is checked before any "Nothing recorded" copy —
+         it may well have been recorded — and keeps its id; a definite answer
+         retires it. */
+      const _payAmt = base.amount !== undefined ? base.amount : base.amountOverride;
+      const _payIKey = intentKey("adminConsignmentRecordPayout", [label, base.fromStr, base.toStr, _payAmt]);
+      let r = await api("adminConsignmentRecordPayout", Object.assign({}, base, { clientRequestId: intentRequestId(_payIKey) }));
+      if (isUnknownOutcome(r)) { reportWriteFailure(r, "this payout to " + label); return; }
+      retireIntent(_payIKey);
       if (!r.ok && r.amountMismatch) {
         /* v155 F3 — the preview→record race, caught and shown rather than
            written. Nothing is retried automatically: the owner has to look at
@@ -27371,7 +27667,10 @@ function ConsignmentReportModal({ onClose }) {
         const ack = {};
         if (r.overlapRefused) ack.confirmOverlap = "true";
         if (r.unreadablePayoutDates) ack.confirmUnreadable = "true";
-        r = await api("adminConsignmentRecordPayout", Object.assign({}, base, ack));
+        const _ackIKey = intentKey("adminConsignmentRecordPayout", [label, base.fromStr, base.toStr, _payAmt, Object.keys(ack).sort().join("+")]);
+        r = await api("adminConsignmentRecordPayout", Object.assign({}, base, ack, { clientRequestId: intentRequestId(_ackIKey) }));
+        if (isUnknownOutcome(r)) { reportWriteFailure(r, "this payout to " + label); return; }   // v184 C4
+        retireIntent(_ackIKey);
       }
       if (r.ok) {
         showToast(r.message || "Recorded", "success");
@@ -28711,6 +29010,56 @@ function ScreenFinances() {
 
     // Update displayed year/month label for monthly
     if (isMonthly) { setYear(y); setMonth(m); }
+
+    /* v183 F2 — WAIT FOR THE TAB BUNDLE THAT IS ALREADY FETCHING THIS.
+     *
+     * go() fires adminTabBundle{tab:"finances"} in the same tick as
+     * setScreen, and that bundle's three sections ARE adminFinancesMonth and
+     * the daily/weekly adminFinancesRange (Backend:32657-32659) — i.e. this
+     * screen's entire first paint. Firing the fetch below regardless meant a
+     * SECOND cold execution of the heaviest read in the system while the
+     * first was still running, each paying the platform floor on its own.
+     *
+     * Same shape as ScreenPOS's mount and ScreenBookings' loader: the
+     * SYNCHRONOUS cache paint above stays ABOVE this await (a hydrated cache
+     * must still render in 0 ms), awaitTabBundle resolves at once when no
+     * bundle is in flight, is capped at TAB_BUNDLE_AWAIT_CAP_MS and resolves
+     * false on any failure — in all of those cases the fetch below runs
+     * exactly as it did before.
+     *
+     * v183 R3 — "the bundle landed" IS NOT "this key was hydrated". A bundle
+     * whose adminFinancesMonth section came back ok:false is skipped by
+     * fireTabBundle's hydration loop and still resolves TRUE, and skipping
+     * the fetch on that would serve whatever the cache held and retire this
+     * key's staleness marker on a payload the bundle never wrote. The boolean
+     * is therefore only the first half of the test: the second is that this
+     * bundle's own record of what it cached contains THIS key. Only then,
+     * and only when the entry is inside its own API_CACHE_TTL and was written
+     * in this session (never a disk copy), is the fetch skipped. */
+    const _bundleHydrated = await awaitTabBundle("finances");
+    const _finHydKeys = _tabBundleHydratedKeys.finances;
+    if (_bundleHydrated && _finHydKeys
+        && _finHydKeys.has(_apiCacheKey(cacheParams.action, cacheParams.params))) {
+      const bentry = getCachedApiEntry(cacheParams.action, cacheParams.params);
+      const _bttl = API_CACHE_TTL[cacheParams.action] || 0;
+      if (bentry && bentry.data && bentry.data.ok && !bentry.fromDisk
+          && _bttl > 0 && (Date.now() - bentry.time) < _bttl) {
+        setDataByKey(prev => ({ ...prev, [key]: bentry.data }));
+        setUpdatedByKey(prev => ({ ...prev, [key]: bentry.time }));
+        /* The bundle's own payload is a fresh success for this key, so it
+         * retires the last-loaded marker exactly as a fetch success does. */
+        setStaleByKey(prev => {
+          if (!prev[key]) return prev;
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+        if (myToken === fetchTokenRef.current) {
+          setLoadingKey(prev => (prev === key ? null : prev));
+        }
+        return;
+      }
+    }
 
     // Coalesce: if another call for this same key is already inflight, reuse its promise
     let fetchPromise = inflightRef.current[key];
@@ -30989,9 +31338,32 @@ function OutstandingPanel({ outstanding, headline, onChanged, blocked }) {
   useEffect(() => {
     if (!_canReadCoachPayouts) return;
     let alive = true;
-    api("adminListCoachPayments").then(r => {
-      if (alive && r && r.ok) setOwedToCoaches((r.summary || []).reduce((s, x) => s + (x.oweCoach || 0), 0));
-    }).catch(() => { /* link-only fallback renders without the figure */ });
+    /* v183 R5 — WAIT FOR THE BUNDLE THAT IS ALREADY FETCHING THIS.
+     * Since v183 F5 the finances bundle carries adminListCoachPayments as a
+     * fourth section, and this panel mounts inside ScreenFinances in the same
+     * tick the bundle is fired: firing unconditionally raced it, which on a
+     * disk-primed boot is two cold executions of the same two-sheet scan.
+     * Same test ScreenFinances.load applies — the bundle landed AND it really
+     * cached THIS key AND the entry is inside its own TTL and was written in
+     * this session. Anything else fetches exactly as before. */
+    (async () => {
+      const _hyd = await awaitTabBundle("finances");
+      if (!alive) return;
+      const _keys = _tabBundleHydratedKeys.finances;
+      if (_hyd && _keys && _keys.has(_apiCacheKey("adminListCoachPayments", {}))) {
+        const _e = getCachedApiEntry("adminListCoachPayments", {});
+        const _ttl = API_CACHE_TTL.adminListCoachPayments || 0;
+        if (_e && _e.data && _e.data.ok && !_e.fromDisk
+            && _ttl > 0 && (Date.now() - _e.time) < _ttl) {
+          setOwedToCoaches((_e.data.summary || []).reduce((s, x) => s + (x.oweCoach || 0), 0));
+          return;
+        }
+      }
+      try {
+        const r = await api("adminListCoachPayments");
+        if (alive && r && r.ok) setOwedToCoaches((r.summary || []).reduce((s, x) => s + (x.oweCoach || 0), 0));
+      } catch (_eCp) { /* link-only fallback renders without the figure */ }
+    })();
     return () => { alive = false; };
   }, [_canReadCoachPayouts]);
 
@@ -31144,7 +31516,9 @@ function OutstandingPanel({ outstanding, headline, onChanged, blocked }) {
       }
       onChanged && onChanged();
     } else {
-      retireIntent(iKey);
+      /* v184 D2 sweep — retired only on a DEFINITE refusal: an unknown
+         outcome keeps its id so the re-tap is the same request. */
+      if (!isUnknownOutcome(r)) retireIntent(iKey);
       setOptimisticPaid(prev => { const next = new Set(prev); next.delete(key); return next; });
       reportWriteFailure(r, "this collection", "Failed — try again");
     }
@@ -33789,7 +34163,8 @@ function ScreenTournaments() {
         <div className="stat-card">
           <div className="label">Past this year</div>
           <div className="value">{fmtInt(summary.past || 0)}</div>
-          <div className="sub">completed events</div>
+          {/* v184 D11 — `summary.past` counts events STARTED THIS YEAR only (pastAllTime is the all-time count). */}
+          <div className="sub">completed this year</div>
         </div>
         <div className="stat-card" style={{ borderColor: "var(--clay)" }}
           title={"Cash basis: entry fees and revenue lines marked RECEIVED, less expenses marked PAID, for events that have already started this year. "
@@ -34802,15 +35177,18 @@ function RevenueLineAddModal({ tournamentId, onClose, onChanged, patchT }) {
     if (/^\s*entry[\s_-]*fees?\s*$/i.test(String(form.category || ""))) {
       return showToast("Entry fees are not a revenue line — they come from the tournament's roster. Mark players paid on the Players tab and the money appears here automatically.", "error");
     }
+    if (busy) return;
     if (isNaN(parseFloat(form.amount))) return showToast("Amount required", "error");
     if (parseFloat(form.amount) < 0) return showToast("Amount cannot be negative", "error");
+    // v184 C3 — an empty / $0 line is not revenue; refuse it here.
+    if (!(parseFloat(form.amount) > 0)) return showToast("Enter an amount above $0", "error");
     // M4 fix: reject a future "received" date (paired with the max= clamp on
     // the date input, in case of manual entry bypassing that).
     if (form.receivedDate && form.receivedDate > todayISO()) {
       return showToast("Received date can't be in the future", "error");
     }
-    // Optimistic: show the line + close instantly; the server reload replaces
-    // this placeholder and updates the authoritative totals a beat later.
+    // Optimistic: show the line now; the server reload replaces this
+    // placeholder and updates the authoritative totals a beat later.
     const optimistic = {
       lineId: "tmp-" + Date.now(),
       category: form.category, description: form.description,
@@ -34818,12 +35196,19 @@ function RevenueLineAddModal({ tournamentId, onClose, onChanged, patchT }) {
       receivedDate: form.receivedDate || "", paymentMethod: form.paymentMethod, notes: form.notes
     };
     patchT(prev => ({ ...prev, revenueLines: [...prev.revenueLines, optimistic] }));
-    onClose();
-    const r = await api("adminAddTournamentRevenue", { tournamentId: tournamentId, ...form });
-    if (r.ok) { showToast("Revenue line added", "success"); onChanged(); }
+    /* v184 C3 — ONE id per (tournament, form), so a re-tap after a dropped
+       answer is the same request; the modal closes only on r.ok, so a failure
+       keeps what the staff member typed. */
+    const iKey = intentKey("adminAddTournamentRevenue", [tournamentId, JSON.stringify(form)]);
+    setBusy(true);
+    const r = await api("adminAddTournamentRevenue", { tournamentId: tournamentId, ...form, clientRequestId: intentRequestId(iKey) });
+    setBusy(false);
+    if (r && (r.ok || !isUnknownOutcome(r))) retireIntent(iKey);
+    if (r && r.ok) { showToast("Revenue line added", "success"); onClose(); onChanged(); }
     else {
       patchT(prev => ({ ...prev, revenueLines: prev.revenueLines.filter(l => l.lineId !== optimistic.lineId) }));
-      showToast((r.error || "Failed to add line") + " — please re-enter", "error");
+      reportWriteFailure(r, "this revenue line", "Failed to add line");
+      if (isUnknownOutcome(r)) onChanged();
     }
   }
 
@@ -35005,15 +35390,18 @@ function ExpenseLineAddModal({ tournamentId, onClose, onChanged, patchT }) {
   const [busy, setBusy] = useState(false);
 
   async function submit() {
+    if (busy) return;
     if (isNaN(parseFloat(form.amount))) return showToast("Amount required", "error");
     if (parseFloat(form.amount) < 0) return showToast("Amount cannot be negative", "error");
+    // v184 C3 — an empty / $0 line is not an expense; refuse it here.
+    if (!(parseFloat(form.amount) > 0)) return showToast("Enter an amount above $0", "error");
     // M4 fix: reject a future "paid" date (paired with the max= clamp on the
     // date input, in case of manual entry bypassing that).
     if (form.paidDate && form.paidDate > todayISO()) {
       return showToast("Paid date can't be in the future", "error");
     }
-    // Optimistic: show the line + close instantly; the server reload replaces
-    // this placeholder and updates the authoritative totals a beat later.
+    // Optimistic: show the line now; the server reload replaces this
+    // placeholder and updates the authoritative totals a beat later.
     const optimistic = {
       lineId: "tmp-" + Date.now(),
       category: form.category, description: form.description,
@@ -35021,12 +35409,18 @@ function ExpenseLineAddModal({ tournamentId, onClose, onChanged, patchT }) {
       paidDate: form.paidDate || "", paymentMethod: form.paymentMethod, notes: form.notes
     };
     patchT(prev => ({ ...prev, expenseLines: [...prev.expenseLines, optimistic] }));
-    onClose();
-    const r = await api("adminAddTournamentExpense", { tournamentId: tournamentId, ...form });
-    if (r.ok) { showToast("Expense line added", "success"); onChanged(); }
+    /* v184 C3 — same rules as the revenue modal: one id per (tournament,
+       form), close only on r.ok, unknown is reported as unknown. */
+    const iKey = intentKey("adminAddTournamentExpense", [tournamentId, JSON.stringify(form)]);
+    setBusy(true);
+    const r = await api("adminAddTournamentExpense", { tournamentId: tournamentId, ...form, clientRequestId: intentRequestId(iKey) });
+    setBusy(false);
+    if (r && (r.ok || !isUnknownOutcome(r))) retireIntent(iKey);
+    if (r && r.ok) { showToast("Expense line added", "success"); onClose(); onChanged(); }
     else {
       patchT(prev => ({ ...prev, expenseLines: prev.expenseLines.filter(l => l.lineId !== optimistic.lineId) }));
-      showToast((r.error || "Failed to add line") + " — please re-enter", "error");
+      reportWriteFailure(r, "this expense line", "Failed to add line");
+      if (isUnknownOutcome(r)) onChanged();
     }
   }
 
@@ -35229,7 +35623,8 @@ function PlayerAddModal({ tournamentId, defaultFee, onClose, onChanged, patchT, 
     // authoritative net regardless of this client-side check.
     const digits = s => {
       let d = String(s || "").replace(/\D/g, "");
-      if (d.startsWith("855")) d = d.substring(3);
+      if (d.startsWith("00855")) d = d.substring(2);
+      if (d.startsWith("855") && d.length >= 11) d = d.substring(3);   // v184r R14
       if (d.startsWith("0")) d = d.substring(1);
       return d;
     };
@@ -36977,16 +37372,31 @@ function ScreenSettings() {
 
     // STEP 2 — fire all five fetches in PARALLEL, not sequentially.
     // Was ~5 × round-trip; now bounded by the slowest single request.
-    const [r, ps, g, sp, pr, ld, fu, sms] = await Promise.all([
-      api("adminGetPromo"),
-      api("adminGetPosSettings"),
-      api("adminGetGoals"),
-      api("adminGetSponsorshipSettings"),
+    /* v184 C11 — THE v183 PATTERN ON SETTINGS. The settings tab bundle's four
+     * sections ARE adminGetPromo / adminGetPosSettings / adminGetGoals /
+     * adminGetSponsorshipSettings (Backend adminTabBundle "settings"). The
+     * four it does NOT carry go out at once, exactly as before; the four it
+     * does wait for the bundle already computing them, and each is fetched
+     * only when the bundle did not record THAT key as hydrated, fresh and
+     * in-session. The paint in STEP 1 stays above this await. */
+    const _setOthers = Promise.all([
       api("adminGetPricingRules"),
       api("adminGetLandingConfig"),
       api("adminGetFairUse"),
       api("adminGetSmsSettings")
     ]);
+    const _setHyd = await awaitTabBundle("settings");
+    const _setRead = (action, fetchIt) => {
+      const e = _setHyd ? _tabBundleFreshEntry("settings", action, {}) : null;
+      return e ? Promise.resolve(e.data) : fetchIt();
+    };
+    const [r, ps, g, sp] = await Promise.all([
+      _setRead("adminGetPromo", () => api("adminGetPromo")),
+      _setRead("adminGetPosSettings", () => api("adminGetPosSettings")),
+      _setRead("adminGetGoals", () => api("adminGetGoals")),
+      _setRead("adminGetSponsorshipSettings", () => api("adminGetSponsorshipSettings"))
+    ]);
+    const [pr, ld, fu, sms] = await _setOthers;
     // v123 — SMS reminder controls. Failure is non-fatal: the card keeps the
     // "off"/3h defaults on screen rather than blanking the whole page.
     if (sms && sms.ok && sms.remindersAuto !== undefined) {
@@ -41032,7 +41442,9 @@ function PosMobileShell(p) {
   // Same guard the desktop Charge button uses. processCharge() re-checks
   // all of it anyway, so this is only about not offering a button that
   // cannot work.
-  const chargeDisabled = p.submitting || p.lookingUpTier ||
+  // v184 C2 — including an UNKNOWN last charge, which the desktop button
+  // always refused and this one did not.
+  const chargeDisabled = p.submitting || !!p.unknownCharge || p.lookingUpTier ||
     (p.cart.length === 0 && p.attached.length === 0) ||
     (p.paymentMethod === "Cash" && p.total > 0 && !(parseFloat(p.cashReceived) >= p.total));
 
@@ -41091,6 +41503,17 @@ function PosMobileShell(p) {
         </div>
       )}
 
+      {/* v184 C2 — the same notice the desktop till shows for an unknown charge. */}
+      {p.unknownCharge && (
+        <StaleDataNotice
+          kind="unknown"
+          what="this sale"
+          error={p.unknownCharge + " Open Sales history and look for it before charging again."}
+          onRefresh={p.onClearUnknownCharge}
+          refreshLabel="I have checked the sales log — clear this"
+          refreshing={false}
+        />
+      )}
       <div className="uim-cartbar">
         <button className="uim-cartbar-info" onClick={() => setCartOpen(true)}>
           <span className="uim-cartbar-count">
@@ -41102,6 +41525,7 @@ function PosMobileShell(p) {
           className="uim-charge"
           onClick={p.processCharge}
           disabled={chargeDisabled}
+          title={p.unknownCharge ? "The last charge's outcome is unknown — check Sales history before charging again" : ""}
         >
           {p.submitting ? "Charging…" : p.lookingUpTier ? "pricing…" : "Charge"}
         </button>
@@ -41255,10 +41679,16 @@ function PosMobileShell(p) {
             </div>
           </div>
           <div className="uim-sheet-foot">
+            {p.unknownCharge && (
+              <div style={{ marginBottom: 6, fontSize: 12, color: "var(--clay)" }}>
+                The last charge's outcome is unknown — check Sales history before charging again.
+              </div>
+            )}
             <button
               className="uim-charge"
               onClick={p.processCharge}
               disabled={chargeDisabled}
+              title={p.unknownCharge ? "The last charge's outcome is unknown — check Sales history before charging again" : ""}
             >
               {p.submitting ? "Charging…" : p.lookingUpTier ? "pricing updating…" : `Charge $${p.total.toFixed(2)}`}
             </button>
@@ -41803,6 +42233,13 @@ function App() {
     api(action, params || {}).catch(() => {});
   };
 
+  /* v184s F10 — NOTHING IN THE SIDEBAR CALLS THIS ANY MORE. v184r R4 left a
+   * touch-only pointerdown prefetch on the nav buttons; behind this 120 ms
+   * debounce it never led the tap (go() fires the bundle ~80 ms after the
+   * pointerdown, and the in-flight de-dupe then made the prefetch a no-op),
+   * and it fired on every touch-SCROLL of the sidebar, bundling tabs nobody
+   * opened. Removed: hover, focus and pointerdown fire no bundle; a tap fires
+   * exactly one, from go(). Kept for a future caller that can really lead. */
   function prefetchForTab(id) {
     if (prefetchTimer.current) {
       clearTimeout(prefetchTimer.current);
@@ -41810,56 +42247,24 @@ function App() {
     }
     prefetchTimer.current = setTimeout(() => {
       prefetchTimer.current = null;
-      const today = todayISO();
-      switch (id) {
-        case "dashboard":
-          safePrefetch("adminDashboard");
-          safePrefetch("adminListTimelineEntries", { dateFrom: today, dateTo: today });
-          safePrefetch("adminDashboardKpi");
-          safePrefetch("adminOperationalKpi");
-          break;
-        case "bookings":
-          safePrefetch("adminListTimelineEntries", { dateFrom: today, dateTo: today });
-          break;
-        case "pos":
-          safePrefetch("posListProducts");
-          safePrefetch("tabListOpen");
-          safePrefetch("posListSales");
-          break;
-        case "members":
-          safePrefetch("adminListMembers");
-          break;
-        case "coaching":
-          safePrefetch("adminListCoaches");
-          safePrefetch("adminListCoachingSessions", { dateFrom: today, dateTo: today });
-          safePrefetch("adminListCoachPayments");
-          break;
-        case "customers":
-          safePrefetch("adminListCustomers", { search: "", type: "" });
-          break;
-        case "finances": {
-          const now = new Date();
-          safePrefetch("adminFinancesMonth", { year: now.getFullYear(), month: now.getMonth() + 1 });
-          safePrefetch("adminFinancesRange", { granularity: "daily", periodOffset: 0 });
-          safePrefetch("adminFinancesRange", { granularity: "weekly", periodOffset: 0 });
-          break;
-        }
-        case "tournaments":
-          safePrefetch("adminListTournaments");
-          break;
-        case "sponsorships":
-          safePrefetch("adminListSponsorships");
-          break;
-        case "sms":
-          safePrefetch("adminListSmsLog", { type: "", status: "", limit: 200 });
-          break;
-        case "settings":
-          safePrefetch("adminGetPromo");
-          safePrefetch("adminGetPosSettings");
-          safePrefetch("adminGetGoals");
-          safePrefetch("adminGetSponsorshipSettings");
-          break;
-      }
+      /* v184 C11 — A HOVER PREFETCHES THE BUNDLE THE TAP WILL USE.
+       *
+       * This used to fire per-action safePrefetch calls — up to four per tab
+       * — which RACED the adminTabBundle that go() fires for the same tab on
+       * the tap, and three of the keys they warmed were read by nothing
+       * (posListSales{} — POS reads {date}; adminListTimelineEntries
+       * {dateFrom,dateTo} today-only — Bookings reads ±DAY_WINDOW_RADIUS and
+       * the Dashboard {date}; adminListCoachingSessions today-only). v183 F1
+       * removed the finances trio for the same reason.
+       *
+       * Every tab below has a server bundle (Backend adminTabBundle's
+       * `switch (tab)` cases), so the hover now fires THAT bundle, and
+       * fireTabBundle is a no-op while one for the tab is in flight: hover +
+       * tap is ONE request, and the screen's loaders await it. safePrefetch
+       * stays for a tab that has no server bundle — there is none today. */
+      const _SERVER_BUNDLE_TABS = ["dashboard", "pos", "bookings", "members", "coaching", "customers",
+        "finances", "tournaments", "sponsorships", "openplay", "sms", "settings"];
+      if (_SERVER_BUNDLE_TABS.indexOf(id) >= 0) { fireTabBundle(id); return; }
     }, 120);
   }
 
@@ -41898,6 +42303,13 @@ function App() {
     const lastKey = "lastBundle:" + bundleTab;
     const lastBundle = _bundledRef.current.has(lastKey) ? parseInt(localStorage.getItem(lastKey) || "0") : 0;
     if (lastBundle && (Date.now() - lastBundle) < 60000) return;
+    /* v184 C11 — ONE BUNDLE PER TAB IN FLIGHT. prefetchForTab (hover /
+     * pointerdown) now fires this same bundle, and go() fires it again on the
+     * tap that follows — so a bundle already registered for this tab is
+     * reused, not raced: its promise is what awaitTabBundle hands the
+     * screen's loaders, and its _tabBundleHydratedKeys record is kept. */
+    const _inFlight = _tabBundleInFlight.get(String(bundleTab));
+    if (_inFlight) return _inFlight;
 
     /* v179 P1 — THE WINDOW THE BOOKINGS SCREEN WILL ACTUALLY ASK FOR.
      * ScreenBookings mounts on today in day view and fetches
@@ -41911,6 +42323,12 @@ function App() {
     const _bkTo   = addDaysISO(todayISO(),  DAY_WINDOW_RADIUS);
     const bundleParams = { tab: bundleTab };
     if (bundleTab === "bookings") { bundleParams.dateFrom = _bkFrom; bundleParams.dateTo = _bkTo; }
+
+    /* v183 R3 — a new bundle for this tab supersedes whatever the last one
+     * hydrated, so the record starts empty here and is filled below by the
+     * sections that really reached cacheApi(). */
+    const _hydKeys = new Set();
+    _tabBundleHydratedKeys[bundleTab] = _hydKeys;
 
     /* v179 P1 — the promise is registered BEFORE it is awaited anywhere, and
      * it resolves TRUE only once every section has been written into the
@@ -41936,16 +42354,40 @@ function App() {
             realAction = "adminFinancesRange";
             realParams = { granularity: "weekly", periodOffset: 0 };
           } else if (action === "adminFinancesMonth") {
+            /* v183 R4 — THE MONTH IS THE SERVER'S, NOT THIS BROWSER'S.
+             * The section was computed by adminFinancesMonth against the
+             * SERVER clock and its payload carries the year/month it used.
+             * Re-keying it with the client clock cached September's key over
+             * an August payload whenever the two disagree (a tablet at
+             * 00:05 on the 1st, a wrong device date, a TZ gap). Key it by
+             * what the payload says; falling back to the client clock only
+             * when the server did not say, in which case the loader's own
+             * key simply misses and it fetches — which is correct. */
             const now = new Date();
-            realParams = { year: now.getFullYear(), month: now.getMonth() + 1 };
+            realParams = (data && data.year && data.month)
+              ? { year: data.year, month: data.month }
+              : { year: now.getFullYear(), month: now.getMonth() + 1 };
           } else if (action === "adminListTimelineEntries") {
             /* v179 P1 — the bookings bundle now carries the screen's own
              * ±DAY_WINDOW_RADIUS window, so it must be cached under THAT key
              * or the hydration is silently thrown away. The dashboard bundle
              * still asks for today only and keeps the today/today key. */
+            /* v184 D4 (K3) — the ±window key only when the section SAYS it
+             * served that window. A pre-v184 backend omits dateFrom/dateTo,
+             * and a pre-v179 one served today only: caching that under the
+             * ±3-day key blanked six days of the day view. Such a section is
+             * skipped here and the screen fetches its window normally. */
+            if (bundleTab === "bookings"
+                && !(data.dateFrom === _bkFrom && data.dateTo === _bkTo)) continue;
+            /* v184 C11 — the DASHBOARD's timeline is read (ScreenDashboard's
+             * boot/refresh, handleBlockClick) under { date: today } — the
+             * shape the server's own dashboard section is computed with
+             * ("the cache key must match exactly or hydration fails
+             * silently", Backend adminTabBundle). { dateFrom, dateTo } was a
+             * key nothing in the panel reads. */
             realParams = (bundleTab === "bookings")
               ? { dateFrom: _bkFrom, dateTo: _bkTo }
-              : { dateFrom: todayISO(), dateTo: todayISO() };
+              : { date: todayISO() };
           } else if (action === "posListSales") {
             realParams = { date: todayISO() };
           } else if (action === "adminListSmsLog") {
@@ -41956,6 +42398,9 @@ function App() {
             realParams = { dateFrom: todayISO(), dateTo: todayISO() };
           }
           cacheApi(realAction, realParams, data);
+          /* v183 R3 — recorded ONLY here, after the write really happened, so
+           * a skipped ok:false section leaves no key behind. */
+          try { _hydKeys.add(_apiCacheKey(realAction, realParams)); } catch (_eHyd) {}
         }
         // Mark this tab as bundled — skip re-bundling for 60s
         _bundledRef.current.add(lastKey);
@@ -42053,20 +42498,12 @@ function App() {
                     key={t.id}
                     className={(screen === t.id ? "active " : "") + (!t.ready ? "soon" : "")}
                     onClick={() => go(t.id)}
-                    onMouseEnter={() => t.ready && prefetchForTab(t.id)}
                     onMouseLeave={() => {
                       // Mouse moved off before debounce elapsed — cancel the pending fetch
                       if (prefetchTimer.current) {
                         clearTimeout(prefetchTimer.current);
                         prefetchTimer.current = null;
                       }
-                    }}
-                    onFocus={() => t.ready && prefetchForTab(t.id)}
-                    onPointerDown={(e) => {
-                      // Touch / pen — fire prefetch immediately because there's no
-                      // hover gesture. Click follows ~80ms later, so this still
-                      // gives the network a head start.
-                      if (t.ready && e.pointerType !== "mouse") prefetchForTab(t.id);
                     }}
                   >
                     <span className="nav-ico">{NAV_ICONS[t.id] || null}</span>
@@ -42316,7 +42753,7 @@ root.render(<AppErrorBoundary><App /></AppErrorBoundary>);
 /** v171 §6 — the backend build this bundle was written against. Compared with
  *  what `?action=version` reports. tests/v171_splittrue_test.js pins this
  *  against BACKEND_BUILD in the .gs, so they cannot drift. */
-const PANEL_BACKEND_BUILD = "2026-08-14-v182-intent";
+const PANEL_BACKEND_BUILD = "2026-08-14-v184-audit";
 
 /** v171 §6 — one banner, one wording, whichever of the three noticed. It is
  *  appended to <body> rather than rendered by React on purpose: a bundle
@@ -42327,6 +42764,7 @@ function yardShowStaleBanner(kind, detail) {
     const bar = document.createElement("div");
     bar.id = "yard-stale-banner";
     bar.setAttribute("role", "alert");
+    bar.setAttribute("data-kind", String(kind));   // v184 D9 — so a later matching handshake can clear ITS banner only
     bar.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:99999;" +
       "background:var(--accent,#C8102E);color:#fff;padding:12px 16px;" +
       "font-family:var(--mono,monospace);font-size:12px;letter-spacing:0.08em;" +
@@ -42419,12 +42857,25 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
 (function yardBuildHandshake() {
   let warned = false;
   async function check() {
-    if (warned) return;
+    /* v184 D9 — no early return on `warned` any more: a warned page keeps
+     * checking (hourly on wake), and a later handshake that MATCHES clears the
+     * backend banner and the flag. Before, a backend mid-redeploy (or rolled
+     * back) left "RUNNING OLD CODE" on a correct panel until a reload. */
     try {
       if (typeof api !== "function") return;
       const r = await api("version", {});
       if (!r || r.ok !== true || !r.build) return;
-      if (String(r.build) === PANEL_BACKEND_BUILD) return;
+      if (String(r.build) === PANEL_BACKEND_BUILD) {
+        if (warned) {
+          warned = false;
+          try {
+            const _bar = document.getElementById("yard-stale-banner");
+            if (_bar && _bar.getAttribute("data-kind") === "backend" && _bar.parentNode) _bar.parentNode.removeChild(_bar);
+          } catch (eB) {}
+        }
+        return;
+      }
+      if (warned) return;
       warned = true;
       yardShowStaleBanner("backend", String(r.build));
     } catch (e) { /* offline, or the endpoint is older than this check — silent */ }
