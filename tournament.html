@@ -791,6 +791,60 @@ h1.tournament-name{
     try { if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID(); } catch(e){}
     return "rid-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2,10);
   }
+  // v184 S6c — one clientRequestId per user intent (index.html's pattern): a
+  // re-tap after an unknown outcome re-sends the SAME id, so the server's
+  // idempotency window refuses a duplicate. Retired only on a definite answer.
+  var _intents = {};
+  function intentRequestId(kind, key) {
+    var e = _intents[kind];
+    if (!e || e.key !== key) e = _intents[kind] = { key: key, id: genRequestId() };
+    return e.id;
+  }
+  function retireIntent(kind) { delete _intents[kind]; }
+
+  // v184 S6c — every fetch gets a budget, mirroring index.html's AbortController.
+  var FETCH_TIMEOUT_MS = 35000;
+  function fetchWithTimeout(url, opts) {
+    var ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+    var o = Object.assign({}, opts || {});
+    if (ctrl) o.signal = ctrl.signal;
+    var tid = ctrl ? setTimeout(function() { ctrl.abort(); }, FETCH_TIMEOUT_MS) : null;
+    return fetch(url, o).then(
+      function(r) { if (tid) clearTimeout(tid); return r; },
+      function(e) { if (tid) clearTimeout(tid); throw e; });
+  }
+  function unknownOutcomeText(e, what) {
+    return (e && e.name === "AbortError"
+      ? "The connection timed out before the server answered"
+      : "The connection dropped before the server answered") +
+      ", so we don't know whether " + what + ". Reload this page to check before trying again — please don't tap twice.";
+  }
+
+  // v184 S2 (K5) — cancelling needs the customer site's SMS-code session.
+  // Same origin, so index.html's localStorage keys are readable here.
+  var SITE_TOKEN_KEY = "yard.token";
+  var SITE_PHONE_KEY = "yard.phone";
+  function getSiteToken() { try { return localStorage.getItem(SITE_TOKEN_KEY) || ""; } catch (e) { return ""; } }
+  function getSitePhone() { try { return localStorage.getItem(SITE_PHONE_KEY) || ""; } catch (e) { return ""; } }
+  function isAuthRequired(r) { return !!(r && r.ok === false && r.code === "AUTH_REQUIRED"); }
+  function signInToCancelHtml() {
+    return '<div class="note" id="signin-to-cancel">To cancel, sign in at <a href="index.html#myBookings">thepickleballyard.club (My Bookings)</a> with the SMS code, then come back to this page.</div>';
+  }
+  // v184s — signed in, but as ANOTHER number than the one this registration
+  // was looked up with: "sign in" alone reads as "you are not signed in".
+  // Phones are compared on their local digits (855 only on an
+  // international-length number, as the server's phone key does).
+  function phoneKeyLocal(p) {
+    var d = String(p || "").replace(/\D/g, "");
+    if (d.indexOf("855") === 0 && d.length >= 11) d = d.substring(3);
+    return d.replace(/^0+/, "");
+  }
+  function signedInElsewhereHtml() {
+    return '<div class="note" id="signin-to-cancel">You\'re signed in as a different number — sign in with the number you registered with to cancel.</div>';
+  }
+
+  // v184 S6b — Cambodia's date (UTC+7, no DST), not UTC's.
+  function cambodiaTodayStr() { return new Date(Date.now() + 7 * 3600 * 1000).toISOString().substring(0, 10); }
 
   function getQueryParam(name) {
     var match = window.location.search.match(new RegExp("[?&]" + name + "=([^&]*)"));
@@ -874,7 +928,7 @@ h1.tournament-name{
       var formData = new URLSearchParams();
       formData.append("action", "tournamentPublicInfo");
       formData.append("tournamentId", id);
-      var r = await fetch(API_URL, {
+      var r = await fetchWithTimeout(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: formData.toString()
@@ -897,7 +951,7 @@ h1.tournament-name{
     content.className = "";
 
     var isMultiDay = t.startDate !== t.endDate;
-    var todayStr = new Date().toISOString().substring(0, 10);
+    var todayStr = cambodiaTodayStr();
     var when = t.status === "cancelled" ? "cancelled"
       : (t.endDate < todayStr ? "completed"
         : (t.startDate > todayStr ? "upcoming" : "live"));
@@ -949,7 +1003,7 @@ h1.tournament-name{
     if (t.playerCap > 0 && when !== "completed" && when !== "cancelled") {
       var spots = t.playerCap - t.registeredPlayers;
       if (spots <= 0) {
-        html += '<div class="spots full">Tournament is full — message us to join the waitlist</div>';
+        html += '<div class="spots full">This tournament is full.</div>';
       } else if (spots <= 4) {
         html += '<div class="spots few">Only ' + spots + ' spot' + (spots === 1 ? '' : 's') + ' left</div>';
       } else {
@@ -1028,20 +1082,29 @@ h1.tournament-name{
     var profile = readProfile();
     var isFull = t.playerCap > 0 && (t.registeredPlayers >= t.playerCap);
 
+    // v184 S6a — there is no waitlist: a full tournament shows no signup form.
     if (isFull) {
       area.innerHTML =
         '<div class="signup-card">' +
           '<div class="label" style="color:var(--clay)">TOURNAMENT IS FULL</div>' +
-          '<div class="note">All ' + escapeHtml(String(t.playerCap)) + ' spots are taken. You can still sign up below — we\'ll add you to the waitlist and contact you if a spot opens.</div>' +
+          '<div class="note">This tournament is full.</div>' +
         '</div>';
+    } else {
+      renderSignupForm(t, profile);
     }
-
-    renderSignupForm(t, profile);
 
     // If the user has a phone in localStorage, check if they're already
     // registered for this tournament so we can show "manage" view instead.
-    if (profile.phone) {
-      checkExistingRegistration(t.id, profile.phone);
+    // v184 S2: signed in on the site → the token rides the lookup.
+    // v184r R16: the lookup is by the SAVED TOURNAMENT PROFILE's phone, as
+    // before v184 — a registration made with that phone was hidden whenever
+    // the site session belonged to another number. The site phone is only the
+    // fallback when no profile phone is saved. The server returns the
+    // registrationId (and so the Cancel button) only when the token's phone
+    // IS this phone; otherwise the manage view shows the sign-in note.
+    var lookupPhone = profile.phone || (getSiteToken() && getSitePhone());
+    if (lookupPhone) {
+      checkExistingRegistration(t.id, lookupPhone);
     }
   }
 
@@ -1182,11 +1245,12 @@ h1.tournament-name{
       dupr: dupr,
       email: email
     });
-    if (MUTATING_ACTIONS.indexOf(params.get("action")) !== -1 && !params.has("clientRequestId")) params.set("clientRequestId", genRequestId());
+    params.set("clientRequestId", intentRequestId("signup", [t.id, digits, name].join("|")));
 
-    fetch(API_URL + "?" + params.toString(), { method: "GET" })
+    fetchWithTimeout(API_URL + "?" + params.toString(), { method: "GET" })
       .then(function(r) { return r.json(); })
       .then(function(r) {
+        retireIntent("signup");   // a definite answer from the server
         if (r.ok) {
           saveProfile({
             name: name,
@@ -1210,9 +1274,13 @@ h1.tournament-name{
         }
       })
       .catch(function(e) {
-        errEl.textContent = "Network error — please try again";
+        // v184 S6c — a timeout / dropped connection is an UNKNOWN outcome for
+        // a write, never "failed". The intent id is kept for a re-tap.
+        errEl.textContent = unknownOutcomeText(e, "your registration was saved");
         btn.disabled = false;
-        btn.textContent = "Try again";
+        btn.textContent = t.entryFee > 0
+          ? 'Reserve my spot · $' + Number(t.entryFee).toFixed(2) + ' at counter'
+          : 'Reserve my spot';
         _signupInFlight = false;
       });
   }
@@ -1240,7 +1308,9 @@ h1.tournament-name{
       action: "myTournamentRegistrations",
       phone: phone
     });
-    fetch(API_URL + "?" + params.toString(), { method: "GET" })
+    var siteToken = getSiteToken();   // v184 S2: the site's session, when there is one
+    if (siteToken) params.set("token", siteToken);
+    fetchWithTimeout(API_URL + "?" + params.toString(), { method: "GET" })
       .then(function(r) { return r.json(); })
       .then(function(r) {
         if (!r.ok || !r.registrations) return;
@@ -1251,7 +1321,7 @@ h1.tournament-name{
             break;
           }
         }
-        if (existing) renderManageView(existing);
+        if (existing) renderManageView(existing, phone);
       })
       .catch(function(e) {
         console.error("checkExistingRegistration failed", e);
@@ -1268,24 +1338,35 @@ h1.tournament-name{
       });
   }
 
-  function renderManageView(reg) {
+  function renderManageView(reg, lookupPhone) {
     var area = document.getElementById("signup-area");
     if (!area) return;
+    // v184 S2 (K5): cancel needs the site's SMS-code session AND the id the
+    // server only returns to it. Without both, no button — a sign-in link.
+    var siteToken = getSiteToken();
+    var canCancel = !!(siteToken && reg.registrationId);
+    // v184s — the session belongs to a different phone than the registration's.
+    var sitePhone = getSitePhone();
+    var otherNumber = !canCancel && !!(siteToken && lookupPhone && sitePhone &&
+      phoneKeyLocal(sitePhone) !== phoneKeyLocal(lookupPhone));
     area.innerHTML =
       '<div class="signup-card managing">' +
         '<div class="form-kicker" style="color:var(--green)">✓ YOU\'RE REGISTERED</div>' +
         '<div class="form-title">' + escapeHtml(reg.tournamentName) + '</div>' +
         '<div class="manage-rows">' +
-          '<div class="row"><span>Name</span><span>' + escapeHtml(reg.name) + '</span></div>' +
+          (reg.name ? '<div class="row"><span>Name</span><span>' + escapeHtml(reg.name) + '</span></div>' : '') +
           (reg.partnerName ? '<div class="row"><span>Partner</span><span>' + escapeHtml(reg.partnerName) + '</span></div>' : '') +
           (reg.skillLevel ? '<div class="row"><span>Skill</span><span>' + escapeHtml(reg.skillLevel) + (reg.dupr != null ? ' · DUPR ' + reg.dupr.toFixed(1) : '') + '</span></div>' : '') +
           '<div class="row"><span>Entry fee</span><span>' + (reg.entryFee > 0 ? '$' + reg.entryFee.toFixed(2) + (reg.paid ? ' · PAID' : ' · pay at counter') : 'FREE') + '</span></div>' +
-          '<div class="row"><span>Ref</span><span class="mono">' + escapeHtml(reg.registrationId) + '</span></div>' +
+          (reg.registrationId ? '<div class="row"><span>Ref</span><span class="mono">' + escapeHtml(reg.registrationId) + '</span></div>' : '') +
         '</div>' +
         '<div class="err" id="cancel-err"></div>' +
-        '<button type="button" class="ghost-btn" id="cancel-btn">Cancel my spot</button>' +
+        '<div id="cancel-wrap">' +
+          (canCancel ? '<button type="button" class="ghost-btn" id="cancel-btn">Cancel my spot</button>' : (otherNumber ? signedInElsewhereHtml() : signInToCancelHtml())) +
+        '</div>' +
         '<div class="fine">Need to change something? Cancel and re-register, or contact The Yard.</div>' +
       '</div>';
+    if (!canCancel) return;
 
     var _cancelArmed = false;
     var _cancelArmTimer = null;
@@ -1314,12 +1395,20 @@ h1.tournament-name{
       var params = new URLSearchParams({
         action: "cancelMyTournamentRegistration",
         registrationId: reg.registrationId,
-        phone: readProfile().phone || ""
+        token: siteToken,
+        phone: getSitePhone() || readProfile().phone || ""
       });
-      if (MUTATING_ACTIONS.indexOf(params.get("action")) !== -1 && !params.has("clientRequestId")) params.set("clientRequestId", genRequestId());
-      fetch(API_URL + "?" + params.toString(), { method: "GET" })
+      params.set("clientRequestId", intentRequestId("cancel", reg.registrationId));
+      fetchWithTimeout(API_URL + "?" + params.toString(), { method: "GET" })
         .then(function(r) { return r.json(); })
         .then(function(r) {
+          retireIntent("cancel");
+          if (isAuthRequired(r)) {
+            // v184 S2: the stored session is no good — never leave a dead button.
+            document.getElementById("cancel-wrap").innerHTML = signInToCancelHtml();
+            _cancelInFlight = false;
+            return;
+          }
           if (r.ok) {
             var area = document.getElementById("signup-area");
             area.innerHTML =
@@ -1336,8 +1425,8 @@ h1.tournament-name{
             _cancelInFlight = false;
           }
         })
-        .catch(function() {
-          errEl.textContent = "Network error";
+        .catch(function(e) {
+          errEl.textContent = unknownOutcomeText(e, "your cancellation went through");   // v184 S6c
           btn.disabled = false; btn.textContent = "Cancel my spot";
           _cancelInFlight = false;
         });
