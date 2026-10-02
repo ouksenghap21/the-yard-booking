@@ -6271,7 +6271,7 @@ const _PERSIST_ENDPOINTS = new Set([
  * _hydrateCacheFromLocalStorage DELETES anything under the shared
  * "yard-cache-" root that is not in the CURRENT namespace, so
  * version-mismatched data is removed, not merely ignored. */
-const CLIENT_CACHE_VERSION = "yard-v184-audit";
+const CLIENT_CACHE_VERSION = "yard-v186-truecost";
 const _LS_CACHE_ROOT = "yard-cache-";
 const _LS_CACHE_PREFIX = _LS_CACHE_ROOT + CLIENT_CACHE_VERSION + ":";
 const _LS_MAX_AGE_MS = 24 * 60 * 60 * 1000;  // 24h — anything older is too stale to even show
@@ -6708,7 +6708,20 @@ var MUTATING_ACTIONS = new Set([
      route()'s dedupe for it. The name stays on this list because it belongs
      on any list of the panel's mutations — but deleting the _postApi id in
      the belief that this Set covers it would remove the only protection. */
-  "adminDuplicateCoachingSession", "adminBroadcastTournamentSms", "adminUploadSponsorshipFile"
+  "adminDuplicateCoachingSession", "adminBroadcastTournamentSms", "adminUploadSponsorshipFile",
+  /* v186d F6: the three consignment-repair WRITERS, in their OWN marked block
+     for the reason every block above opened one (tests/v109_refix_test.js §5
+     enumerates each block). adminConsignmentReattribute (stamps past sale
+     lines), adminSkuAliasApply (appends a mapping that moves payouts) and
+     adminReattributeRevert (undoes a reattribute batch) are all in the
+     backend's MUTATION_ACTIONS, so the clientRequestId this membership
+     attaches is HONOURED: a lost response re-sent under the same intent id
+     replays the first answer instead of running the write twice. Their dry
+     runs are READS on the server (route() v186d F6), so an id on a preview is
+     simply ignored there. The read endpoints beside them
+     (adminConsignmentReattributeCandidates, adminSkuAliasPreview) are
+     deliberately NOT here. */
+  "adminConsignmentReattribute", "adminSkuAliasApply", "adminReattributeRevert"
   /* Deliberately NOT listed: adminGenerateRoundRobin and
      adminClearAvailabilityValidation. The SERVER does not classify those as
      mutations (verified: neither writes a sheet), so it would ignore a
@@ -7014,6 +7027,12 @@ const API_ACTION_TIMEOUT_MS = {
   adminConsignmentListPayouts: 60000,
   adminConsignmentRecordPayout: 120000,
   adminConsignmentBackfillStamps: 120000,
+  /* v186d F7 — the reattribute / alias / undo writers take tryLock(20000)
+     and then walk every sale line (the plan is recomputed under the lock), so
+     the 25 s default could abort a batch the server was still writing. */
+  adminConsignmentReattribute: 90000,
+  adminReattributeRevert: 90000,
+  adminSkuAliasApply: 90000,
   /* v167 §2.10 — the two cost-side reads. adminProductMarginReport walks
      every sale line in the range and joins each to its sale row, which is the
      same shape of pass adminConsignmentPayoutReport makes and is budgeted the
@@ -7092,6 +7111,15 @@ const API_ACTION_TIMEOUT_MS = {
      a system already in trouble and must not hold an execution slot open
      while the till waits behind it. */
   adminPulse: 20000,
+  /* v185a P2 — the dashboard's two reads and the login's one. Combined ran on
+     the 25 s default while it really takes 3-8 s calm and 30-40 s when the
+     30-execution quota is saturated, so at peak it aborted into a server call
+     that went on running (holding a slot) and was then re-sent. whoami is
+     LOWERED like the pulse: a sign-in that has waited 15 s is better re-sent
+     once than held open (one retry, see _READ_RETRY_CAP). */
+  adminDashboardCombined: 45000,
+  adminDashboardCore: 30000,
+  adminWhoAmI: 15000,
   // v183 F5 — two whole-sheet scans (Coaches + Coaching_Sessions) behind the platform floor, and a finances-bundle section now: the 25 s default aborted a call the server still went on to answer.
   adminListCoachPayments: 60000,
 
@@ -7200,6 +7228,11 @@ let _mutationsInFlight = 0;
 function yardHoldPush() { _moneyHoldCount++; }
 function yardHoldPop() { _moneyHoldCount = Math.max(0, _moneyHoldCount - 1); }
 function yardBusyHold() { return _moneyHoldCount > 0 || _mutationsInFlight > 0; }
+/* v185c F7 — when this device last SENT a mutation (whatever its answer).
+   The dashboard's modal-refresh skip compares it with the last write event:
+   a write whose yard:data-changed never fired is newer than that event. */
+let _lastMutationSentAt = 0;
+function yardLastWriteSentAt() { return _lastMutationSentAt; }
 /* Per-mount jitter: base + up to 35% extra, fixed for the interval's life so
    devices stay STAGGERED rather than randomly colliding per tick. */
 function pollJitterMs(base) { return base + Math.floor(Math.random() * Math.max(1, Math.round(base * 0.35))); }
@@ -7207,6 +7240,17 @@ function pollJitterMs(base) { return base + Math.floor(Math.random() * Math.max(
 const _RETRY_MAX_READ = 2;        // extra attempts for reads
 const _RETRY_MAX_MUT = 1;         // extra attempts for id-carrying mutations
 const _RETRY_PENDING_POLLS = 2;   // duplicate+pending -> poll for the stored result
+/* v185a P3 — READS THAT ARE RE-POLLED ANYWAY ARE NOT ALSO RETRIED.
+   The pulse and the dashboard's two reads run again on the next tick; a
+   transparent retry of one that timed out only doubles (x3) the load at the
+   exact moment the 30-slot execution quota is already full. The login's
+   whoami keeps ONE retry (a person is waiting on it). Every other read keeps
+   _RETRY_MAX_READ; mutations are untouched. */
+const _READ_RETRY_CAP = { adminPulse: 0, adminDashboardCombined: 0, adminDashboardCore: 0, adminWhoAmI: 1 };
+function _readRetryCap(action) {
+  const c = _READ_RETRY_CAP[action];
+  return (typeof c === "number" && c >= 0) ? Math.min(c, _RETRY_MAX_READ) : _RETRY_MAX_READ;
+}
 function _retrySleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function _retryDelayMs(attempt, isMut) {
   // Test harnesses run on real timers; they set this sandbox flag to elide
@@ -7318,9 +7362,10 @@ async function _doFetchRaw(action, params) {
      just a read. */
   const _isMut = _isMutation(action);
   const _idCarrying = url.searchParams.has("clientRequestId");
-  const _maxExtra = _isMut ? (_idCarrying ? _RETRY_MAX_MUT : 0) : _RETRY_MAX_READ;
+  const _maxExtra = _isMut ? (_idCarrying ? _RETRY_MAX_MUT : 0)
+    : ((typeof _readRetryCap === "function") ? _readRetryCap(action) : _RETRY_MAX_READ);   // v185a P3
   const _markRetry = () => { if (_isMut && _idCarrying) url.searchParams.set("clientRetry", "1"); };
-  if (_isMut) _mutationsInFlight++;
+  if (_isMut) { _mutationsInFlight++; _lastMutationSentAt = Date.now(); }   // v185c F7
   try {
     let r = null;
     /* v184 D3 — the FIRST unknown outcome (timedOut / _transient) this loop
@@ -7409,12 +7454,17 @@ async function _doFetchOnce(action, url, authBody) {
           method: "GET",
           signal: ctrl ? ctrl.signal : undefined
         });
-    if (timeoutId) clearTimeout(timeoutId);
 
     // Read as text first so we can see what kind of error we got. Apps Script
     // crashes return HTML, not JSON — JSON.parse on those gives the cryptic
     // "Unexpected token <" message that's not user-friendly.
+    /* v186 T8b — the abort timer covers the BODY too. It used to be cleared
+       as soon as the headers arrived, so a body that stalled after them hung
+       this await for ever — and v185's one-at-a-time gates then froze the
+       dashboard, the pulses and the login behind it. An abort during the
+       body lands in the AbortError branch below like any other timeout. */
     const text = await r.text();
+    if (timeoutId) clearTimeout(timeoutId);
     if (!r.ok) {
       // HTTP error — at busy hour this is how Apps Script sheds load (the
       // 404/500 the counter sees), so it is transport-transient: v148 lets
@@ -7821,11 +7871,33 @@ function _invalidateForMutation(action, result) {
 
 async function api(action, params = {}, options = {}) {
   const ttl = options.bypassCache ? 0 : (API_CACHE_TTL[action] || 0);
+  /* v185a P7 — ONE adminPulse IN FLIGHT PER DEVICE. bypassCache skipped the
+     coalescing below, so the dashboard's seed, its tick, and the POS pulse
+     landing together (a tab switch, a write) were each a separate execution.
+     A pulse answer is a read with no side effect: a caller that joins one
+     already in flight gets a fingerprint no newer than its own would have
+     been, which the pulse's own rule already treats as "at worst one
+     redundant refresh, never a missed one". */
+  if (options.bypassCache && action === "adminPulse") {
+    const _pk = "~pulse:" + _apiCacheKey(action, params);
+    if (_inflightFetches.has(_pk)) return _inflightFetches.get(_pk);
+    const _pp = _doFetchRaw(action, params).then(r => { _inflightFetches.delete(_pk); return r; },
+      e => { _inflightFetches.delete(_pk); throw e; });
+    _inflightFetches.set(_pk, _pp);
+    return _pp;
+  }
   if (ttl === 0) {
     // Not a cacheable read — treat as a mutation/sensitive call. Invalidate
     // related cache entries after it completes so the next read picks up
     // fresh data.
     const result = await _doFetchRaw(action, params);
+    /* v185c F3 — { ok:true, duplicate:true, done:true }: the server finished
+       this exact request earlier and could not keep its (too large) answer.
+       It is SUCCESS, already applied — never the unknown-outcome path. The
+       refresh below (yard:data-changed) repaints it; say so once. */
+    if (result && result.ok === true && result.done === true && result.duplicate === true) {
+      try { showToast(result.message || "Already saved — refresh to see it.", "success", 6000); } catch (e) { /* non-fatal */ }
+    }
     if (result && result.ok && _isMutation(action)) {
       _invalidateForMutation(action, result);
       // OPTIMISTIC LIVE-UPDATE: tell any listener (the dashboard) that
@@ -7892,6 +7964,15 @@ async function api(action, params = {}, options = {}) {
 /* ====== HELPERS ====== */
 function todayISO() {
   const d = new Date();
+  /* v186 T8f — THE SHOP'S DATE, NOT THE DEVICE'S. Phnom Penh is UTC+7 with
+     no daylight saving, so the calendar day is read off the instant shifted
+     by seven hours (UTC getters), whatever zone the iPad is set to. A Date
+     with no instant (a harness's getter-only fake) keeps the local reading. */
+  const _t = (typeof d.getTime === "function") ? d.getTime() : NaN;
+  if (isFinite(_t)) {
+    const pp = new Date(_t + 7 * 3600000);
+    return pp.getUTCFullYear() + "-" + String(pp.getUTCMonth() + 1).padStart(2, "0") + "-" + String(pp.getUTCDate()).padStart(2, "0");
+  }
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
 
@@ -9304,10 +9385,26 @@ function StaleDataNotice({ kind, what, error, onRefresh, refreshing, refreshLabe
 /* ====================================================================
    LOGIN SCREEN
    ==================================================================== */
+/* v186d F15 — iPhone / iPad (an iPad in desktop mode reports "MacIntel" with
+   touch points), where a focus() outside a tap cannot raise the keyboard. */
+function _pinIsIOS() {
+  try {
+    const n = (typeof navigator !== "undefined") ? navigator : null;
+    if (!n) return false;
+    return /iPad|iPhone|iPod/.test(String(n.userAgent || "")) || (String(n.platform || "") === "MacIntel" && (n.maxTouchPoints || 0) > 1);
+  } catch (e) { return false; }
+}
 function ScreenLogin({ onAuth }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
+  /* v185a P6 — "Verifying…" hung for up to ~79 s when the execution quota was
+     full, with nothing on screen saying why. After 8 s the prompt says the
+     server is busy (no new request is sent), and a ref — set synchronously,
+     the LoadFailed lesson — makes a second six-digit onChange while one
+     whoami is in flight a no-op instead of a second execution. */
+  const [slowAuth, setSlowAuth] = useState(false);
+  const authInFlightRef = useRef(false);
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -9318,7 +9415,16 @@ function ScreenLogin({ onAuth }) {
        which made it one extra cold execution per login and nothing else. */
   }, []);
 
+  /* v185c F10 — tryAuth runs inside try/finally, so the one-whoami guard and
+     "Verifying…" always clear, whatever throws. A whoami that timed out on
+     both attempts (or never reached the server) is NOT a wrong PIN: the
+     stored PIN is kept and the staff member is told the server is busy. Only
+     a definite refusal clears it. */
   async function tryAuth(pin) {
+    if (authInFlightRef.current) return;   // v185a P6 — one whoami at a time
+    authInFlightRef.current = true;
+    let _slowT = 0;
+    try {
     setChecking(true);
     setError("");
     // Verify PIN via adminWhoAmI — works for BOTH the owner PIN and staff
@@ -9334,13 +9440,22 @@ function ScreenLogin({ onAuth }) {
        by retrying, so it is named, once, before the request is made. */
     if (getStoredPin() !== pin) {
       setChecking(false);
+      authInFlightRef.current = false;   // v185a P6
       setCode("");
       setError("This browser is blocking private storage, so the panel cannot hold your PIN. Your PIN is fine. Open the panel in a normal (non-private) window, or allow site data for this address, then try again.");
       return;
     }
+    _slowT = setTimeout(() => setSlowAuth(true), 8000);   // v185a P6
     const r = await api("adminWhoAmI", {}, { bypassCache: true });
+    clearTimeout(_slowT);
+    setSlowAuth(false);
+    authInFlightRef.current = false;
     setChecking(false);
-    if (r.ok) {
+    if (r && r.ok === false && (r.timedOut === true || r._transient === true || r._transientGate === true || r.busy === true)) {
+      /* v185c F10 — no answer is not "Wrong PIN": keep the stored PIN. */
+      setError("The server is very busy — your PIN is fine, please try again in a moment");
+      setCode("");
+    } else if (r && r.ok) {
       /* v142 — BEFORE any post-login screen can mount: if the persisted
        * payload cache belongs to a DIFFERENT login context (staff A closed
        * the tab, staff B logs in), wipe it so B never sees A's last-loaded
@@ -9355,12 +9470,37 @@ function ScreenLogin({ onAuth }) {
       onAuth();
     } else {
       setStoredPin("");
-      setError(r.error || "Wrong PIN");
+      setError((r && r.error) || "Wrong PIN");
       setCode("");
+    }
+    } finally {
+      /* v185c F10 — always: the guard and "Verifying…" never outlive this call. */
+      clearTimeout(_slowT);
+      if (authInFlightRef.current) { setSlowAuth(false); setChecking(false); authInFlightRef.current = false; }   // a throw skipped the normal clear
     }
   }
 
+  /* v186 T8e — WHILE ONE PIN IS BEING CHECKED THE BOX IS READ-ONLY. It used
+     to keep accepting digits, and a second six-digit PIN typed during the
+     first one's whoami hit the one-at-a-time guard above and was dropped in
+     silence — the correct PIN, typed after a wrong one, simply vanished. The
+     input is readOnly for the check, this handler ignores anything that gets
+     through anyway, and focus comes back to the box when the check ends. */
+  useEffect(() => {
+    if (!checking && inputRef.current) {
+      /* v186d F15 — NOT ON iOS. Safari will not raise the keyboard for a focus()
+         that is not inside a tap, and the read-only flip during the check has
+         already put it away — so a programmatic refocus left the box "focused"
+         with no keyboard, and the next tap on it (already focused) raised
+         nothing either. On iOS the box is released instead, stays editable, and
+         the staff member's own tap (clickPinBox) brings the keyboard up. */
+      if (typeof _pinIsIOS === "function" && _pinIsIOS()) { try { inputRef.current.blur(); } catch (e) {} return; }
+      try { inputRef.current.focus(); } catch (e) {}
+    }
+  }, [checking]);
+
   function onChange(e) {
+    if (authInFlightRef.current) return;   // v186 T8e — nothing is typed over a PIN being checked
     const v = e.target.value.replace(/[^0-9]/g, "").slice(0, 6);
     setCode(v);
     setError("");
@@ -9370,7 +9510,14 @@ function ScreenLogin({ onAuth }) {
   }
 
   function clickPinBox() {
-    if (inputRef.current) inputRef.current.focus();
+    const el = inputRef.current;
+    if (!el) return;
+    /* v186d F15 — inside the tap: an input iOS still thinks is focused raises
+       no keyboard on focus(), so it is released first. */
+    if (typeof _pinIsIOS === "function" && _pinIsIOS() && typeof document !== "undefined" && document.activeElement === el) {
+      try { el.blur(); } catch (e) {}
+    }
+    el.focus();
   }
 
   return (
@@ -9395,7 +9542,7 @@ function ScreenLogin({ onAuth }) {
           <div className="sub" style={{ marginTop: 14 }}>Admin</div>
         </div>
         <div className="pin-prompt">
-          {checking ? "Verifying…" : "Enter staff PIN"}
+          {checking ? (slowAuth ? "The server is busy — still trying…" : "Verifying…") : "Enter staff PIN"}
         </div>
         <div className="pin-row" onClick={clickPinBox} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); clickPinBox(); } }}>
           {[0, 1, 2, 3, 4, 5].map(i => (
@@ -9412,6 +9559,7 @@ function ScreenLogin({ onAuth }) {
           pattern="[0-9]*"
           autoComplete="off"
           value={code}
+          readOnly={checking}
           onChange={onChange}
         />
         <div className="error">{error}</div>
@@ -9884,6 +10032,12 @@ function ScreenDashboard() {
     return { kind: "cached", asOf: Math.min.apply(null, times) };
   });
   const [staleRefreshing, setStaleRefreshing] = useState(false);
+  const [loadErr, setLoadErr] = useState(null);   // v185a P4 — first load failed, nothing to show
+  /* v185a P1/P5 — see requestRefresh(). running: the refresh in flight (a
+   * promise) or null; queued: "" | "later" | "now"; lastStartAt: when the
+   * last full refresh STARTED; lastWriteAt: this device's last own write. */
+  const _refreshGateRef = useRef({ running: null, queued: "", lastStartAt: 0, lastWriteAt: 0, timer: null, dead: false,
+    pending: false, pendingAt: 0, queuedP: null, queuedRes: null });   // v185c F2/F8 — see requestRefresh()
   /* v149 F3 — in-flight guard for the pending-ledger-row repair, so a
    * double-tap cannot fire two adminResolveLedgerGap calls for one row. */
   const [ledgerGapFixing, setLedgerGapFixing] = useState("");
@@ -10057,7 +10211,8 @@ function ScreenDashboard() {
     // Stage 1: fast core
     const corePromise = api("adminDashboardCore", {}, { bypassCache: bypass })
       .then(coreData => {
-        if (coreData && coreData.ok) {
+        const _deadRun = !!(opts._tok && _refreshGateRef.current && _refreshGateRef.current.runTok !== opts._tok);   // v186d F15
+        if (coreData && coreData.ok && !_deadRun) {
           // Only paint from core if we don't already have richer data.
           // If a previous full-refresh's data is still in state, keep
           // it — core data would overwrite secondary sections with
@@ -10137,6 +10292,14 @@ function ScreenDashboard() {
     // Wait for core too (in case it took longer than expected) so we don't
     // race the setData calls
     await corePromise;
+    /* v186d F15 — A DEAD RUN DOES NOT PAINT. requestRefresh declares a run
+       older than 90 s dead and hands the gate to a newer one; the token check
+       there stopped the dead run from touching the GATE, but its late answer
+       still reached the setData calls below and could paint older figures over
+       the newer run's. A run whose token is no longer the gate's paints
+       nothing. (A refresh called without a token — the cache paint, a direct
+       caller — is unchanged.) */
+    if (opts._tok && _refreshGateRef.current && _refreshGateRef.current.runTok !== opts._tok) return false;
 
     let d, b, k, ok;
     if (combined && combined.ok) {
@@ -10151,9 +10314,15 @@ function ScreenDashboard() {
         if (k && k.ok) cacheApi("adminDashboardKpi", {}, k);
         if (ok && ok.ok) cacheApi("adminOperationalKpi", {}, ok);
       } catch (e) { /* non-fatal */ }
-    } else {
+    } else if (combined && combined.ok === false && /^Unknown action/.test(String(combined.error || ""))) {
       // Fallback: combined endpoint missing on server (old deploy). Use the
       // original parallel calls — no regression vs the pre-batch baseline.
+      /* v185a P4 — ONLY then. This branch used to run on ANY failure, so a
+         Combined that timed out because the 30-execution quota was full
+         answered with FOUR more executions (each retried twice) at the worst
+         possible moment. A timeout / transient / server error now leaves the
+         last figures on screen under the existing stale marker, and the next
+         pulse (or the marker's own button) tries again. */
       const [d1, b1, k1, ok1] = await Promise.all([
         api("adminDashboard", {}, { bypassCache: bypass }),
         api("adminListTimelineEntries", { date: today }, { bypassCache: bypass }),
@@ -10194,8 +10363,128 @@ function ScreenDashboard() {
         (combined && combined.error) || "The refresh did not complete";
       setStaleInfo(prev => prev ? { kind: "stale", error: _whyNot, asOf: prev.asOf } : prev);
     }
-    setLastUpdated(new Date());
-    lastFullRefreshRef.current = Date.now();
+    /* v185a P4 — with nothing on screen at all (first load, no cache, Core
+       failed too) the skeleton used to spin for ever; this is what the
+       LoadFailed card below renders instead. Figures already on screen hide it. */
+    setLoadErr((d && d.ok) ? null : ((combined && combined.error) || "The dashboard did not load"));
+    /* v185c F2 — only a refresh that PAINTED moves "last updated" and the
+       failsafe baseline. A failed one used to reset both, so the figures read
+       "just now" and the 5-minute failsafe restarted from a refresh that
+       never landed. */
+    if (d && d.ok) {
+      setLastUpdated(new Date());
+      lastFullRefreshRef.current = Date.now();
+    }
+    return !!(d && d.ok);
+  }
+
+  /* ====================================================================
+     v185a P1/P5 — ONE DASHBOARD REFRESH AT A TIME, AND AT MOST ONE PER
+     45 s FROM THE PULSE.
+
+     THE LIVE FAULT. Apps Script runs at most ~30 executions at once for the
+     owner, and both iPads plus the public site share them. At peak every
+     mutation moves the pulse fingerprint, so every 10-13.5 s tick called
+     refresh({fresh}) — Core + Combined — with nothing checking whether the
+     previous refresh had even come back, and every own write added another.
+     When Combined slowed to 30-40 s the refreshes stacked, the quota filled,
+     and the next sign-in's single adminWhoAmI could not start at all.
+
+     Every caller now asks HERE instead of calling refresh():
+       · a refresh already running → remember ONE more ("queued"), start none;
+         when it finishes, the queued one runs (never two at once);
+       · the pulse ({ fresh }) → at most one refresh per 45 s: inside the
+         window the change is remembered and a single timer runs it when the
+         window opens, so a change on the other iPad is DELAYED, never lost
+         (detected within one tick, refreshed ≤ 45 s after the last start);
+       · this device's own write / a staff button ({ fresh, now }) → now, and
+         it restarts the 45 s window (and absorbs any deferred pulse refresh);
+       · a modal's "I changed something" ({ …, afterWrite }) → nothing, when
+         this device wrote in the last 10 s and a refresh has already STARTED
+         since: the write's own yard:data-changed started it, and a second
+         Core + Combined behind it would repaint the same figures. (No recent
+         write event → it refreshes now, as before.)
+
+     v185c:
+       · F7 — the modal skip also needs the LAST WRITE THIS DEVICE SENT to
+         have produced its event (yardLastWriteSentAt ≤ lastWriteAt). A modal
+         write whose yard:data-changed never fired is newer than that event,
+         so its refresh runs even beside an earlier refresh < 10 s old.
+       · F8 — a caller queued behind a running refresh gets the promise of
+         the QUEUED run (the one that includes its request), so Refresh /
+         Retry / the marker's "refreshing" stay on until THAT run paints.
+       · F2 — `pending`: a change the pulse saw that no refresh has painted
+         yet. Cleared only by a refresh that painted and STARTED after it;
+         a failed one keeps it (the next tick / window retries it) and puts
+         up the stale marker instead of leaving old figures unmarked.
+       · F6 — the deferred timer never fires Core + Combined under
+         yardBusyHold (or hidden): the change stays pending and the first
+         tick after the hold clears runs it.
+     ==================================================================== */
+  function requestRefresh(opts) {
+    const g = _refreshGateRef.current;
+    const o = opts || {};
+    if (g.dead) return Promise.resolve();
+    const _sentAt = (typeof yardLastWriteSentAt === "function") ? (yardLastWriteSentAt() || 0) : 0;   // v185c F7
+    if (o.afterWrite && g.lastWriteAt >= _sentAt && g.lastStartAt >= g.lastWriteAt && (Date.now() - g.lastWriteAt) < 10000) return g.running || Promise.resolve();
+    const now = !!o.now || !o.fresh;
+    /* v186 T8b — A RUN OLDER THAN 90 s IS DEAD. Every read is aborted at its
+       own budget (Combined 45 s), so a refresh still "running" at 90 s is one
+       whose promise will never settle; left in place it would hold every
+       later request — the pulse's, a write's, the marker's — in the queue for
+       ever. It is dropped and the queued request runs now. (Its late answer,
+       if one ever comes, no longer owns the gate.) */
+    if (g.running && (Date.now() - (g.lastStartAt || 0)) > 90000) {
+      g.running = null; g.runTok = null;
+      const _dq = g.queued, _dqRes = g.queuedRes;
+      g.queued = ""; g.queuedP = null; g.queuedRes = null;
+      const _dNext = requestRefresh((_dq === "now" || now) ? { fresh: true, now: true } : { fresh: true });
+      if (_dqRes) _dqRes(_dNext);
+      return _dNext;
+    }
+    if (g.running) {
+      g.queued = (g.queued === "now" || now) ? "now" : "later";
+      if (!g.queuedP) g.queuedP = new Promise(res => { g.queuedRes = res; });   // v185c F8
+      return g.queuedP;
+    }
+    const wait = now ? 0 : (g.lastStartAt + 45000) - Date.now();
+    if (wait > 0) {
+      if (!g.timer) g.timer = setTimeout(() => {
+        g.timer = null;
+        if (document.hidden || (typeof yardBusyHold === "function" && yardBusyHold())) {   // v185c F6 — held, not dropped
+          if (!g.pending) { g.pending = true; g.pendingAt = Date.now(); }
+          return;
+        }
+        requestRefresh({ fresh: true });
+      }, wait);
+      return Promise.resolve();
+    }
+    if (g.timer) { clearTimeout(g.timer); g.timer = null; }
+    g.lastStartAt = Date.now();
+    const _startedAt = g.lastStartAt;
+    const _tok = {};
+    g.runTok = _tok;
+    const run = (async () => {
+      let _painted = false;
+      try { _painted = (await refresh(o.fresh ? { fresh: true, _tok: _tok } : { _tok: _tok })) !== false; } catch (e) { /* refresh reports its own failure */ }
+      if (g.runTok !== _tok) return;   // v186 T8b — declared dead at 90 s; a newer run owns the gate
+      g.runTok = null;
+      g.running = null;
+      if (_painted) {
+        if (g.pending && _startedAt >= (g.pendingAt || 0)) { g.pending = false; g.pendingAt = 0; }   // v185c F2
+      } else if (g.pending && !g.dead) {
+        /* v185c F2 — a change is known and did not load: say so. */
+        setStaleInfo(prev => prev || { kind: "stale", error: "The latest changes did not load — trying again shortly.", asOf: lastFullRefreshRef.current || Date.now() });
+      }
+      const q = g.queued;
+      g.queued = "";
+      const _qRes = g.queuedRes;
+      g.queuedP = null; g.queuedRes = null;
+      const _next = q ? requestRefresh(q === "now" ? { fresh: true, now: true } : { fresh: true }) : undefined;
+      if (_qRes) _qRes(_next);   // v185c F8 — the queued callers wait on the run that includes them
+    })();
+    g.running = run;
+    return run;
   }
 
   /* ====================================================================
@@ -10228,7 +10517,7 @@ function ScreenDashboard() {
         { bypassCache: true });
       if (r && r.ok) {
         try { if (typeof showToast === "function") showToast(r.message || "Ledger row recorded.", "success", 6000); } catch (e) {}
-        await refresh({ fresh: true });
+        await requestRefresh({ fresh: true, now: true, afterWrite: true });   // v185a P1
       } else if (isUnknownOutcome(r)) {
         try { if (typeof showToast === "function") showToast(unknownWriteMessage("this ledger row for " + refId, r), "error", 12000); } catch (e) {}
       } else {
@@ -10245,7 +10534,7 @@ function ScreenDashboard() {
   async function refreshFromMarker() {
     if (staleRefreshing) return;
     setStaleRefreshing(true);
-    try { await refresh({ fresh: true }); } finally { setStaleRefreshing(false); }
+    try { await requestRefresh({ fresh: true, now: true }); } finally { setStaleRefreshing(false); }   // v185a P1
   }
   const moneyBlocked = !!staleInfo;
 
@@ -10253,19 +10542,40 @@ function ScreenDashboard() {
   // mutation fires (so it tracks new payments without waiting for a refresh).
   useEffect(() => {
     let alive = true;
+    /* v185a P1 — one breakdown in flight; writes that land meanwhile cost
+       ONE more read after it, not one each. */
+    let bdBusy = false, bdAgain = false;
     async function loadBreakdown() {
+      if (bdBusy) { bdAgain = true; return; }
+      bdBusy = true;
       try {
         const r = await api("adminPaymentBreakdown", {}, { bypassCache: true });
         if (alive && r && r.ok) setPayBreakdown(r);
       } catch (e) { /* non-fatal */ }
+      bdBusy = false;
+      if (bdAgain && alive) { bdAgain = false; loadBreakdown(); }
     }
-    loadBreakdown();
-    window.addEventListener("yard:data-changed", loadBreakdown);
-    return () => { alive = false; window.removeEventListener("yard:data-changed", loadBreakdown); };
+    /* v185a P1 — AFTER the dashboard refresh in flight, not beside it. On
+       load and on every write the breakdown used to be a fourth execution
+       next to Core, Combined and the seed pulse. It now waits for the refresh
+       the same event started (a microtask later, so this listener — added
+       before the refresh effect's — sees it running), and costs one slot
+       when that one frees up. */
+    function loadBreakdownAfterRefresh() {
+      Promise.resolve().then(() => {
+        const _r = _refreshGateRef.current.running;
+        if (_r) _r.then(loadBreakdown, loadBreakdown); else loadBreakdown();
+      });
+    }
+    loadBreakdownAfterRefresh();
+    window.addEventListener("yard:data-changed", loadBreakdownAfterRefresh);
+    return () => { alive = false; window.removeEventListener("yard:data-changed", loadBreakdownAfterRefresh); };
   }, []);
 
   useEffect(() => {
-    refresh();  // initial — uses cache if fresh
+    const _gate = _refreshGateRef.current;   // v185a P1 — every refresh below goes through requestRefresh
+    _gate.dead = false;
+    requestRefresh({});  // initial — uses cache if fresh
     let pulseIntervalId = null;
     // Track the last fingerprint we've seen so we only do a heavy refresh
     // when something actually changed. Initial value "" means "fetch on
@@ -10315,6 +10625,16 @@ function ScreenDashboard() {
       const _pulseHeld = (typeof yardBusyHold === "function" && yardBusyHold());
       const _pulseAncient = (Date.now() - (lastFullRefreshRef.current || 0)) > 5 * 60 * 1000;
       if (_pulseHeld && !_pulseAncient) return;
+      /* v185a P5 — a refresh already running, or already scheduled by the
+       * 45 s window, will paint whatever this tick could find: skip it. (A
+       * change that lands meanwhile moves the fingerprint past the baseline
+       * this tick would have taken, so the next tick still sees it.) */
+      const _rg = _refreshGateRef.current;
+      if ((_rg.running && (Date.now() - (_rg.lastStartAt || 0)) <= 90000) || _rg.timer) return;   // v186 T8b — a run past 90 s is dead: tick on
+      /* v185c F2/F6 — a change already seen but not yet painted (its refresh
+       * failed, or was held back by a money modal) is retried here, through
+       * the gate, instead of waiting for the fingerprint to move again. */
+      if (_rg.pending) { requestRefresh({ fresh: true }); return; }
       try {
         const r = await api("adminPulse", {}, { bypassCache: true });
         if (r && r.ok && r.fingerprint) {
@@ -10324,15 +10644,17 @@ function ScreenDashboard() {
             lastFingerprint = r.fingerprint;
             // First pulse just records the baseline — don't force-refresh
             // (we already did the initial refresh() above).
+            // v185a P5 — through the gate: at most one per 45 s, never two at once.
             if (!isFirst) {
-              refresh({ fresh: true });
+              _rg.pending = true; _rg.pendingAt = Date.now();   // v185c F2 — until a refresh paints it
+              requestRefresh({ fresh: true });
             }
           } else if (Date.now() - (lastFullRefreshRef.current || 0) > 5 * 60 * 1000) {
             // FAILSAFE: even with an unchanged fingerprint, do a full refresh
             // every 5 minutes. Catches hand-edits made directly in the Google
             // Sheet (same row count, no data-version bump) and any missed
             // invalidation — the dashboard can never be >5 min stale while open.
-            refresh({ fresh: true });
+            requestRefresh({ fresh: true });
           }
         }
       } catch (e) {
@@ -10363,7 +10685,7 @@ function ScreenDashboard() {
         // Returning to the tab — do an immediate full refresh and resume
         // pulse polling. The full refresh also resets the fingerprint so
         // we don't fire a second one redundantly.
-        refresh({ fresh: true });
+        requestRefresh({ fresh: true, now: true });   // v185a P1
         lastFingerprint = "";  // force next pulse to set baseline
         seedFingerprint();     // v184 C9(a) — …taken now, not at the next tick
         startPolling();
@@ -10374,8 +10696,18 @@ function ScreenDashboard() {
     // dispatches yard:data-changed via the api() wrapper. We refresh
     // immediately so the admin sees their own change without waiting for
     // the 10s pulse.
+    /* v185a P1 — now, but through the gate: a write that lands while a
+     * refresh is running queues ONE more behind it instead of a second
+     * Core + Combined beside it. */
     function onDataChanged() {
-      refresh({ fresh: true });
+      _gate.lastWriteAt = Date.now();
+      /* v186 T8a — this device's own write is a change no refresh has painted
+         yet, exactly like one the pulse saw: PENDING until a refresh that
+         started after it paints. Without it a failed post-write refresh left
+         the old figures up unmarked, and nothing retried until the other
+         iPad happened to move the fingerprint (v185 regression). */
+      if (!_gate.pending) { _gate.pending = true; _gate.pendingAt = Date.now(); }
+      requestRefresh({ fresh: true, now: true });
       lastFingerprint = "";  // next pulse will pick up the new baseline
       seedFingerprint();     // v184 C9(a) — …taken as this refresh starts
     }
@@ -10389,10 +10721,17 @@ function ScreenDashboard() {
       clearInterval(clockId);
       document.removeEventListener("visibilitychange", onVisChange);
       window.removeEventListener("yard:data-changed", onDataChanged);
+      _gate.dead = true;   // v185a P1 — a queued or deferred refresh does not outlive the screen
+      if (_gate.timer) { clearTimeout(_gate.timer); _gate.timer = null; }
     };
   }, []);
 
   if (!data) {
+    /* v185a P4 — a first load that failed says so, with a Retry, instead of
+       a skeleton that never resolves. */
+    if (loadErr) {
+      return <LoadFailed what="the dashboard" error={loadErr} onRetry={() => requestRefresh({ fresh: true, now: true })} />;
+    }
     return <DashboardSkeleton />;
   }
 
@@ -10424,7 +10763,7 @@ function ScreenDashboard() {
           <button
             onClick={async () => {
               try { await api("adminRefreshCache", {}, { bypassCache: true }); } catch (e) {}
-              refresh({ fresh: true });
+              await requestRefresh({ fresh: true, now: true });   // v185a P1 · v185c F8 — the toast waits for the run that includes this press
               showToast("Refreshed from the live sheet", "success");
             }}
             title="Force a full refresh from the sheet — use after editing data directly in Google Sheets (hand edits don't auto-refresh)"
@@ -11077,14 +11416,14 @@ function ScreenDashboard() {
         <BookingDetailModal
           booking={detailBooking}
           onClose={() => setDetailBooking(null)}
-          onAction={() => { refresh(); setDetailBooking(null); }}
+          onAction={() => { requestRefresh({ fresh: true, now: true, afterWrite: true }); setDetailBooking(null); }}
         />
       )}
       {walkInBlock && (
         <WalkInBlockModal
           block={walkInBlock}
           onClose={() => setWalkInBlock(null)}
-          onChanged={() => refresh()}
+          onChanged={() => requestRefresh({ fresh: true, now: true, afterWrite: true })}
           /* v134 P-A — the Retry re-runs the SAME load, so a cold start that
              timed out costs one tap instead of closing and re-finding the row. */
           onRetry={() => _loadWalkInBlockInto(setWalkInBlock, walkInBlock)}
@@ -11100,14 +11439,14 @@ function ScreenDashboard() {
         <OpenPlayDetailModal
           sessionId={openPlayDetailId}
           onClose={() => setOpenPlayDetailId(null)}
-          onChanged={() => { invalidateApiCache("adminListOpenPlaySessions"); invalidateApiCache("adminListTimelineEntries"); refresh(); }}
+          onChanged={() => { invalidateApiCache("adminListOpenPlaySessions"); invalidateApiCache("adminListTimelineEntries"); requestRefresh({ fresh: true, now: true, afterWrite: true }); }}
         />
       )}
       {tournamentDetailId && (
         <TournamentDetailModal
           tournamentId={tournamentDetailId}
           onClose={() => setTournamentDetailId(null)}
-          onChanged={() => { invalidateApiCache("adminListTournaments"); invalidateApiCache("adminListTimelineEntries"); refresh(); }}
+          onChanged={() => { invalidateApiCache("adminListTournaments"); invalidateApiCache("adminListTimelineEntries"); requestRefresh({ fresh: true, now: true, afterWrite: true }); }}
           onEdit={() => { /* dashboard doesn't have edit flow — close and let user navigate */ setTournamentDetailId(null); }}
         />
       )}
@@ -11144,13 +11483,28 @@ function KpiGoalsPanel({ kpiData }) {
     if (unit === "$") return "$" + n.toFixed(2);
     return n.toString();
   }
+  /* v186 T6 — a per-day rate or a projection is fractional even for a count
+     ("1.4 bookings a day"), so counts get one decimal when they need it. */
+  function formatRate(unit, n) {
+    const v = Number(n) || 0;
+    if (unit === "$") return "$" + v.toFixed(2);
+    return (Math.round(v) === v) ? String(v) : v.toFixed(1);
+  }
+  /* v186 T6 — the backend's own day counts when it sends them: elapsedDays
+     (today included) for the pace tick, daysRemainingInclToday for the
+     header. An older backend sends neither and the v-old header stands. */
+  const _hasNewDays = kpiData.daysRemainingInclToday !== undefined && kpiData.daysRemainingInclToday !== null;
+  const _elapsed = (kpiData.elapsedDays !== undefined && kpiData.elapsedDays !== null) ? kpiData.elapsedDays : kpiData.daysElapsed;
+  const _tickPct = kpiData.daysInMonth > 0 ? Math.min(100, (_elapsed / kpiData.daysInMonth) * 100) : 0;
 
   return (
     <div className="settings-card" style={{ marginBottom: 18, padding: 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
         <h3 style={{ margin: 0 }}>Monthly Goals · {kpiData.monthStr}</h3>
         <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.14em", opacity: 0.55, textTransform: "uppercase" }}>
-          Day {kpiData.daysElapsed} of {kpiData.daysInMonth} · {kpiData.daysRemaining} days left
+          {_hasNewDays
+            ? "Day " + _elapsed + " of " + kpiData.daysInMonth + " · " + kpiData.daysRemainingInclToday + " days left incl. today"
+            : "Day " + kpiData.daysElapsed + " of " + kpiData.daysInMonth + " · " + kpiData.daysRemaining + " days left"}
         </div>
       </div>
 
@@ -11199,11 +11553,11 @@ function KpiGoalsPanel({ kpiData }) {
                 {d.pace !== "achieved" && (
                   <div style={{
                     position: "absolute",
-                    left: ((kpiData.daysElapsed / kpiData.daysInMonth) * 100) + "%",
+                    left: _tickPct + "%",
                     top: -2, bottom: -2,
                     width: 2,
                     background: "rgba(26,26,26,0.4)"
-                  }} title="Expected pace" />
+                  }} title="Where the month is today" />
                 )}
               </div>
 
@@ -11214,12 +11568,25 @@ function KpiGoalsPanel({ kpiData }) {
                 }}>
                   {paceLabel[d.pace] || d.pace} · {d.pct}%
                 </div>
+                {/* v186 T6 — "pace: $X" read as a speed; it is the figure that
+                    would be on the board by now if the month ran evenly. */}
                 {d.pace !== "achieved" && (
                   <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.55 }}>
-                    pace: {formatVal(item.unit, d.expectedNow)}
+                    on schedule by now: {formatRate(item.unit, (d.expectedByNow !== undefined && d.expectedByNow !== null) ? d.expectedByNow : d.expectedNow)}
                   </div>
                 )}
               </div>
+              {((d.projectedMonthEnd !== undefined && d.projectedMonthEnd !== null)
+                || (d.pace !== "achieved" && d.neededPerDay !== undefined && d.neededPerDay !== null)) && (
+                <div style={{ fontFamily: "var(--mono)", fontSize: 9, opacity: 0.55, marginTop: 4, lineHeight: 1.5 }}>
+                  {(d.projectedMonthEnd !== undefined && d.projectedMonthEnd !== null)
+                    ? "projected month-end: " + formatRate(item.unit, d.projectedMonthEnd) : ""}
+                  {(d.projectedMonthEnd !== undefined && d.projectedMonthEnd !== null)
+                    && d.pace !== "achieved" && d.neededPerDay !== undefined && d.neededPerDay !== null ? " · " : ""}
+                  {(d.pace !== "achieved" && d.neededPerDay !== undefined && d.neededPerDay !== null)
+                    ? (d.neededToday === true ? "needed today: " : "needed per day: ") + formatRate(item.unit, d.neededPerDay) : ""}{/* v186d F10 — under a day left, the whole gap is today's */}
+                </div>
+              )}
             </div>
           );
         })}
@@ -12143,11 +12510,20 @@ function TodaysPulsePanel({ data, onOpenPlayClick }) {
   const cmp = data.comparison || {};
 
   // Delta vs yesterday
+  /* v186 T7 — LIKE FOR LIKE. todayRevTotal and yesterdayRevTotal were built
+     on different bases (the delta compared today's collected streams with a
+     different mix yesterday). A backend that sends the three operational
+     figures sends them on ONE basis, named in `basis`; an older one sends
+     none of them and the old trio is used exactly as before. */
+  const _cmpOp = cmp.yesterdayOperationalRev !== undefined && cmp.yesterdayOperationalRev !== null
+    && cmp.todayOperationalRev !== undefined && cmp.todayOperationalRev !== null;
   const todayTotal = cmp.todayRevTotal || 0;
-  const yest = cmp.yesterdayRevTotal || 0;
-  const lastWk = cmp.lastWeekRev || 0;
-  const deltaYest = yest > 0 ? ((todayTotal - yest) / yest) * 100 : null;
-  const deltaWk = lastWk > 0 ? ((todayTotal - lastWk) / lastWk) * 100 : null;
+  const _cmpToday = (_cmpOp ? cmp.todayOperationalRev : cmp.todayRevTotal) || 0;
+  const yest = (_cmpOp ? cmp.yesterdayOperationalRev : cmp.yesterdayRevTotal) || 0;
+  const lastWk = (_cmpOp ? cmp.lastWeekOperationalRev : cmp.lastWeekRev) || 0;
+  const _cmpBasis = (_cmpOp && cmp.basis) ? String(cmp.basis) : "";
+  const deltaYest = yest > 0 ? ((_cmpToday - yest) / yest) * 100 : null;
+  const deltaWk = lastWk > 0 ? ((_cmpToday - lastWk) / lastWk) * 100 : null;
 
   function deltaClass(d) {
     if (d == null) return "flat";
@@ -12225,7 +12601,8 @@ function TodaysPulsePanel({ data, onOpenPlayClick }) {
             "total revenue" that made the owner ask why the numbers differ. */}
         <div className="label">
           Collected today
-          <InfoTip flip="below" text="Money received today for these streams. The Revenue tile counts today's sessions instead — prepaid or pay-later bookings make them differ. Memberships and coach-cut are in Takings only." />
+          <InfoTip flip="below" text={"Money received today for these streams. The Revenue tile counts today's sessions instead — prepaid or pay-later bookings make them differ. Memberships and coach-cut are in Takings only."
+            + (_cmpBasis ? " Today, yesterday and last week are compared on one basis: " + _cmpBasis + "." : "")} />
         </div>
         <div className="value">${todayTotal.toFixed(2)}</div>
         <div style={{
@@ -12234,6 +12611,12 @@ function TodaysPulsePanel({ data, onOpenPlayClick }) {
         }}>
           court + walk-in + coaching + POS · by payment date
         </div>
+        {_cmpOp && (
+          <div className="delta flat" title={_cmpBasis}>
+            compared on {_cmpBasis || "one basis"}: today ${_cmpToday.toFixed(2)}
+            {cmp.partial === true ? " (partial" + (Array.isArray(cmp.partialStreams) && cmp.partialStreams.length ? " — " + cmp.partialStreams.join(", ") + " could not be read" : "") + ")" : ""}
+          </div>
+        )}
         <div className={"delta " + deltaClass(deltaYest)}>
           vs yesterday: {deltaLabel(deltaYest)} · ${yest.toFixed(2)}
         </div>
@@ -12349,6 +12732,27 @@ function ScreenBookings() {
   const uiMode = useUiMode();
   const [view, setView] = useState("day"); // day | week | month
   const [date, setDate] = useState(todayISO());
+  /* v186 T8c — WHAT "TODAY" IS, KEPT CURRENT. The pills were computed once at
+     mount, so an iPad left on this screen overnight kept yesterday as "Today"
+     (and the date it showed) until somebody reloaded. The key is re-read every
+     60 s and whenever the screen comes back into view; when the day turns,
+     a screen still sitting on the old today follows it to the new one, and a
+     date the staff member picked on purpose is left where it is. */
+  const [dayKey, setDayKey] = useState(todayISO());
+  const _dayKeyRef = useRef(dayKey);
+  useEffect(() => {
+    function checkDayKey() {
+      const k = todayISO();
+      const old = _dayKeyRef.current;
+      if (k === old) return;
+      _dayKeyRef.current = k;
+      setDayKey(k);
+      setDate(d => (d === old ? k : d));
+    }
+    const id = setInterval(checkDayKey, 60000);
+    document.addEventListener("visibilitychange", checkDayKey);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", checkDayKey); };
+  }, []);
   const [statusFilter, setStatusFilter] = useState("all");
   const [entries, setEntries] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -12626,7 +13030,7 @@ function ScreenBookings() {
   // Date pills (Day view only)
   const datePills = useMemo(() => {
     const out = [];
-    const today = new Date();
+    const today = new Date(dayKey + "T12:00:00");   // v186 T8c — the kept-current day, not mount time
     for (let off = -1; off <= 2; off++) {
       const d = new Date(today);
       d.setDate(d.getDate() + off);
@@ -12635,7 +13039,7 @@ function ScreenBookings() {
       out.push({ iso: iso, label: labels[String(off)] || iso, day: d.getDate() });
     }
     return out;
-  }, []);
+  }, [dayKey]);
 
   // Title for the head
   const title = useMemo(() => {
@@ -19006,6 +19410,7 @@ function ScreenPOS() {
     if (cached && cached.ok) applyProducts(cached);
     const r = await api("posListProducts");
     if (r.ok) applyProducts(r);
+    return !!(r && r.ok);   // v185c F2 — the pulse's reload retries a failed one
   }
   async function loadTodayStats() {
     const r = await api("posListSales", { date: todayISO() });
@@ -19016,6 +19421,7 @@ function ScreenPOS() {
         transactions: sales.length
       });
     }
+    return !!(r && r.ok);   // v185c F2
   }
 
   async function loadTabCount() {
@@ -19023,6 +19429,7 @@ function ScreenPOS() {
     if (cached && cached.ok) setOpenTabCount((cached.tabs || []).length);
     const r = await api("tabListOpen");
     if (r.ok) setOpenTabCount((r.tabs || []).length);
+    return !!(r && r.ok);   // v185c F2
   }
 
   useEffect(() => {
@@ -19130,39 +19537,89 @@ function ScreenPOS() {
        than 45 s ago, a tick with a cleared baseline compares against prevFp
        anyway and reloads on a change (at worst one extra reload that also
        covers this till's own writes), so cross-device staleness is capped at
-       about a minute. */
+       about a minute.
+       v185a P5 — 45 s → 25 s. The pulse now ticks every 30-40.5 s, so a 45 s
+       threshold meant every OTHER tick (60-81 s blind), and a remote change
+       that landed just before an own write was folded into the new baseline
+       and never reloaded at all. At 25 s every tick after an own write
+       compares against the pre-write fingerprint; the re-baseline above still
+       applies to a tick that follows a compare within 25 s. The reload that
+       buys is throttled below, so it cannot become one per tick. */
     let prevFp = "", lastCompareAt = Date.now();
+    /* v185a P5 — AT MOST ONE RELOAD PER 45 s, ONE READ AT A TIME, CHEAPEST
+       FIRST. Each moved fingerprint used to fire products + sales + tabs in
+       parallel, every tick, at peak (24-33 requests/min from two tills on
+       POS). Now: a change inside 45 s of the last reload is remembered
+       (`dirty`) and a single timer runs it when the window opens — delayed,
+       never lost; a reload in flight absorbs changes into one more; the three
+       reads go one after another, open-tab count first (what the other till
+       most often changes), then today's sales, then the product grid. */
+    let reloading = false, dirty = false, lastReloadAt = null, reloadTimer = null;
+    /* v185c F6 — THE 5-MINUTE OVERRIDE THE DASHBOARD PULSE HAS (v149 F5).
+       A money modal left open held this pulse off indefinitely: unbounded
+       staleness with nothing on screen saying so. `lastSureAt` is the last
+       time these lists were known current (mount, a reload that fully
+       landed, a compare that found nothing moved); once it is 5 minutes old
+       the hold lets one tick — and the reload it finds — through. */
+    let lastSureAt = Date.now();
+    const _posAncient = () => (Date.now() - lastSureAt) > 5 * 60 * 1000;
+    async function reloadChanged() {
+      if (!alive) return;
+      if (reloading) { dirty = true; return; }
+      const _wait = (lastReloadAt === null) ? 0 : (lastReloadAt + 45000) - Date.now();
+      if (_wait > 0) {
+        dirty = true;
+        if (!reloadTimer) reloadTimer = setTimeout(() => { reloadTimer = null; if (dirty) reloadChanged(); }, _wait);
+        return;
+      }
+      if (document.hidden || (typeof yardBusyHold === "function" && yardBusyHold() && !_posAncient())) { dirty = true; return; }   // the next tick picks it up
+      dirty = false;
+      reloading = true;
+      lastReloadAt = Date.now();
+      let _allOk = false;
+      try {
+        invalidateApiCache("tabListOpen");
+        const _okTabs = await loadTabCount();
+        invalidateApiCache("posListSales");
+        const _okSales = await loadTodayStats();
+        invalidateApiCache("posListProducts");
+        invalidateApiCache("adminListSettleableEntries");
+        const _okProducts = await loadProducts();
+        _allOk = _okTabs !== false && _okSales !== false && _okProducts !== false;
+      } catch (e) { _allOk = false; } finally { reloading = false; }
+      /* v185c F2 — a loader that failed keeps the change PENDING: the next
+         tick retries it instead of the till showing old lists as current. */
+      if (_allOk) lastSureAt = Date.now(); else if (alive) dirty = true;
+    }
     function onOwnWrite() { lastFp = ""; fpGen++; }
     window.addEventListener("yard:data-changed", onOwnWrite);
     async function posPulse() {
       if (!alive || inFlight || document.hidden) return;
-      if (typeof yardBusyHold === "function" && yardBusyHold()) return;
+      if (typeof yardBusyHold === "function" && yardBusyHold() && !_posAncient()) return;   // v185c F6 — not past 5 minutes
       inFlight = true;
       const _gen = fpGen;
       try {
         const r = await api("adminPulse", {}, { bypassCache: true });
         if (!alive || !r || !r.ok || !r.fingerprint) return;
         const _now = Date.now();
-        const _stale = !lastFp && !!prevFp && (_now - lastCompareAt) > 45000;   // v184s F2
+        const _stale = !lastFp && !!prevFp && (_now - lastCompareAt) > 25000;   // v184s F2 (v185a: 25 s)
         if (_gen !== fpGen && !_stale) return;   // v184r R5 — a local write landed mid-tick; the next tick baselines
         const _base = lastFp || (_stale ? prevFp : "");
         if (_base) lastCompareAt = _now;
         prevFp = r.fingerprint;
-        if (_base && r.fingerprint !== _base) {
-          invalidateApiCache("posListProducts");
-          invalidateApiCache("posListSales");
-          invalidateApiCache("tabListOpen");
-          invalidateApiCache("adminListSettleableEntries");
-          loadProducts();
-          loadTodayStats();
-          loadTabCount();
-        }
         if (_gen === fpGen) lastFp = r.fingerprint;
+        if (_base && r.fingerprint === _base && !dirty) lastSureAt = _now;   // v185c F6 — compared, nothing moved
+        if (_base && r.fingerprint !== _base) {
+          await reloadChanged();   // v185a P5 — throttled, serial
+        } else if (dirty && !reloadTimer) {
+          await reloadChanged();   // v185a P5 — a change held back while hidden / doing money
+        }
       } catch (e) { /* next tick retries */ } finally { inFlight = false; }
     }
     posPulse();
-    const id = setInterval(posPulse, (typeof pollJitterMs === "function") ? pollJitterMs(15000) : 15000);
-    return () => { alive = false; clearInterval(id); window.removeEventListener("yard:data-changed", onOwnWrite); };
+    /* v185a P5 — 15 s → 30 s (+ up to 35% per-device jitter). */
+    const id = setInterval(posPulse, (typeof pollJitterMs === "function") ? pollJitterMs(30000) : 30000);
+    return () => { alive = false; clearInterval(id); if (reloadTimer) clearTimeout(reloadTimer); window.removeEventListener("yard:data-changed", onOwnWrite); };
   }, []);
 
   // Categories present in products
@@ -21376,7 +21833,7 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
     // then a leading 855 country code, then one leading 0) so "012345678" and
     // "85512345678" are recognized as the same customer here too.
     function normalize(p) {
-      let s = String(p || "").replace(/\D/g, "");
+      let s = String(p || "").replace(/[\u17E0-\u17E9]/g, c => String(c.charCodeAt(0) - 0x17E0)).replace(/\D/g, "");   // v186 T8h — Khmer digits ០-៩ are digits
       if (s.startsWith("00855")) s = s.substring(2);
       if (s.startsWith("855") && s.length >= 11) s = s.substring(3);   // v184r R14 — v184a A5's rule: 855 only on an international-length number
       if (s.startsWith("0")) s = s.substring(1);
@@ -21431,7 +21888,7 @@ function AttachBookingToTabModal({ tabId, customerPhone, onClose, onAttached }) 
           <div style={{ maxHeight: 420, overflowY: "auto" }}>
             {sorted.map(e => {
               function normalize(p) {
-                let s = String(p || "").replace(/\D/g, "");
+                let s = String(p || "").replace(/[\u17E0-\u17E9]/g, c => String(c.charCodeAt(0) - 0x17E0)).replace(/\D/g, "");   // v186 T8h
                 if (s.startsWith("00855")) s = s.substring(2);
                 if (s.startsWith("855") && s.length >= 11) s = s.substring(3);   // v184r R14
                 if (s.startsWith("0")) s = s.substring(1);
@@ -22986,7 +23443,7 @@ function SaleHistoryModal({ onClose }) {
                             no provenance at all — while the server had been
                             computing `splitNote` for every sale row since
                             v171 (Backend:20246) for a panel that read neither
-                            it nor `splitSource`. admin:22990 is the rule:
+                            it nor `splitSource`. admin:23447 is the rule:
                             "A label that is not rendered is not a label."
                             ================================================= */}
                         {/* v174 F2 — all THREE words are rendered now, not just
@@ -23616,6 +24073,12 @@ function ProductModal({ product, onClose, onSaved }) {
     setSaving(false);
     if (r.ok) {
       showToast(isNew ? "Product added" : "Saved", "success");
+      /* v186d F4 — a rename's alias changed a CLOSED month's consignor payout:
+         said, sticky, beside the green "Saved". */
+      if (r.aliasWarning) showStickyToast("⚠ " + r.aliasWarning + (typeof TOAST_DISMISS_HINT === "string" ? TOAST_DISMISS_HINT : ""), "error");
+      /* v186e R1 — a consignee / margin % change froze this product's past
+         sales first, so they keep their current consignor: said, beside "Saved". */
+      if (r.frozenNote) showToast(r.frozenNote, "success");
       onSaved && onSaved();
     } else {
       showToast(r.error || "Failed", "error");
@@ -24636,6 +25099,41 @@ function printYardReceipt() {
 // = 2 billable segments each).
 function _smsMoney(n) {
   return "$" + (Math.round((n || 0) * 100) / 100).toFixed(2).replace(/\.00$/, "");
+}
+
+/* v186 T8g — BILLABLE SEGMENTS, COUNTED THE WAY THE BACKEND COUNTS THEM.
+   A mirror of Backend _gsmSanitize (steps 1-2 and 5: the zero-width strip,
+   the typographic look-alikes, the Latin transliteration — Khmer is never
+   touched) followed by _gsmSegments: GSM-7 is 160 septets in one part and
+   153 per part once split (the extension table ^{}\[~]|€ costs 2); ONE
+   character outside GSM — any Khmer, any emoji — makes the whole message
+   UCS-2, 70 in one part and 67 per part. "~160 chars per message" was only
+   ever true of the first case. */
+function smsSegmentEstimate(text) {
+  let s = String(text == null ? "" : text).replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
+  const map = { "\u00B7": "-", "\u2018": "'", "\u2019": "'", "\u201C": "\"", "\u201D": "\"", "\u2013": "-", "\u2014": "-",
+                "\u2026": "...", "\u00A0": " ", "\u2192": "-", "\u2022": "-", "\u00D7": "x", "\u2032": "'", "\u2033": "\"" };
+  s = s.replace(/[\u00B7\u2018\u2019\u201C\u201D\u2013\u2014\u2026\u00A0\u2192\u2022\u00D7\u2032\u2033]/g, c => map[c] || c);
+  const basic = "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà";
+  const ext = "\f^{}\\[~]|€";
+  const septets = (x) => {
+    let n = 0;
+    for (let i = 0; i < x.length; i++) {
+      const ch = x.charAt(i);
+      if (basic.indexOf(ch) !== -1) n += 1; else if (ext.indexOf(ch) !== -1) n += 2; else return -1;
+    }
+    return n;
+  };
+  if (septets(s) === -1 && !/[ក-៿]/.test(s)) {
+    const tr = { "á": "a", "â": "a", "ã": "a", "À": "A", "Á": "A", "Â": "A", "Ã": "A", "ç": "c", "ê": "e", "ë": "e", "È": "E", "Ê": "E", "Ë": "E",
+                 "í": "i", "î": "i", "ï": "i", "Ì": "I", "Í": "I", "Î": "I", "Ï": "I", "ó": "o", "ô": "o", "õ": "o", "Ò": "O", "Ó": "O", "Ô": "O", "Õ": "O",
+                 "ú": "u", "û": "u", "Ù": "U", "Ú": "U", "Û": "U", "ý": "y", "ÿ": "y", "Ý": "Y" };
+    s = s.replace(/[áâãÀÁÂÃçêëÈÊËíîïÌÍÎÏóôõÒÓÔÕúûÙÚÛýÿÝ]/g, c => tr[c] || c);
+  }
+  const sep = septets(s);
+  if (sep !== -1) return { encoding: "GSM-7", units: sep, perPart: sep <= 160 ? 160 : 153, segments: sep === 0 ? 0 : (sep <= 160 ? 1 : Math.ceil(sep / 153)) };
+  const len = s.length;
+  return { encoding: "UCS-2", units: len, perPart: len <= 70 ? 70 : 67, segments: len === 0 ? 0 : (len <= 70 ? 1 : Math.ceil(len / 67)) };
 }
 function buildReceiptSms(r) {
   var lines = [];
@@ -26476,7 +26974,40 @@ function generateAccountingPdf(report) {
     _ilLine("less cost of goods sold", "(" + fmtUsd(_gm.posCogs || 0) + ")", { indent: 10 });
     _ilDivider({ indent: 10 });
     _ilLine("Gross profit on POS", fmtUsd(_gm.posGrossProfit || 0), { bold: true });
-    _ilLine("Gross margin %", (_gm.posGrossMarginPct === null || _gm.posGrossMarginPct === undefined)
+    /* v186 T2 — WHEN RECORDED COST COVERS UNDER 90%, THE RECORDED-ONLY % IS
+       NOT PRINTED. It is the margin of a slice presented as the shop's. The
+       backend's grossMarginPctReliable says so (false below 90% coverage), and
+       the figure printed instead costs the old sales at the product's cost
+       price, with its basis on the next line. Absent (older backend) → the
+       lines below print exactly as before. */
+    const _incl = (_gm.grossMarginPctReliable !== undefined) ? _gm : report;
+    const _unreliable = !!_incl && _incl.grossMarginPctReliable === false;
+    if (_unreliable) {
+      _ilLine("less cost from product list (older sales)",
+        "(" + fmtUsd(_incl.cogsFromProductList || 0) + ")", { indent: 10 });
+      _ilLine("Gross profit incl. product cost price", fmtUsd(_incl.grossProfitInclProductCost || 0), { bold: true });
+      /* v186d F11 — THE INCL. % IS GATED TOO. Recorded + product-list cost can
+         still cover a small slice of product sales; a % over that slice is the
+         same mistake the gate above exists to stop. Under 60% coverage it is
+         not printed; otherwise its coverage is printed beside it. */
+      const _miCov = (_gm.marginIncl && _gm.marginIncl.coveragePct !== null && _gm.marginIncl.coveragePct !== undefined)
+        ? Number(_gm.marginIncl.coveragePct) : null;
+      if (_miCov !== null && _miCov < 60) {
+        _ilLine("Gross margin % incl. product cost price", null, { indent: 10 });
+        _ilLine("margin not shown — cost known for only " + _miCov.toFixed(1) + "% of product sales",
+          null, { indent: 10, muted: true, size: 8, italic: true });
+      } else {
+        _ilLine("Gross margin % incl. product cost price",
+          (_incl.grossMarginPctInclProductCost === null || _incl.grossMarginPctInclProductCost === undefined)
+            ? "n/a" : (Number(_incl.grossMarginPctInclProductCost).toFixed(1) + "%"
+                       + (_miCov !== null ? " (cost known for " + _miCov.toFixed(1) + "%)" : "")), { indent: 10 });
+      }
+      _ilLine("Basis: recorded cost covers under 90% of POS product revenue, so the recorded-only margin % is not printed;",
+        null, { indent: 10, muted: true, size: 8, italic: true });
+      _ilLine("sales rung up before cost was recorded are costed at the product's cost price.",
+        null, { indent: 10, muted: true, size: 8, italic: true });
+    }
+    if (!_unreliable) _ilLine("Gross margin %", (_gm.posGrossMarginPct === null || _gm.posGrossMarginPct === undefined)
       ? "n/a" : (_gm.posGrossMarginPct.toFixed(1) + "%"), { indent: 10 });
     /* v168 F7 — THE FIGURE THE BACKEND CALLS "THE FIGURE TO QUOTE", PRINTED.
        It was computed on every report and rendered nowhere, so the one margin
@@ -26484,7 +27015,7 @@ function generateAccountingPdf(report) {
        lines whose cost is unknown. Both are now on the collected basis, so
        they can be read side by side and the gap between them is a stated
        number: the revenue that carries no cost. */
-    _ilLine("Gross margin % on the lines whose cost is known",
+    if (!_unreliable) _ilLine("Gross margin % on the lines whose cost is known",
       (_gm.costedGrossMarginPct === null || _gm.costedGrossMarginPct === undefined)
         ? "n/a" : (_gm.costedGrossMarginPct.toFixed(1) + "%"), { indent: 10 });
     if (Number(_gm.revenueOutsideCostedLines || 0) > 0) {
@@ -26818,6 +27349,23 @@ function generateAccountingPdf(report) {
   doc.setTextColor(...INK);
   y += 18;
 
+  // Defensive cleaner — same logic as _safeText in backend.
+  // Strips non-printable Unicode, rejects Date.toString() patterns, caps length.
+  /* v186 T2 — hoisted from the transaction ledger so the member and sponsor
+     tables use it too. jsPDF's built-in Helvetica has no Khmer and no emoji:
+     a name written in either printed as a row of mojibake. What the cleaner
+     leaves is printed; when it leaves nothing, the phone / ID is printed. */
+  const _cleanText = (val, maxLen) => {
+    if (val === null || val === undefined) return "";
+    if (val === true || val === false) return "";
+    if (val instanceof Date) return "";
+    let s = String(val).replace(/[\r\n\t]+/g, " ").replace(/[\u0080-\uFFFF]/g, "").trim();
+    if (/GMT[+-]\d{4}|\b\d{2}:\d{2}:\d{2}\s+GMT/i.test(s)) return "";
+    maxLen = maxLen || 80;
+    if (s.length > maxLen) s = s.substring(0, maxLen - 1) + "…";
+    return s;
+  };
+
   if (mem.newThisMonth && mem.newThisMonth.length > 0) {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
@@ -26826,7 +27374,7 @@ function generateAccountingPdf(report) {
     doc.autoTable({
       startY: y,
       head: [["Phone", "Name", "Tier", "Join Date", "Annual Fee"]],
-      body: mem.newThisMonth.map(m => [m.phone, m.name || "—", m.tier, m.joinDate, fmtUsd(m.annualFee)]),
+      body: mem.newThisMonth.map(m => [m.phone, _cleanText(m.name, 40) || _cleanText(m.phone, 20) || "—", m.tier, m.joinDate, fmtUsd(m.annualFee)]),
       theme: "grid",
       headStyles: { fillColor: INK, textColor: CREAM, fontSize: 9 },
       bodyStyles: { fontSize: 9 },
@@ -26850,7 +27398,7 @@ function generateAccountingPdf(report) {
       startY: y + 4,
       head: [["Date", "ID", "Sponsor", "Location", "Type", "Invoice", "Amount"]],
       body: report.sponsorshipLedger.map(s => [
-        s.date || "—", s.id, s.sponsor || "—", s.location || "—", s.type, s.invoiceNo || "—", fmtUsd(s.amount)
+        s.date || "—", s.id, _cleanText(s.sponsor, 40) || _cleanText(s.id, 22) || "—", _cleanText(s.location, 40) || "—", s.type, s.invoiceNo || "—", fmtUsd(s.amount)
       ]),
       theme: "grid",
       headStyles: { fillColor: INK, textColor: CREAM, fontSize: 9 },
@@ -26879,18 +27427,7 @@ function generateAccountingPdf(report) {
   y += 32;
 
   if (report.transactionLedger && report.transactionLedger.length > 0) {
-    // Defensive cleaner — same logic as _safeText in backend.
-    // Strips non-printable Unicode, rejects Date.toString() patterns, caps length.
-    const _cleanText = (val, maxLen) => {
-      if (val === null || val === undefined) return "";
-      if (val === true || val === false) return "";
-      if (val instanceof Date) return "";
-      let s = String(val).replace(/[\r\n\t]+/g, " ").replace(/[\u0080-\uFFFF]/g, "").trim();
-      if (/GMT[+-]\d{4}|\b\d{2}:\d{2}:\d{2}\s+GMT/i.test(s)) return "";
-      maxLen = maxLen || 80;
-      if (s.length > maxLen) s = s.substring(0, maxLen - 1) + "…";
-      return s;
-    };
+    // _cleanText — defined above the member table (v186 T2), used here unchanged.
 
     // Group ledger by date for accountant readability — each day gets a
     // header row + transactions + subtotal row. Days are already sorted by
@@ -27428,6 +27965,12 @@ function ConsignmentReportModal({ onClose }) {
   const [marking, setMarking] = useState("");
   const [backfill, setBackfill] = useState(null);
   const [backfillErr, setBackfillErr] = useState(null);
+  /* v186 T3 — the "Assign consignor to past sales" card, owner-only. */
+  const [reattrOpen, setReattrOpen] = useState(false);
+  function openReattr() {
+    setReattrOpen(true);
+    try { if (typeof yardFocusWhenMounted === "function") yardFocusWhenMounted("consignment-reattribute-card"); } catch (e) {}
+  }
 
   async function load(f, t) {
     const from = f || fromStr, to = t || toStr;
@@ -28375,6 +28918,25 @@ function ConsignmentReportModal({ onClose }) {
                   longer in the product list. NOTHING PAID.
                 </div>
               ))}
+              {/* v186 T3 — consigned today, sold before the consignor was on the
+                  sale line: in nobody's payout until the owner assigns one. */}
+              {excluded.consignedNowStampedNot && Number(excluded.consignedNowStampedNot.lines || 0) > 0 && (
+                <div style={{ color: "var(--clay)", fontWeight: 700 }}>
+                  · {Number(excluded.consignedNowStampedNot.lines)} consigned sale line(s), {Number(excluded.consignedNowStampedNot.units || 0)} unit(s),
+                  {" "}{money(excluded.consignedNowStampedNot.retail)} at retail — sold before the consignor was recorded on the sale, so
+                  {" "}NOT in this payout.
+                  {(excluded.consignedNowStampedNot.products || []).slice(0, 8).map((p, i) => (
+                    <div key={"cnsn-" + (p.sku || p.productId || i)} style={{ fontWeight: 400 }}>
+                      &nbsp;&nbsp;{p.sku} “{p.name}”{p.consignee ? " — " + p.consignee : ""}{p.lines !== undefined ? " · " + p.lines + " line(s)" : ""}{p.retail !== undefined ? " · " + money(p.retail) : ""}
+                    </div>
+                  ))}
+                  {isOwner && (
+                    <div style={{ fontWeight: 400 }}>
+                      <button className="btn ghost" style={{ marginTop: 4 }} onClick={openReattr}>Assign consignor to past sales</button>
+                    </div>
+                  )}
+                </div>
+              )}
               {report.discountedSales > 0 && (
                 <div>· {report.discountedSales} discounted sale(s) — a member discount was taken off only the
                   lines that were eligible for it (never drinks, never an attached court booking); a whole-sale
@@ -28443,6 +29005,18 @@ function ConsignmentReportModal({ onClose }) {
             )}
           </div>
         ) : null}
+
+        {/* v186 T3 — ASSIGN CONSIGNOR TO PAST SALES, owner-only. Its own card,
+            opened here or from the excluded line above; applying it reloads
+            this report, because the money on it is what just moved. */}
+        {isOwner && (
+          <div style={{ marginTop: 18, borderTop: "1.5px solid var(--ink)", paddingTop: 14 }}>
+            <button className="btn ghost" onClick={() => setReattrOpen(!reattrOpen)}>
+              {reattrOpen ? "▾" : "▸"} Assign consignor to past sales
+            </button>
+            {reattrOpen && <ConsignmentReattributeCard onApplied={() => { load(); loadPayouts(); }} />}
+          </div>
+        )}
 
         {isOwner && (
           <div style={{ marginTop: 18, borderTop: "1.5px solid var(--ink)", paddingTop: 14 }}>
@@ -29261,6 +29835,7 @@ function ScreenFinances() {
           )}
           {/* v145 F6 — archiveIncluded / F5 archive-unreachable, rendered */}
           <ArchiveDataNote data={currentData} />
+          <FutureDatesNote data={safeData} />
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           {/* Operational-only toggle — when on, hide memberships + sponsorships
@@ -29461,6 +30036,747 @@ function ScreenFinances() {
 
    Every call is a READ. Nothing in this component writes anything.
    ==================================================================== */
+
+/* ====================================================================
+   v186 T1 — THE MARGIN, INCLUDING THE SALES THAT PREDATE COST STAMPING.
+
+   The backend (v186a) now costs the lines rung up before Cost_At_Sale
+   existed at the product's cost price, and says which products had that
+   cost price CHANGED during the period (those are the only ones where
+   "today's cost price" may be the wrong one). This block leads the card
+   with that margin and then says, line by line, where every dollar of
+   cost came from. A backend that sends no `marginIncl` renders nothing
+   here and the v176 card below stands exactly as it was.
+   ==================================================================== */
+function _v186Money(n) { return "$" + (Math.round((Number(n) || 0) * 100) / 100).toFixed(2); }
+function _v186Pl(n, one, many) { return (Number(n) || 0) === 1 ? one : (many || (one + "s")); }
+function CostMarginBreakdown({ margin, isOwner, onAssignConsignor }) {
+  const mi = margin && margin.marginIncl;
+  if (!mi) return null;
+  const m2 = _v186Money;
+  const cfl = margin.costFromProductList || null;
+  const cu = margin.consignedUnattributed || null;
+  const flagged = cfl ? (cfl.products || []).filter(p => p && p.costChangedInPeriod) : [];
+  const mono = { fontFamily: "var(--mono)", fontSize: 11, lineHeight: 1.6 };
+  const row = Object.assign({}, mono, { marginTop: 4 });
+  const noCostLines = Number(margin.uncostedNoCostPriceLines || 0);
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ ...mono, fontSize: 12, fontWeight: 700, lineHeight: 1.7 }}>
+        Gross margin — POS products: {mi.pct === null || mi.pct === undefined ? "n/a" : Number(mi.pct).toFixed(1) + "%"}
+        {" "}on {m2(mi.collected)} (recorded cost + product cost price)
+      </div>
+      <div style={{ ...mono, opacity: 0.8 }}>
+        cost {m2(mi.cogs)} · gross profit <span style={{ color: "var(--green)" }}>{m2(mi.grossProfit)}</span>
+        {mi.coveragePct === null || mi.coveragePct === undefined ? ""
+          : " · cost is known for " + Number(mi.coveragePct).toFixed(1) + "% of the product sales that can be costed"}
+      </div>
+      <div style={{ ...mono, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 700, opacity: 0.6, marginTop: 8 }}>
+        Where the cost comes from
+      </div>
+      <div style={row}>
+        · Recorded cost (written on the sale line when it was rung up): {m2(margin.cogs)} on {m2(margin.costedLineCollected)} of sales.
+      </div>
+      {cfl && (
+        <div style={row}>
+          · Cost from the product list: {m2(cfl.cogs)} on {Number(cfl.lines || 0)} {_v186Pl(cfl.lines, "line")}
+          {" "}/ {Number(cfl.units || 0)} {_v186Pl(cfl.units, "unit")} ({m2(cfl.collected)} collected).
+          <div style={{ opacity: 0.75, marginLeft: 10 }}>
+            Old sales costed at the product's cost price; flagged ⚠ if that cost price was changed during this period.
+          </div>
+          {flagged.map(p => (
+            <div key={"cfl-" + p.sku} style={{ marginLeft: 10, color: "var(--clay)" }}>
+              ⚠ {p.name || p.sku} [{p.sku}] — {Number(p.units || 0)} {_v186Pl(p.units, "unit")} at {m2(p.unitCost)} = {m2(p.cogs)}; its cost price was changed during this period, so today's price may not be what these cost.
+            </div>
+          ))}
+          {flagged.length === 0 && Number(cfl.lines || 0) > 0 && (
+            <div style={{ marginLeft: 10, opacity: 0.75 }}>No cost price was changed during this period.</div>
+          )}
+        </div>
+      )}
+      <div style={row}>
+        · Consigned lines: the consignor's share of retail, {m2(margin.consignmentCost)}, is counted as cost — the facility keeps its margin %.
+      </div>
+      {cu && Number(cu.lines || 0) > 0 && (
+        <div style={{ ...row, color: "var(--clay)" }}>
+          · Consigned today, stamped NOT consigned on the sale: {Number(cu.lines)} {_v186Pl(cu.lines, "line")}, {Number(cu.units || 0)} {_v186Pl(cu.units, "unit")},
+          {" "}{m2(cu.retail)} at retail ({m2(cu.collected)} collected) — sold as your own stock at the time — not in any payout until assigned.
+          {(cu.products || []).slice(0, 8).map(p => (
+            <div key={"cu-" + (p.productId || p.sku)} style={{ marginLeft: 10, opacity: 0.9 }}>
+              {p.name || p.sku} [{p.sku}]{p.consignee ? " — " + p.consignee + (p.pct !== null && p.pct !== undefined && p.pct !== "" ? " @ " + p.pct + "%" : "") : ""} · {Number(p.lines || 0)} {_v186Pl(p.lines, "line")} · {m2(p.retail)}
+            </div>
+          ))}
+          {isOwner && typeof onAssignConsignor === "function" && (
+            <div style={{ marginTop: 4 }}>
+              <button className="btn-sm" onClick={onAssignConsignor}>Assign consignor to past sales</button>
+            </div>
+          )}
+        </div>
+      )}
+      {Number(margin.nonStockLines || 0) > 0 && (
+        <div style={row}>
+          · Rentals and services excluded: {m2(margin.nonStockLineCollected)} on {Number(margin.nonStockLines)} {_v186Pl(margin.nonStockLines, "line")} — the facility owns these and hires them out, so they have no cost of goods.
+        </div>
+      )}
+      {noCostLines > 0 && (
+        <div style={{ ...row, color: "var(--clay)" }}>
+          · Own stock with no cost price at all: {m2(margin.uncostedNoCostPriceCollected)} on {noCostLines} {_v186Pl(noCostLines, "line")}
+          {(margin.uncostedNoCostPriceProducts || []).length > 0
+            ? " — " + (margin.uncostedNoCostPriceProducts || []).slice(0, 8).map(u => (u.name || u.sku) + " [" + u.sku + "]").join(", ")
+            : ""}
+          . Fill the cost price in Manage Stock; these are the only sales still outside the margin.
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* v186 T1 — STOCK LOSS, AS TWO NUMBERS. "net $-12.40" read as a gain to
+   half the people who saw it and as a loss to the other half. Lost and
+   found are printed separately, per month, each with its own word. A
+   backend that predates `found` still sends shortAtCost / overAtCost,
+   which are the same two figures. */
+function StockLossSummary({ loss }) {
+  if (!loss) return null;
+  const m2 = _v186Money;
+  const has = (v) => v !== undefined && v !== null;
+  const lost = Math.abs(Number(has(loss.found) ? loss.expense : loss.shortAtCost) || 0);
+  const found = Math.abs(Number(has(loss.found) ? loss.found : loss.overAtCost) || 0);
+  const mono = { fontFamily: "var(--mono)", fontSize: 11 };
+  return (
+    <div>
+      <div style={{ ...mono, fontSize: 12, fontWeight: 700 }}>
+        {loss.count} stocktake(s) · {loss.unitsShort} unit(s) short · lost <span style={{ color: "var(--clay)" }}>{m2(lost)}</span>
+        {" "}· found {m2(found)} <span style={{ fontWeight: 400, opacity: 0.7 }}>(at cost{loss.lostBasis ? ", " + loss.lostBasis : ""})</span>
+        <span style={{ fontWeight: 400, opacity: 0.7 }}>
+          {"  ·  the same shortfall at retail reads $" + Number(loss.shortAtRetail || 0).toFixed(2)}
+        </span>
+      </div>
+      {loss.rangeVsMonthsNote && (loss.byMonth || []).length > 1 && (
+        /* v186e R5 — each month is netted within itself; the header over the whole range. */
+        <div style={{ ...mono, opacity: 0.7 }}>{loss.rangeVsMonthsNote}</div>
+      )}
+      {loss.consignedShortfall && Number(loss.consignedShortfall.consignorShare || 0) > 0 && (
+        /* v186d F9 — what is owed to consignors for goods that went missing (informational). */
+        <div style={{ ...mono, color: "var(--clay)" }}>
+          of which consigned goods: {Number(loss.consignedShortfall.units || 0)} unit(s), {m2(loss.consignedShortfall.consignorShare)} owed to consignors
+          {(loss.consignedShortfall.byConsignee || []).length
+            ? " — " + loss.consignedShortfall.byConsignee.map(b => (b.consignee || "Unassigned") + " " + m2(b.consignorShare)).join(", ") : ""}
+        </div>
+      )}
+      {(loss.byMonth || []).map(m => (
+        <div key={m.month} className="modal-detail-row" style={{ ...mono }}>
+          <span className="k">{m.month}</span>
+          <span className="v">
+            {has(m.count) ? m.count + " count(s) · " : ""}lost {m2(Math.abs(Number(has(m.lost) ? m.lost : m.shortAtCost) || 0))}
+            {" "}· found {m2(Math.abs(Number(has(m.found) ? m.found : m.overAtCost) || 0))}
+            {loss.byMonthBasis ? <span style={{ opacity: 0.6 }}> ({loss.byMonthBasis === "netted per product within each month" ? "netted within the month" : loss.byMonthBasis})</span> : null}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ====================================================================
+   v186 T3 — ASSIGN CONSIGNOR TO PAST SALES.
+
+   Products that are consigned today but were sold before the consignor
+   was recorded on the sale line are in nobody's payout. The backend
+   (v186a A4) lists them, previews a re-attribution month by month —
+   closed months refused, payouts that already cover the period named —
+   and applies ONLY the plan the owner previewed (planHash). This card is
+   the owner's side of that: tick, check the name and %, Preview, type the
+   name, Apply. Owner-only on the server; rendered only for the owner.
+   ==================================================================== */
+function consignorDefaultPct(name) { return /\baire\b/i.test(String(name || "")) ? 10 : 15; }
+function _v186ErrText(r, fallback) {
+  const e = String((r && r.error) || "");
+  if (/^Unknown action/i.test(e)) return "This needs the newest backend, which has not been deployed yet — nothing was read or written.";
+  return e || fallback || "No response from the server";
+}
+function ConsignmentReattributeCard({ onApplied }) {
+  const [cands, setCands] = useState(null);
+  const [candErr, setCandErr] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [sel, setSel] = useState({});
+  const [consignee, setConsignee] = useState("");
+  const [pct, setPct] = useState("");
+  const [fromStr, setFromStr] = useState("");
+  const [toStr, setToStr] = useState("");
+  const [plan, setPlan] = useState(null);
+  const [planErr, setPlanErr] = useState("");
+  const [busy, setBusy] = useState("");
+  const [typed, setTyped] = useState("");
+  const [done, setDone] = useState(null);
+  const [overwrite, setOverwrite] = useState(false);   // v186d F3 — "also update the product for future sales"
+  const [undo, setUndo] = useState(null);              // v186d F14 — the undo preview / result
+
+  async function loadCandidates() {
+    setLoading(true); setCandErr("");
+    try {
+      const r = await api("adminConsignmentReattributeCandidates", {}, { bypassCache: true });
+      if (r && r.ok) setCands(Array.isArray(r.products) ? r.products : []);
+      else { setCands(null); setCandErr(_v186ErrText(r)); }
+    } catch (e) { setCands(null); setCandErr((e && e.message) || "Network error"); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { loadCandidates(); }, []);
+
+  /* v186d F1 — ONE CONSIGNOR AT A TIME. The consignor and % fields apply to
+     EVERY ticked product, so ticking a second product whose own suggestion is
+     a DIFFERENT consignor (or %) would have silently given it the first one's
+     — and a paddle attributed to the wrong consignor pays the wrong person.
+     Such a tick is refused with the reason; the owner applies one consignor's
+     batch, then ticks the next. Clearing every tick clears the fields, so the
+     next first tick takes ITS OWN suggestion. */
+  function toggle(p) {
+    const next = Object.assign({}, sel);
+    const adding = !next[p.productId];
+    const name = p.suggestedConsignee || p.currentConsignee || "";
+    const sp = (p.suggestedPct !== null && p.suggestedPct !== undefined && p.suggestedPct !== "") ? p.suggestedPct : consignorDefaultPct(name);
+    if (adding && Object.keys(next).length > 0 && name
+        && (String(name).trim().toLowerCase() !== String(consignee || "").trim().toLowerCase() || Number(sp) !== Number(pct))) {
+      setPlanErr("One consignor at a time: " + (p.name || p.sku) + " is suggested for " + name + " @ " + sp + "%, but the ticked products are being assigned to "
+        + (String(consignee || "").trim() || "—") + " @ " + pct + "%. Apply (or untick) those first, then tick this one.");
+      return;
+    }
+    if (adding) next[p.productId] = true; else delete next[p.productId];
+    setSel(next); setPlan(null); setPlanErr(""); setTyped("");
+    setOverwrite(false);   // v186e R3 — a different set of products is a different plan: the box starts unticked
+    if (adding && (Object.keys(next).length === 1 || !String(consignee || "").trim())) {
+      setConsignee(name);
+      setPct(String(sp));
+    }
+    if (!Object.keys(next).length) { setConsignee(""); setPct(""); }
+  }
+
+  /* v186e R3 — overwriteProduct is PART OF THE PLAN (the backend hashes it).
+     The Preview button always previews WITHOUT it (the box resets); ticking
+     the box re-previews WITH it, so the planHash the owner applies is the
+     plan that includes the product overwrite he is looking at. */
+  async function preview(owArg) {
+    const ow = owArg === true;
+    const ids = Object.keys(sel);
+    if (!ids.length) { setPlanErr("Tick at least one product first."); return; }
+    const name = String(consignee || "").trim();
+    if (!name) { setPlanErr("Type the consignor's name."); return; }
+    const p = Number(pct);
+    if (!(p > 0 && p <= 100)) { setPlanErr("Your margin % must be a number above 0 and at most 100 (Aire is 10, most others 15)."); return; }
+    if (fromStr && toStr && fromStr > toStr) { setPlanErr("The start date is after the end date."); return; }
+    setBusy("preview"); setPlanErr(""); setPlan(null); setTyped(""); setDone(null);
+    setOverwrite(ow);
+    try {
+      const params = { productIds: JSON.stringify(ids), consignee: name, marginPct: String(p), dryRun: "true" };
+      if (fromStr) params.fromStr = fromStr;
+      if (toStr) params.toStr = toStr;
+      if (ow) params.overwriteProduct = "true";   // v186e R3
+      const r = await api("adminConsignmentReattribute", params, { bypassCache: true });
+      if (r && r.ok) setPlan(Object.assign({}, r, { _ids: ids, _consignee: name, _pct: p, _from: fromStr, _to: toStr, _overwrite: ow }));
+      else setPlanErr(_v186ErrText(r));
+    } catch (e) { setPlanErr((e && e.message) || "Network error"); }
+    finally { setBusy(""); }
+  }
+
+  async function apply() {
+    if (!plan || busy) return;
+    const want = String(plan.consignee || plan._consignee || "").trim().toLowerCase();
+    if (!want || String(typed || "").trim().toLowerCase() !== want) {
+      setPlanErr("To confirm, type the consignor's name exactly as it is shown in the preview.");
+      return;
+    }
+    const params = { productIds: JSON.stringify(plan._ids), consignee: plan._consignee, marginPct: String(plan._pct),
+                     dryRun: "false", confirm: "true", planHash: String(plan.planHash || "") };
+    if (plan._from) params.fromStr = plan._from;
+    if (plan._to) params.toStr = plan._to;
+    if (overwrite === true) params.overwriteProduct = "true";   // v186d F3
+    const iKey = intentKey("adminConsignmentReattribute", [plan._ids.slice().sort().join("+"), plan._consignee, plan._pct, plan._from, plan._to, plan.planHash,
+                                                           overwrite === true ? "overwriteProduct" : ""]);   // v186e R3
+    setBusy("apply");
+    try {
+      const r = await api("adminConsignmentReattribute", Object.assign({}, params, { clientRequestId: intentRequestId(iKey) }), { bypassCache: true });
+      /* v186d F6 — a {duplicate:true} answer (the first send is still running,
+         or finished and its answer was not kept) is NOT "nothing was written":
+         the outcome is unknown, so the intent id is KEPT and the owner is told
+         to refresh and check. */
+      if (isUnknownOutcome(r) || (r && r.duplicate === true)) {
+        reportWriteFailure((r && r.duplicate === true) ? Object.assign({}, r, { ok: false, _transient: true }) : r, "assigning " + plan._consignee + " to past sales");
+        return;
+      }
+      retireIntent(iKey);
+      /* v186e R4 — the batch landed but its undo record did not: said once,
+         STICKY (it is not a toast that fades), and the "Undo this batch" link
+         is withheld for it (the view reads correctionsRecorded). */
+      if (r && (r.ok || r.partial) && r.correctionsRecorded === false) {
+        showStickyToast("⚠ " + (r.correctionsWarning || "The undo log could not be written — this batch can't be undone automatically.")
+          + (r.correctionBatchId ? " (" + r.correctionBatchId + ")" : "") + (typeof TOAST_DISMISS_HINT === "string" ? TOAST_DISMISS_HINT : ""), "error");
+      }
+      if (r && r.ok) {
+        setDone(r); setPlan(null); setTyped("");
+        if (!r.more) setSel({});   // v186d F7 — more to do: keep the ticks for "Apply next batch"
+        showToast("Done — " + Number(r.written || 0) + " past sale line(s) now belong to " + (r.consignee || plan._consignee)
+          + (r.more ? " · " + Number(r.remaining || 0) + " more to apply" : ""), "success");
+        loadCandidates();
+        if (typeof onApplied === "function") onApplied(r);
+      } else if (r && r.partial) {
+        /* v186d F14 — part of the batch landed: say exactly that, and offer the undo. */
+        setDone(r); setPlan(null); setTyped("");
+        setPlanErr(_v186ErrText(r, "Only part of the batch was written"));
+        loadCandidates();
+        if (typeof onApplied === "function") onApplied(r);
+      } else if (r && r.stale) {
+        setPlan(null); setTyped("");
+        setPlanErr("The sales changed after this preview, so NOTHING was written. Press Preview again and read the new figures.");
+      } else {
+        setPlanErr(_v186ErrText(r, "Not applied"));
+      }
+    } catch (e) { setPlanErr((e && e.message) || "Network error"); }
+    finally { setBusy(""); }
+  }
+
+  /* v186d F14 — UNDO THIS BATCH. A preview first (what can be restored, what
+     cannot and why — a line a payout already covers, a closed month, a line
+     changed since), then the owner's confirm, then the undo under an intent id. */
+  async function undoBatch(batchId) {
+    if (!batchId || busy) return;
+    setBusy("undo"); setUndo(null);
+    try {
+      const pv = await api("adminReattributeRevert", { correctionBatchId: batchId, dryRun: "true" }, { bypassCache: true });
+      if (!pv || !pv.ok) { setUndo({ error: _v186ErrText(pv, "Could not read the batch") }); return; }
+      const left = (pv.refused || []).map(x => x.reason + " (" + Number(x.lines || 0) + ")").join("; ");
+      if (!Number(pv.lines || 0)) { setUndo({ error: "Nothing in " + batchId + " can be undone" + (left ? ": " + left : "") + "." }); return; }
+      if (!window.confirm("Undo " + batchId + "?\n\n" + Number(pv.lines) + " sale line(s) go back to how they were before it" +
+        ((pv.productsToRestore || []).length ? ", and the product record(s) it filled in are cleared again" : "") + "." +
+        (Number(pv.frozenLines || 0) > 0 ? "\n\n" + Number(pv.frozenLines) + " other past sale line(s) of that product keep their current consignor (frozen first — no other figure moves)." : "") +
+        (left ? "\n\nLeft as they are: " + left + "." : ""))) return;
+      const iKey = intentKey("adminReattributeRevert", [batchId]);
+      const r = await api("adminReattributeRevert", { correctionBatchId: batchId, dryRun: "false", confirm: "true", clientRequestId: intentRequestId(iKey) }, { bypassCache: true });
+      if (isUnknownOutcome(r) || (r && r.duplicate === true)) {
+        reportWriteFailure((r && r.duplicate === true) ? Object.assign({}, r, { ok: false, _transient: true }) : r, "undoing " + batchId);
+        return;
+      }
+      retireIntent(iKey);
+      setUndo(r && r.ok ? { done: r } : { error: _v186ErrText(r, "Not undone") });
+      if (r && r.ok) {
+        showToast("Undone — " + Number(r.restored || 0) + " sale line(s) restored", "success");
+        loadCandidates();
+        if (typeof onApplied === "function") onApplied(r);
+      }
+    } catch (e) { setUndo({ error: (e && e.message) || "Network error" }); }
+    finally { setBusy(""); }
+  }
+
+  return (
+    <ConsignmentReattributeView
+      cands={cands} candErr={candErr} loading={loading} sel={sel}
+      consignee={consignee} pct={pct} fromStr={fromStr} toStr={toStr}
+      plan={plan} planErr={planErr} busy={busy} typed={typed} done={done}
+      overwrite={overwrite} undo={undo}
+      onToggle={toggle} onConsignee={(v) => { setConsignee(v); setPlan(null); setTyped(""); }}
+      onPct={(v) => { setPct(v); setPlan(null); setTyped(""); }}
+      onFrom={(v) => { setFromStr(v); setPlan(null); setTyped(""); }}
+      onTo={(v) => { setToStr(v); setPlan(null); setTyped(""); }}
+      onPreview={preview} onTyped={setTyped} onApply={apply} onReload={loadCandidates}
+      onOverwrite={(v) => { setOverwrite(!!v); preview(!!v); }} onUndo={undoBatch}
+    />
+  );
+}
+function ConsignmentReattributeView(v) {
+  const m2 = _v186Money;
+  const mono = { fontFamily: "var(--mono)", fontSize: 11, lineHeight: 1.6 };
+  const cell = { padding: "3px 6px", textAlign: "left" };
+  const num = { padding: "3px 6px", textAlign: "right" };
+  const cands = v.cands;
+  const selCount = Object.keys(v.sel || {}).length;
+  const plan = v.plan;
+  const months = (plan && plan.months) || [];
+  const totals = (plan && plan.totals) || null;
+  const refused = (plan && plan.refused) || [];
+  const overlapping = (plan && plan.overlappingPayouts) || [];
+  const want = plan ? String(plan.consignee || plan._consignee || "") : "";
+  const typedOk = !!want && String(v.typed || "").trim().toLowerCase() === want.trim().toLowerCase();
+  return (
+    <div id="consignment-reattribute-card" style={{ marginTop: 14, padding: "12px 14px", border: "1.5px solid var(--ink)", borderRadius: 4 }}>
+      <div style={{ fontWeight: 700, fontSize: 14 }}>Assign consignor to past sales</div>
+      <div style={{ ...mono, opacity: 0.8, marginTop: 4 }}>
+        Some consigned products were sold before their consignor was written on the sale, so those sales are in
+        {" "}nobody's payout yet. Tick the products, check the consignor and your margin %, and press Preview: it shows
+        {" "}exactly what changes, month by month. Nothing changes until you type the consignor's name and press Apply.
+      </div>
+      {v.loading && <div style={{ ...mono, opacity: 0.7, marginTop: 6 }}>Loading…</div>}
+      {v.candErr && <div style={{ ...mono, color: "var(--clay)", marginTop: 6 }}>⚠ {v.candErr}</div>}
+      {cands && cands.length === 0 && (
+        <div style={{ ...mono, marginTop: 6 }}>Nothing to assign — every consigned sale already has its consignor.</div>
+      )}
+      {cands && cands.length > 0 && (
+        <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 8, ...mono }}>
+          <thead>
+            <tr style={{ opacity: 0.7 }}>
+              <th style={cell}></th><th style={cell}>Product</th><th style={cell}>Consignor now</th>
+              <th style={cell}>Suggested</th><th style={num}>Not yet in a payout</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cands.map(p => (
+              <tr key={p.productId || p.sku} style={{ borderTop: "1px solid rgba(26,26,26,0.08)", verticalAlign: "top" }}>
+                <td style={cell}>
+                  <input type="checkbox" checked={!!(v.sel || {})[p.productId]} onChange={() => v.onToggle && v.onToggle(p)} />
+                </td>
+                <td style={cell}>
+                  {p.name || p.sku} <span style={{ opacity: 0.55 }}>[{p.sku}]</span>
+                  {p.reason ? <div style={{ opacity: 0.6, fontSize: 10 }}>{p.reason}</div> : null}
+                </td>
+                <td style={cell}>
+                  {p.currentConsignee || "—"}{p.currentPct !== null && p.currentPct !== undefined && p.currentPct !== "" ? " @ " + p.currentPct + "%" : ""}
+                </td>
+                <td style={cell}>
+                  {p.suggestedConsignee || "—"}{p.suggestedPct !== null && p.suggestedPct !== undefined && p.suggestedPct !== "" ? " @ " + p.suggestedPct + "%" : ""}
+                </td>
+                <td style={num}>
+                  {Number(p.unattributedLines || 0)} {_v186Pl(p.unattributedLines, "sale line")} · {Number(p.unattributedUnits || 0)} {_v186Pl(p.unattributedUnits, "unit")} · {m2(p.unattributedRetail)} at retail
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {selCount > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", marginTop: 10 }}>
+          <div className="field" style={{ margin: 0 }}>
+            <div className="field-label">Consignor — for every ticked product (one consignor at a time)</div>
+            <input type="text" value={v.consignee} onChange={(e) => v.onConsignee && v.onConsignee(e.target.value)} />
+          </div>
+          <div className="field" style={{ margin: 0 }}>
+            <div className="field-label">Your margin % (Aire 10, others 15)</div>
+            <input type="number" min="1" max="100" step="1" value={v.pct} onChange={(e) => v.onPct && v.onPct(e.target.value)} style={{ width: 90 }} />
+          </div>
+          <div className="field" style={{ margin: 0 }}>
+            <div className="field-label">From (optional)</div>
+            <input type="date" value={v.fromStr} onChange={(e) => v.onFrom && v.onFrom(e.target.value)} />
+          </div>
+          <div className="field" style={{ margin: 0 }}>
+            <div className="field-label">To (optional)</div>
+            <input type="date" value={v.toStr} onChange={(e) => v.onTo && v.onTo(e.target.value)} />
+          </div>
+          <button className="btn" disabled={!!v.busy} onClick={v.onPreview}>{v.busy === "preview" ? "Working…" : "Preview"}</button>
+        </div>
+      )}
+      {v.planErr && <div style={{ ...mono, color: "var(--clay)", fontWeight: 700, marginTop: 8 }}>⚠ {v.planErr}</div>}
+      {plan && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ ...mono, fontWeight: 700 }}>
+            PREVIEW — nothing has been written yet. {want} @ {plan.marginPct !== undefined ? plan.marginPct : plan._pct}% your margin
+            {totals ? " · " + Number(totals.lines || 0) + " sale line(s), " + Number(totals.units || 0) + " unit(s)" : ""}
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 6, ...mono }}>
+            <thead>
+              <tr style={{ opacity: 0.7 }}>
+                <th style={cell}>Month</th><th style={num}>Lines</th><th style={num}>Units</th><th style={num}>Retail</th>
+                <th style={num}>Collected</th><th style={num}>Consignor gets</th><th style={num}>You keep</th>
+              </tr>
+            </thead>
+            <tbody>
+              {months.map((m, i) => (
+                <tr key={m.month + "|" + (m.closed ? "c" : "o") + "|" + i} style={{ borderTop: "1px solid rgba(26,26,26,0.08)", color: m.closed ? "var(--clay)" : "inherit" }}>
+                  <td style={cell}>{m.month}{m.closed ? " — CLOSED, left alone" : ""}</td>
+                  <td style={num}>{Number(m.lines || 0)}</td>
+                  <td style={num}>{Number(m.units || 0)}</td>
+                  <td style={num}>{m2(m.retail)}</td>
+                  <td style={num}>{m2(m.collected)}</td>
+                  <td style={num}>{m.closed ? "—" : m2(m.consignorShare)}</td>
+                  <td style={num}>{m.closed ? "—" : m2(m.facilityShare)}</td>
+                </tr>
+              ))}
+              {totals && (
+                <tr style={{ borderTop: "1.5px solid var(--ink)", fontWeight: 700 }}>
+                  <td style={cell}>Total (open months)</td>
+                  <td style={num}>{Number(totals.lines || 0)}</td>
+                  <td style={num}>{Number(totals.units || 0)}</td>
+                  <td style={num}>{m2(totals.retail)}</td>
+                  <td style={num}>{m2(totals.collected)}</td>
+                  <td style={num}>{m2(totals.consignorShare)}</td>
+                  <td style={num}>{m2(totals.facilityShare)}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+          {months.some(m => m.closed) && (
+            <div style={{ ...mono, opacity: 0.8, marginTop: 4 }}>
+              Sales in a closed month are not changed. Reopen that month first if they must be included.
+            </div>
+          )}
+          {refused.length > 0 && (
+            <div style={{ ...mono, opacity: 0.8, marginTop: 4 }}>
+              Left alone: {refused.map(x => x.reason + " (" + Number(x.lines || 0) + " line" + (Number(x.lines) === 1 ? "" : "s") + ")").join("; ")}.
+            </div>
+          )}
+          {plan.freezeOnly && Number(plan.freezeOnly.lines || 0) > 0 && (
+            <div style={{ ...mono, opacity: 0.8, marginTop: 4 }}>
+              Also stamped, no money change: {Number(plan.freezeOnly.lines)} line(s) {want} is ALREADY paid for by product lookup — the stamp only freezes it.
+            </div>
+          )}
+          {plan.unassignedFilled && Number(plan.unassignedFilled.lines || 0) > 0 && (
+            <div style={{ ...mono, opacity: 0.8, marginTop: 4 }}>
+              Also named: {Number(plan.unassignedFilled.lines)} line(s) stamped at {plan.marginPct}% with no consignor ({m2(plan.unassignedFilled.consignorShare)} owed under "Unassigned") move to {want} — same amount, now under a name.
+            </div>
+          )}
+          {(plan.products || []).some(p => p && p.productDiffers) && (
+            <div style={{ ...mono, marginTop: 6 }}>
+              {(plan.products || []).filter(p => p && p.productDiffers).map(p => (
+                <div key={"pd-" + (p.productId || p.sku)} style={{ color: "var(--clay)" }}>
+                  ⚠ {p.name || p.sku} [{p.sku}] — the product record says {p.consignee || "Unassigned"}{p.pct !== null && p.pct !== undefined && p.pct !== "" ? " @ " + p.pct + "%" : ""}. Its past sales are assigned either way; the product itself is left as it is unless you tick the box.
+                </div>
+              ))}
+              <label style={{ display: "block", marginTop: 4 }}>
+                <input type="checkbox" checked={!!v.overwrite} onChange={(e) => v.onOverwrite && v.onOverwrite(e.target.checked)} />
+                {" "}also update the product for future sales ({want} @ {plan.marginPct !== undefined ? plan.marginPct : plan._pct}%)
+              </label>
+            </div>
+          )}
+          {(plan.frozenProducts || []).filter(fp => fp && Number(fp.lines || 0) > 0).map(fp => (
+            /* v186e R1 — the product record changes, so its OTHER past sales are frozen first. */
+            <div key={"fz-" + (fp.productId || fp.sku)} style={{ ...mono, opacity: 0.85, marginTop: 4 }}>
+              {Number(fp.lines)} past sale{Number(fp.lines) === 1 ? "" : "s"} of {fp.sku} will keep their current consignor ({fp.consignee || "Unassigned"}{fp.pct !== null && fp.pct !== undefined && fp.pct !== "" ? " @ " + fp.pct + "%" : ", not consigned"}), frozen
+              {Number(fp.closedMonthLines || 0) > 0 ? " — " + Number(fp.closedMonthLines) + " in closed month(s), no figure moves" : ""}.
+            </div>
+          ))}
+          {overlapping.length > 0 && (
+            <div style={{ ...mono, color: "var(--clay)", fontWeight: 700, marginTop: 6 }}>
+              ⚠ Already paid for this period? A payout is already recorded over these dates:
+              {overlapping.map(o => (
+                <div key={o.payoutId} style={{ fontWeight: 400 }}>· {o.payoutId} — {o.consignee}, {o.from} → {o.to}, {m2(o.amount)}</div>
+              ))}
+              <div style={{ fontWeight: 400 }}>
+                These sales were not in that payout. If you already paid {want} for them outside the system, record a covering payout instead of paying again.
+              </div>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", marginTop: 8 }}>
+            <div className="field" style={{ margin: 0 }}>
+              <div className="field-label">To confirm, type “{want}”</div>
+              <input type="text" value={v.typed} onChange={(e) => v.onTyped && v.onTyped(e.target.value)} />
+            </div>
+            <button className="btn primary" disabled={!typedOk || !!v.busy} onClick={v.onApply}>
+              {v.busy === "apply" ? "Applying…" : "Apply"}
+            </button>
+          </div>
+        </div>
+      )}
+      {v.done && (
+        <div style={{ ...mono, color: v.done.partial ? "var(--clay)" : "var(--green)", fontWeight: 700, marginTop: 8 }}>
+          {v.done.partial ? "⚠ Partly done — " : "✓ Done — "}{Number(v.done.written || 0)} past sale line(s) now belong to {v.done.consignee} @ {v.done.marginPct}%.
+          {v.done.correctionBatchId ? " Correction record " + v.done.correctionBatchId + "." : ""} Run the payout report to see what is owed.
+          {(v.done.productNotUpdated || []).length > 0 && (
+            <div style={{ fontWeight: 400, color: "var(--clay)" }}>
+              Product record not changed: {(v.done.productNotUpdated || []).map(p => p.sku + " — " + p.reason).join("; ")}
+            </div>
+          )}
+          {v.done.more && (
+            <div style={{ fontWeight: 400, marginTop: 4 }}>
+              {Number(v.done.remaining || 0)} more line(s) to do — at most 300 are written at a time so the till is never held up.
+              {" "}<button className="btn-sm" disabled={!!v.busy} onClick={v.onPreview}>Apply next batch</button>
+              <span style={{ opacity: 0.7 }}> (previews it first — type the name and Apply again)</span>
+            </div>
+          )}
+          {Number(v.done.frozenLines || 0) > 0 && (
+            <div style={{ fontWeight: 400, marginTop: 4 }}>
+              {Number(v.done.frozenLines)} other past sale line(s) of the product kept their consignor (frozen first, no money moved).
+            </div>
+          )}
+          {v.done.correctionsRecorded === false && (
+            /* v186e R4 — sticky: the undo record did not land. */
+            <div style={{ fontWeight: 700, marginTop: 4, color: "var(--clay)" }}>
+              ⚠ {v.done.correctionsWarning || "The undo log could not be written — this batch can't be undone automatically."}
+            </div>
+          )}
+          {v.done.correctionBatchId && v.done.correctionsRecorded !== false && typeof v.onUndo === "function" && (
+            <div style={{ fontWeight: 400, marginTop: 4 }}>
+              <a href="#" onClick={(e) => { e.preventDefault(); v.onUndo(v.done.correctionBatchId); }}>Undo this batch</a>
+            </div>
+          )}
+        </div>
+      )}
+      {v.undo && v.undo.error && <div style={{ ...mono, color: "var(--clay)", marginTop: 6 }}>⚠ {v.undo.error}</div>}
+      {v.undo && v.undo.done && (
+        <div style={{ ...mono, marginTop: 6 }}>
+          ✓ Undone — {Number(v.undo.done.restored || 0)} sale line(s) restored{Number(v.undo.done.productsRestored || 0) ? ", product record(s) cleared again" : ""}.
+          {(v.undo.done.refused || []).length ? " Left as they are: " + v.undo.done.refused.map(x => x.reason + " (" + x.lines + ")").join("; ") + "." : ""}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ====================================================================
+   v186 T4 — MATCH OLD PRODUCT CODES.
+
+   A sale rung up under a code that is no longer in the product list can
+   never carry a cost. The backend (v186a A6) proposes which live product
+   each old code was — "proof" when the stock movements of those very
+   sales name one product, "suggest" when only the digits or the name
+   match — and maps one code at a time on the owner's say-so. Sales are
+   not rewritten; the reports read the mapping.
+   ==================================================================== */
+function SkuAliasCard({ onApplied }) {
+  const _info = getStaffInfo();
+  const isOwner = !(_info && _info.role === "staff");
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [products, setProducts] = useState(null);
+  const [pick, setPick] = useState({});
+  const [busy, setBusy] = useState("");
+
+  async function loadAliases() {
+    setLoading(true); setErr("");
+    try {
+      const r = await api("adminSkuAliasPreview", {}, { bypassCache: true });
+      if (r && r.ok) setData(r); else { setData(null); setErr(_v186ErrText(r)); }
+      if (r && r.ok && !products) {
+        const pr = await api("posListProducts", {});
+        if (pr && pr.ok && Array.isArray(pr.products)) setProducts(pr.products);
+      }
+    } catch (e) { setData(null); setErr((e && e.message) || "Network error"); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { loadAliases(); }, []);
+
+  async function applyAlias(s) {
+    if (busy) return;
+    const pid = pick[s.oldSku] || s.productId;
+    if (!pid) { showToast("Choose which product “" + s.oldSku + "” was first", "error"); return; }
+    const prod = (products || []).find(p => p.productId === pid);
+    const label = prod ? ((prod.name || prod.sku) + " [" + prod.sku + "]") : ((s.liveName || s.liveSku) + " [" + s.liveSku + "]");
+    /* v186d F4 — WHAT THE MATCH DOES TO THE PAYOUT, before the owner agrees.
+       The preview already priced the suggested product; a different pick is
+       priced by a dry run (a read — nothing is written). Closed months are
+       named and need a second, explicit yes (acknowledgeClosedMonths). */
+    let impact = (pid === s.productId && s.payoutImpact) ? s.payoutImpact : null;
+    if (!impact) {
+      try {
+        const dr = await api("adminSkuAliasApply", { oldSku: s.oldSku, productId: pid, dryRun: "true" }, { bypassCache: true });
+        if (dr && dr.ok && dr.payoutImpact) impact = dr.payoutImpact;
+      } catch (eDr) { impact = null; }
+    }
+    const _imMonths = (impact && impact.months) || [];
+    const _imClosed = (impact && impact.closedMonths) || [];
+    const _imText = !impact ? ""
+      : (_imMonths.length
+          ? "\n\nConsignor payouts change:\n" + _imMonths.map(m => "  " + m.month + (m.closed ? " (CLOSED)" : "") + ": " +
+              (m.byConsignee || []).map(c => c.consignee + " " + (c.change >= 0 ? "+" : "−") + _v186Money(Math.abs(c.change))).join(", ")).join("\n")
+          : "\n\nNo consignor payout changes.");
+    if (!confirm(
+      "Treat the old code “" + s.oldSku + "” as " + label + "?\n\n" +
+      Number(s.lines || 0) + " past sale line(s), " + _v186Money(s.collected) + " collected, will be counted under that product " +
+      "in the cost and margin reports. The sales themselves are not rewritten.\n\n" +
+      "A match cannot be changed afterwards." + _imText
+    )) return;
+    let _ackClosed = false;
+    if (_imClosed.length) {
+      if (!confirm("This changes what CLOSED month(s) " + _imClosed.join(", ") + " owe consignors — months already sent to the accountant.\n\nMatch it anyway?")) return;
+      _ackClosed = true;
+    }
+    const iKey = intentKey("adminSkuAliasApply", [s.oldSku, pid]);
+    setBusy(s.oldSku);
+    try {
+      const r = await api("adminSkuAliasApply", Object.assign({
+        oldSku: s.oldSku, productId: pid, confirm: "true",
+        evidence: (pid === s.productId && s.evidence) ? s.evidence : "owner-picked",
+        clientRequestId: intentRequestId(iKey)
+      }, _ackClosed ? { acknowledgeClosedMonths: "true" } : {}), { bypassCache: true });
+      /* v186d F6 — a {duplicate:true} answer is an UNKNOWN outcome: keep the id. */
+      if (isUnknownOutcome(r) || (r && r.duplicate === true)) {
+        reportWriteFailure((r && r.duplicate === true) ? Object.assign({}, r, { ok: false, _transient: true }) : r, "the match for “" + s.oldSku + "”");
+        return;
+      }
+      retireIntent(iKey);
+      if (r && r.ok) {
+        showToast("“" + s.oldSku + "” now counts as " + (r.liveName || label), "success");
+        await loadAliases();
+        if (typeof onApplied === "function") onApplied(r);
+      } else {
+        showToast(_v186ErrText(r, "Not matched"), "error");
+      }
+    } catch (e) { showToast((e && e.message) || "Network error", "error"); }
+    finally { setBusy(""); }
+  }
+
+  return (
+    <SkuAliasView data={data} err={err} loading={loading} products={products} pick={pick} busy={busy} isOwner={isOwner}
+      onPick={(oldSku, pid) => setPick(Object.assign({}, pick, { [oldSku]: pid }))} onApply={applyAlias} />
+  );
+}
+function SkuAliasView(v) {
+  const m2 = _v186Money;
+  const mono = { fontFamily: "var(--mono)", fontSize: 11, lineHeight: 1.6 };
+  const sugg = (v.data && v.data.suggestions) || [];
+  const mapped = (v.data && v.data.mapped) || [];
+  const badge = (c) => c === "proof"
+    ? <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", color: "var(--green)" }}>PROOF</span>
+    : c === "suggest"
+      ? <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", color: "var(--clay)" }}>SUGGESTION — CHECK IT</span>
+      : <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", opacity: 0.6 }}>NO MATCH FOUND</span>;
+  const evidenceWords = { "stock-movements": "the stock movements of these very sales name this product",
+                          "khmer-digits": "the same code once Khmer digits are read as numbers",
+                          "same-name": "exactly one live product has the same name" };
+  return (
+    <div id="sku-alias-card" style={{ marginTop: 8, padding: "10px 12px", border: "1px solid var(--clay)", borderRadius: 4 }}>
+      <div style={{ ...mono, fontWeight: 700 }}>Match old codes to today's products</div>
+      <div style={{ ...mono, opacity: 0.8 }}>
+        Each old code below was used on past sales. Matching it to a live product lets those sales use that product's cost.
+        {" "}PROOF means the stock records of those very sales name the product; a SUGGESTION is only a likely match — check it.
+      </div>
+      {v.loading && <div style={{ ...mono, opacity: 0.7 }}>Loading…</div>}
+      {v.err && <div style={{ ...mono, color: "var(--clay)" }}>⚠ {v.err}</div>}
+      {v.data && sugg.length === 0 && <div style={mono}>No unmatched old codes.</div>}
+      {sugg.map(s => {
+        const pid = (v.pick || {})[s.oldSku] || s.productId || "";
+        return (
+          <div key={"sa-" + s.oldSku} style={{ ...mono, borderTop: "1px solid rgba(26,26,26,0.08)", paddingTop: 4, marginTop: 4 }}>
+            <div>
+              <strong>“{s.oldSku}”</strong> · {Number(s.lines || 0)} {_v186Pl(s.lines, "line")} · {Number(s.units || 0)} {_v186Pl(s.units, "unit")} · {m2(s.collected)} collected
+              {badge(s.confidence)}
+            </div>
+            {s.productId && (
+              <div style={{ opacity: 0.85 }}>
+                → {s.liveName || s.liveSku} [{s.liveSku}]{s.evidence ? " — " + (evidenceWords[s.evidence] || s.evidence) : ""}
+              </div>
+            )}
+            {s.productId && s.payoutImpact && (s.payoutImpact.months || []).length > 0 && (
+              /* v186d F4 — what matching it to the suggested product does to consignor payouts */
+              <div style={{ opacity: 0.9, color: (s.payoutImpact.closedMonths || []).length ? "var(--clay)" : "inherit" }}>
+                payouts change: {(s.payoutImpact.months || []).map(m => m.month + (m.closed ? " (CLOSED)" : "") + " " +
+                  (m.byConsignee || []).map(c => c.consignee + " " + (c.change >= 0 ? "+" : "−") + m2(Math.abs(c.change))).join(", ")).join(" · ")}
+              </div>
+            )}
+            {v.isOwner && (
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 2 }}>
+                <select value={pid} onChange={(e) => v.onPick && v.onPick(s.oldSku, e.target.value)} style={{ maxWidth: 320 }}>
+                  <option value="">— choose the product —</option>
+                  {(v.products || []).filter(p => p && p.productId).map(p => (
+                    <option key={p.productId} value={p.productId}>{(p.name || p.sku) + " [" + p.sku + "]"}</option>
+                  ))}
+                  {s.productId && !(v.products || []).some(p => p && p.productId === s.productId) && (
+                    <option value={s.productId}>{(s.liveName || s.liveSku) + " [" + s.liveSku + "]"}</option>
+                  )}
+                </select>
+                <button className="btn-sm" disabled={!pid || !!v.busy} onClick={() => v.onApply && v.onApply(s)}>
+                  {v.busy === s.oldSku ? "Applying…" : "Apply"}
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {mapped.length > 0 && (
+        <div style={{ ...mono, opacity: 0.75, marginTop: 6 }}>
+          Already matched: {mapped.map(m => "“" + m.oldSku + "” → " + (m.liveName || m.liveSku || m.productId) + (m.liveSku ? " [" + m.liveSku + "]" : "")).join(", ")}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CostAndLossesModal({ onClose }) {
   const now = new Date();
   /* v178 F8 — LOCAL COMPONENTS, NOT toISOString(). toISOString() is UTC;
@@ -29479,6 +30795,15 @@ function CostAndLossesModal({ onClose }) {
   const [noshow, setNoshow] = useState(null);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
+  /* v186 T1/T3/T4 — the owner's two repairs, opened from this card. */
+  const _clInfo = getStaffInfo();
+  const isOwner = !(_clInfo && _clInfo.role === "staff");
+  const [showReattr, setShowReattr] = useState(false);
+  const [showAlias, setShowAlias] = useState(false);
+  function openSplitRepair() {
+    try { window.dispatchEvent(new CustomEvent("yard:go-screen", { detail: { screen: "settings", focus: "discount-split-repair-card" } })); } catch (e) {}
+    if (typeof onClose === "function") onClose();
+  }
 
   async function load(f, t) {
     const from = f || fromStr, to = t || toStr;
@@ -29551,6 +30876,18 @@ function CostAndLossesModal({ onClose }) {
           <div style={head}>Gross margin — POS products</div>
           {!margin ? <div style={{ ...mono, opacity: 0.6 }}>—</div> : (
             <div>
+              {/* v186 T1 — the margin including the product-list cost, and
+                  where every dollar of cost came from. Nothing here on a
+                  backend that does not send marginIncl. */}
+              <CostMarginBreakdown margin={margin} isOwner={isOwner} onAssignConsignor={() => setShowReattr(v => !v)} />
+              {isOwner && showReattr && (
+                <ConsignmentReattributeCard onApplied={() => load()} />
+              )}
+              {!!margin.marginIncl && (
+                <div style={{ ...mono, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 700, opacity: 0.6, marginTop: 8 }}>
+                  Recorded cost only
+                </div>
+              )}
               {/* ===============================================================
                   v176 — THE HEADLINE STATES ITS BASIS ON ITS FACE.
 
@@ -29630,6 +30967,14 @@ function CostAndLossesModal({ onClose }) {
                       · {s.saleId} {s.date} — column R is empty
                     </div>
                   ))}
+                  {/* v186 T1 — the fix for this is a card in Settings; go there. */}
+                  {isOwner && (
+                    <div style={{ marginTop: 4 }}>
+                      <button className="btn-sm" onClick={openSplitRepair}>
+                        Fix this: open Settings → Repair POS discount splits
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
               {Number(margin.reconstructedSplitCount || 0) > 0 && (
@@ -29707,9 +31052,15 @@ function CostAndLossesModal({ onClose }) {
                   one that says "fill it in" now appears over the products
                   that actually need it and no others.
                   ============================================================= */}
-              {!!margin.awaitingStampNote && (
+              {/* v186 T1 — "THERE IS NOTHING TO FIX" is retired. With marginIncl
+                  those sales ARE costed (from the product list, above) and the
+                  note would contradict the breakdown; without it the note is
+                  kept, minus the shouted claim — an owner who reads "nothing to
+                  fix" beside a margin that leaves those sales out has been told
+                  something the card itself does not bear out. */}
+              {!!margin.awaitingStampNote && !margin.marginIncl && (
                 <div style={{ ...mono, opacity: 0.85, lineHeight: 1.6 }}>
-                  {margin.awaitingStampNote}
+                  {String(margin.awaitingStampNote).replace(/THERE IS NOTHING TO FIX:\s*/, "Nothing needs filling in on the product: ")}
                 </div>
               )}
               {!!margin.noCostPriceNote && (
@@ -29741,6 +31092,13 @@ function CostAndLossesModal({ onClose }) {
               {!!margin.orphanSkuNote && (
                 <div style={{ ...mono, color: "var(--clay)", lineHeight: 1.6 }}>
                   {margin.orphanSkuNote}
+                  {/* v186 T4 — and the way to match them. */}
+                  <div style={{ marginTop: 4 }}>
+                    <button className="btn-sm" onClick={() => setShowAlias(v => !v)}>
+                      {showAlias ? "Hide old codes" : "Match old codes"}
+                    </button>
+                  </div>
+                  {showAlias && <SkuAliasCard onApplied={() => load()} />}
                 </div>
               )}
               {/* v170 F7 — THE UNCOSTED LINES THAT MANAGE STOCK CANNOT FIX.
@@ -29802,6 +31160,13 @@ function CostAndLossesModal({ onClose }) {
                               {" "}unit{Number(p.units) === 1 ? "" : "s"}
                             </span>
                             {" · cost $"}{Number(p.cost).toFixed(2)}
+                            {/* v186 T1 — the older units, costed from the product list. */}
+                            {Number(p.costFromProductListUnits || 0) > 0 && (
+                              <span style={{ opacity: 0.8 }}>
+                                {" · + " + Number(p.costFromProductListUnits) + " older unit" + (Number(p.costFromProductListUnits) === 1 ? "" : "s")
+                                  + " at the product's cost price ($" + Number(p.costFromProductListCogs || 0).toFixed(2) + ")"}
+                              </span>
+                            )}
                           </span>}
                       {" · "}
                       <strong>{p.grossMarginPct === null || p.grossMarginPct === undefined
@@ -29825,23 +31190,8 @@ function CostAndLossesModal({ onClose }) {
           <div style={head}>Stock loss (shrinkage), at cost</div>
           {!loss ? <div style={{ ...mono, opacity: 0.6 }}>—</div> : (
             <div>
-              <div style={{ ...mono, fontSize: 12, fontWeight: 700 }}>
-                {loss.count} stocktake(s) · {loss.unitsShort} unit(s) short ·
-                {" "}expense <span style={{ color: "var(--clay)" }}>${Number(loss.expense || 0).toFixed(2)}</span>
-                <span style={{ fontWeight: 400, opacity: 0.7 }}>
-                  {"  ·  the same shortfall at retail reads $" + Number(loss.shortAtRetail || 0).toFixed(2)}
-                </span>
-              </div>
-              {(loss.byMonth || []).map(m => (
-                <div key={m.month} className="modal-detail-row" style={{ ...mono }}>
-                  <span className="k">{m.month}</span>
-                  <span className="v">
-                    {m.count} count(s) · short ${Number(m.shortAtCost).toFixed(2)} ·
-                    {" "}over ${Number(m.overAtCost).toFixed(2)} ·
-                    {" "}net <strong>${Number(m.netAtCost).toFixed(2)}</strong>
-                  </span>
-                </div>
-              ))}
+              {/* v186 T1 — lost and found, never an unsigned "net". */}
+              <StockLossSummary loss={loss} />
               {(loss.byMonth || []).length === 0 && (
                 <div style={{ ...mono, opacity: 0.6 }}>No stocktakes recorded in this period.</div>
               )}
@@ -35622,7 +36972,7 @@ function PlayerAddModal({ tournamentId, defaultFee, onClose, onChanged, patchT, 
     // server's _phoneKey identity algorithm (C2); the backend is the
     // authoritative net regardless of this client-side check.
     const digits = s => {
-      let d = String(s || "").replace(/\D/g, "");
+      let d = String(s || "").replace(/[\u17E0-\u17E9]/g, c => String(c.charCodeAt(0) - 0x17E0)).replace(/\D/g, "");   // v186 T8h — Khmer digits ០-៩ are digits
       if (d.startsWith("00855")) d = d.substring(2);
       if (d.startsWith("855") && d.length >= 11) d = d.substring(3);   // v184r R14
       if (d.startsWith("0")) d = d.substring(1);
@@ -35739,6 +37089,19 @@ function BroadcastSmsModal({ tournamentId, tournamentName, players, onClose }) {
     if (target === "unpaid") return list.filter(p => !p.paid && p.phone).length;
     return list.filter(p => p.phone).length;
   }, [players, target]);
+  /* v186 T8g — the message the LONGEST name in this send would receive: the
+     server replaces {name} per player (blank name → "player"), so one long
+     Khmer name can make that player's text two or three segments while the
+     rest pay one. */
+  const smsEstimate = useMemo(() => {
+    const list = (players || []).filter(p => p.phone && (target === "paid" ? p.paid : target === "unpaid" ? !p.paid : true));
+    let longest = "";
+    for (const p of list) { const n = String(p.name || "") || "player"; if (n.length > longest.length) longest = n; }
+    if (!longest) longest = "player";
+    const hasName = /\{name\}/i.test(body);
+    const worst = smsSegmentEstimate(body.replace(/\{name\}/gi, longest));
+    return { worst: worst, hasName: hasName, longest: longest };
+  }, [players, target, body]);
 
   async function send() {
     if (!body.trim()) return showToast("Message body required", "error");
@@ -35833,7 +37196,14 @@ function BroadcastSmsModal({ tournamentId, tournamentName, players, onClose }) {
             </div>
             <textarea rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
             <div style={{ fontFamily: "var(--mono)", fontSize: 10, opacity: 0.6, marginTop: 4 }}>
-              {body.length} chars (SMS is ~160 chars per message)
+              {smsEstimate.worst.units} {smsEstimate.worst.encoding === "GSM-7" ? "chars" : "unicode chars"}
+              {" · "}{smsEstimate.worst.segments} SMS part{smsEstimate.worst.segments === 1 ? "" : "s"} per player
+              {" "}({smsEstimate.worst.encoding === "GSM-7"
+                ? "plain text: 160 per part, 153 once split"
+                : "Khmer / emoji / special characters: 70 per part, 67 once split"})
+              {smsEstimate.hasName
+                ? " · {name} is filled in per player — counted with the longest name, “" + smsEstimate.longest + "”"
+                : ""}
             </div>
           </div>
           {progress && (
@@ -39089,6 +40459,23 @@ function ArchiveDataNote({ data }) {
   return null;
 }
 
+/* v186 T8d — `period.containsFutureDates`, returned by adminFinancesRange /
+   adminFinancesMonth since v137 and shown nowhere. A week that runs to
+   Sunday includes bookings already paid for days that have not happened,
+   so its total is not "what this week has earned so far". Said on the
+   screen, in one line; absent (older backend, or a past period) → nothing. */
+function FutureDatesNote({ data }) {
+  if (!data || !data.period || data.period.containsFutureDates !== true) return null;
+  return (
+    <div style={{
+      fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.06em",
+      color: "var(--clay, #D9785C)", marginTop: 4
+    }}>
+      Includes prepaid bookings for days that haven't happened yet.
+    </div>
+  );
+}
+
 /* v161 §2.6 — MONTH-END CLOSE.
  *
  * Rendered inside the `isOwner` block that already wraps PerfProbeCard,
@@ -39111,6 +40498,8 @@ function MonthCloseCard() {
   /* v162 F8 — the reconciliation the owner inspects BEFORE he signs. */
   const [checking, setChecking] = useState("");
   const [checked, setChecked] = useState(null);   // { month, row, allTimeDelta }
+  /* v186 T5 — an OPEN_TABS refusal waiting for the owner: { month, openTabs, error, ack }. */
+  const [openTabsAsk, setOpenTabsAsk] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -39202,24 +40591,60 @@ function MonthCloseCard() {
       (((state && state.writerTable) || []).length || 0) +
       " writers, is under “Exactly what a closed month refuses…” on this card."
     )) return;
+    setOpenTabsAsk(null);
+    await sendClose(m, {});
+  }
+
+  /* v186 T5 — the close itself, and the two refusals the server hands back
+     for the owner to decide on. Each acknowledgement is sent only for the
+     refusal he was actually shown, and a second refusal after the first is
+     shown too rather than read as a failure. */
+  async function sendClose(m, ack) {
+    const a = ack || {};
+    const params = { month: m };
+    if (a.delta) params.acknowledgeDelta = "true";
+    if (a.openTabs) params.acknowledgeOpenTabs = "true";
     setBusy(m);
-    let r = await api("adminCloseMonth", { month: m });
+    let r = await api("adminCloseMonth", params);
     /* v162 F8 — the server REFUSES a first attempt on a month that does not
        reconcile, and hands back the figures. The owner is shown them and
        decides; only then does the acknowledged close go through, and the
        log records that he was told. */
-    if (!r.ok && r.code === "MONTH_DOES_NOT_RECONCILE") {
+    if (!r.ok && r.code === "MONTH_DOES_NOT_RECONCILE" && !a.delta) {
       setBusy("");
       if (!confirm(
         r.error + "\n\nClose " + m + " anyway?\n\n" +
-        "The closure log will record that you were shown this difference and signed it off."
+        "The closure log will record that you were shown this difference and signed it off." +
+        ((Array.isArray(r.openTabs) && r.openTabs.length)
+          ? "\n\nAlso: " + r.openTabs.length + " open tab(s) still carry " + m + " items — they are listed next, before anything is closed."
+          : "")
       )) { showToast(m + " was NOT closed", "info"); return; }
-      setBusy(m);
-      r = await api("adminCloseMonth", { month: m, acknowledgeDelta: "true" });
+      return sendClose(m, Object.assign({}, a, { delta: true }));
+    }
+    /* v186 T5 — OPEN TABS WITH ITEMS IN THE MONTH. A tab still open when the
+       month is signed off will put its sale into that month when it closes.
+       The server names them; they are listed on this card (not in a dialog
+       that scrolls them away) with an explicit "close anyway". */
+    if (!r.ok && r.code === "OPEN_TABS" && !a.openTabs) {
+      setBusy("");
+      setOpenTabsAsk({ month: m, openTabs: Array.isArray(r.openTabs) ? r.openTabs : [], error: r.error || "", ack: a });
+      return;
     }
     setBusy("");
-    if (r.ok) { showToast(m + " closed · " + (r.verdict || ""), "success"); setTypedMonth(""); load(); }
+    /* v186d F12 — the close went through, but the open-tab check itself could
+       not run: said in the same toast, so a tab touching the month is checked
+       by hand rather than assumed not to exist. */
+    if (r.ok) { showToast(m + " closed · " + (r.verdict || "")
+                  + (r.openTabsCheckError ? " · ⚠ the open-tab check could not run (" + r.openTabsCheckError + ") — check open tabs by hand" : ""),
+                  r.openTabsCheckError ? "info" : "success");
+                setTypedMonth(""); setOpenTabsAsk(null); load(); }
     else showToast(r.error || "Close failed", "error");
+  }
+  async function closeAnywayOpenTabs() {
+    const ask = openTabsAsk;
+    if (!ask) return;
+    setOpenTabsAsk(null);
+    await sendClose(ask.month, Object.assign({}, ask.ack, { openTabs: true }));
   }
 
   async function reopenMonth(m) {
@@ -39396,6 +40821,53 @@ function MonthCloseCard() {
                 all-time delta across the months checked: {fmtMoney(checked.allTimeDelta || 0)}
                 {checked.archiveConsulted === false && checked.archiveSkipReason
                   ? "  ·  archive not read — " + checked.archiveSkipReason : ""}
+              </div>
+            </div>
+          )}
+          {/* v186 T5 — THE OPEN TABS, BEFORE THE SIGNATURE. */}
+          {openTabsAsk && (
+            <div style={{
+              marginBottom: 10, padding: "8px 12px", borderRadius: 4,
+              background: "rgba(198,79,58,0.08)", borderLeft: "3px solid var(--clay)",
+              fontSize: 12, lineHeight: 1.6
+            }}>
+              <div style={{ fontWeight: 700 }}>
+                {openTabsAsk.month} was NOT closed — {openTabsAsk.openTabs.length} tab{openTabsAsk.openTabs.length === 1 ? " is" : "s are"} still open with items in {openTabsAsk.month}.
+              </div>
+              <div style={{ opacity: 0.85 }}>
+                When a tab like this is settled, its sale lands in {openTabsAsk.month} after you have signed the month off.
+                Settle or cancel these first if you can.
+              </div>
+              {openTabsAsk.error && <div style={{ opacity: 0.75, marginTop: 2 }}>{openTabsAsk.error}</div>}
+              <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 6, fontFamily: "var(--mono)", fontSize: 11 }}>
+                <thead>
+                  <tr style={{ textAlign: "left", opacity: 0.7 }}>
+                    <th style={{ padding: "2px 6px" }}>Tab</th>
+                    <th style={{ padding: "2px 6px" }}>Opened</th>
+                    <th style={{ padding: "2px 6px", textAlign: "right" }}>Items in {openTabsAsk.month}</th>
+                    <th style={{ padding: "2px 6px", textAlign: "right" }}>Bookings attached</th>
+                    <th style={{ padding: "2px 6px", textAlign: "right" }}>Still owed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {openTabsAsk.openTabs.map((t, i) => (
+                    <tr key={(t.tabId || "") + "|" + i} style={{ borderTop: "1px solid rgba(26,26,26,0.08)" }}>
+                      <td style={{ padding: "2px 6px" }}>{t.name || "(no name)"} <span style={{ opacity: 0.55 }}>{t.tabId}</span></td>
+                      <td style={{ padding: "2px 6px" }}>{t.openedAt || "—"}</td>
+                      <td style={{ padding: "2px 6px", textAlign: "right" }}>{Number(t.itemsInMonth || 0)}</td>
+                      <td style={{ padding: "2px 6px", textAlign: "right" }}>{Number(t.attachmentsInMonth || 0)}</td>
+                      <td style={{ padding: "2px 6px", textAlign: "right" }}>{fmtMoney(t.amountDue || 0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                <button className="btn-sm" disabled={busy === openTabsAsk.month} onClick={closeAnywayOpenTabs}>
+                  I understand — close {openTabsAsk.month} anyway
+                </button>
+                <button className="btn-sm ghost" onClick={() => { setOpenTabsAsk(null); showToast(openTabsAsk.month + " was NOT closed", "info"); }}>
+                  Don't close
+                </button>
               </div>
             </div>
           )}
@@ -39620,7 +41092,7 @@ function DiscountSplitRepairCard() {
   const p = preview;
   const src = p && p.eligibleSourceSummary ? p.eligibleSourceSummary : null;
   return (
-    <div className="settings-card">
+    <div className="settings-card" id="discount-split-repair-card">
       <h3>Repair POS discount splits</h3>
       <div className="desc">
         Before this release the sheet stored ONE number for a receipt's discount
@@ -41891,6 +43363,22 @@ function markPaidBlockedReason(entryType) {
            : "Ask the owner to add it in Settings → Staff.");
 }
 
+/* v186 T1 — scroll a card into view once its screen has mounted (lazy
+   screens and bundle loads mean it may not exist for a moment). Tries for
+   ~6 s, then gives up quietly: the screen is already open either way. */
+function yardFocusWhenMounted(id, tries) {
+  const left = (tries === undefined) ? 40 : tries;
+  let el = null;
+  try { el = document.getElementById(id); } catch (e) { el = null; }
+  if (el) {
+    try { el.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) { try { el.scrollIntoView(); } catch (e2) {} }
+    try { el.style.outline = "3px solid var(--clay)"; setTimeout(() => { try { el.style.outline = ""; } catch (e) {} }, 2500); } catch (e) {}
+    return true;
+  }
+  if (left > 0) setTimeout(() => yardFocusWhenMounted(id, left - 1), 150);
+  return false;
+}
+
 function App() {
   // UI mode + the More sheet live at the very top with the other hooks so
   // hook ORDER is identical on every render — the same rule the comment
@@ -41914,6 +43402,23 @@ function App() {
       setScreen(allowedTabIds[0]);
     }
   }, [authed, screen, allowedTabIds ? allowedTabIds.join(",") : ""]);
+
+  /* v186 T1 — "take me to that card". A screen (Cost & losses' "DERIVED FROM
+     TODAY'S PRODUCT LIST" block) dispatches yard:go-screen { screen, focus };
+     navigation goes through go() — its permission guard included — and the
+     named card is scrolled into view once it has mounted. */
+  const _goRef = useRef(null);
+  _goRef.current = go;
+  useEffect(() => {
+    function onGoScreen(ev) {
+      const d = (ev && ev.detail) || {};
+      if (!d.screen || typeof _goRef.current !== "function") return;
+      _goRef.current(d.screen);
+      if (d.focus) yardFocusWhenMounted(String(d.focus));
+    }
+    window.addEventListener("yard:go-screen", onGoScreen);
+    return () => window.removeEventListener("yard:go-screen", onGoScreen);
+  }, []);
 
   // Validate the stored PIN on boot, then prefetch common tabs so navigation feels instant
   useEffect(() => {
@@ -42753,7 +44258,7 @@ root.render(<AppErrorBoundary><App /></AppErrorBoundary>);
 /** v171 §6 — the backend build this bundle was written against. Compared with
  *  what `?action=version` reports. tests/v171_splittrue_test.js pins this
  *  against BACKEND_BUILD in the .gs, so they cannot drift. */
-const PANEL_BACKEND_BUILD = "2026-08-14-v184-audit";
+const PANEL_BACKEND_BUILD = "2026-08-14-v186-truecost";
 
 /** v171 §6 — one banner, one wording, whichever of the three noticed. It is
  *  appended to <body> rather than rendered by React on purpose: a bundle
