@@ -4453,7 +4453,9 @@ function formatDurationKm(slots) {
 
 function normalizePhone(p) {
   if (!p) return "";
-  let s = String(p).replace(/[\s\-\(\)\+]/g, "");
+  // v186 T9 — Khmer digits ០-៩ typed on a Khmer keyboard are digits, not junk:
+  // mapped to 0-9 first, so the 855 / 0 rules below and the final strip see them.
+  let s = String(p).replace(/[\u17E0-\u17E9]/g, c => String(c.charCodeAt(0) - 0x17E0)).replace(/[\s\-\(\)\+]/g, "");
   if (s.startsWith("00")) s = s.substring(2);
   // v184 S3 (K7): "855" is the country code only on a full international
   // number (≥ 11 digits); "85512345" is a local number, as on the server.
