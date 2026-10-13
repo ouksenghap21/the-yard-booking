@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#F1EAD6" />
   <title>The Yard — Book a Court</title>
   <meta name="description" content="The Yard · Pickleball · Toul Kork, Phnom Penh. Book a court online." />
@@ -3307,6 +3307,8 @@ const STRINGS = {
     q_member_expired: "Your membership is no longer active — the price shown is now the standard rate.",
     q_member_changed: "Your membership details changed — the price has been updated.",
     q_bday_used: "The free birthday session does not apply to this booking — the usual member rate applies.",
+    q_bday_signin: "Your sign-in has expired, so the birthday gift was taken off this booking and the usual price is shown. Sign in again to use your gift.",
+    q_bday_signin_btn: "Sign in again",
     q_promo_disc: "Promotion −{n}%",
     b_peak: "PEAK · $15/HR",
     b_offpeak: "OFF-PEAK · $13/HR",
@@ -3493,6 +3495,25 @@ const STRINGS = {
     boot_fail_title: "Can't reach the booking system",
     boot_fail_sub: "We couldn't load today's court info. Please check your connection and try again.",
     boot_fail_retry: "Retry",
+    // v187 S1/S4/S5
+    slow_connecting: "Connecting… (Google is slow right now)",
+    boot_fail_auto: "Trying again automatically in {s}s…",
+    boot_fail_manual: "Still can't reach the server. Tap Retry when you're ready to try again.",
+    q_cta_checking: "Checking price… booking as soon as it's confirmed",
+    b_court_checking: "Checking",
+    b_court_closed: "After closing",
+    b_court_conflict: "Court {c} is taken at {t} — pick another court or time.",
+    b_court_conflict_many: "Courts {c} are taken at {t} — pick other courts or a different time.",
+    b_court_use: "Use Court {c} instead",
+    b_court_taken_tap: "Court {c} is taken at {t} — pick another court or change the time.",
+    b_cta_court_taken: "Pick a free court",
+    b_bday_one_court: "The birthday gift covers one court — switched to Court {c}.",
+    // v187 S5/S6
+    b_cta_past_closing: "Runs past closing — pick an earlier time",
+    b_court_closing_line: "That duration runs past closing — try a shorter duration or an earlier start time.",
+    o_sending_slow: "We're sending your code — it can take a minute. Enter it when it arrives.",
+    o_verify_transient: "Couldn't check the code just now — tap Check code.",
+    o_verify_retry: "Check code",
   },
   km: {
     open_hours: "០៦:០០ — ២២:០០",
@@ -3637,6 +3658,8 @@ const STRINGS = {
     q_member_expired: "សមាជិកភាពរបស់អ្នកលែងមានសុពលភាព — តម្លៃដែលបង្ហាញឥឡូវនេះជាតម្លៃស្តង់ដារ។",
     q_member_changed: "ព័ត៌មានសមាជិកភាពរបស់អ្នកបានផ្លាស់ប្តូរ — តម្លៃត្រូវបានធ្វើបច្ចុប្បន្នភាព។",
     q_bday_used: "ការលេងកាដូខួបកំណើតមិនអាចប្រើសម្រាប់ការកក់នេះបានទេ — តម្លៃសមាជិកធម្មតាត្រូវបានអនុវត្ត។",
+    q_bday_signin: "ការ​ចូល​របស់​អ្នក​បាន​ផុត​កំណត់ ដូច្នេះ​កាដូ​ខួប​កំណើត​ត្រូវ​បាន​ដក​ចេញ​ពី​ការ​កក់​នេះ ហើយ​តម្លៃ​ធម្មតា​ត្រូវ​បាន​បង្ហាញ។ សូម​ចូល​ម្ដង​ទៀត​ដើម្បី​ប្រើ​កាដូ​របស់​អ្នក។",
+    q_bday_signin_btn: "ចូល​ម្ដង​ទៀត",
     q_promo_disc: "ប្រូម៉ូសិន −{n}%",
     b_peak: "ម៉ោងមមាញឹក (Peak) · $15/ម៉ោង",
     b_offpeak: "ម៉ោងធម្មតា (Off-Peak) · $13/ម៉ោង",
@@ -3799,6 +3822,25 @@ const STRINGS = {
     boot_fail_title: "មិនអាចភ្ជាប់ទៅប្រព័ន្ធកក់បានទេ",
     boot_fail_sub: "យើងមិនអាចផ្ទុកព័ត៌មានតារាងថ្ងៃនេះបានទេ។ សូមពិនិត្យការតភ្ជាប់អ៊ីនធឺណិតរបស់អ្នក រួចព្យាយាមម្តងទៀត។",
     boot_fail_retry: "ព្យាយាមម្តងទៀត",
+    // v187 S1/S4/S5
+    slow_connecting: "កំពុងភ្ជាប់… (Google យឺតបន្តិចឥឡូវនេះ)",
+    boot_fail_auto: "នឹងព្យាយាមម្ដងទៀតដោយស្វ័យប្រវត្តិក្នុងរយៈ {s} វិនាទី…",
+    boot_fail_manual: "នៅ​តែ​មិន​អាច​ភ្ជាប់​ទៅ​ម៉ាស៊ីន​មេ​បាន​ទេ។ សូម​ចុច \"ព្យាយាម​ម្ដង​ទៀត\" នៅ​ពេល​អ្នក​ត្រៀម​រួច។",
+    q_cta_checking: "កំពុងពិនិត្យតម្លៃ… នឹងកក់ភ្លាមពេលបញ្ជាក់រួច",
+    b_court_checking: "កំពុងពិនិត្យ",
+    b_court_closed: "ក្រោយម៉ោងបិទ",
+    b_court_conflict: "តារាង {c} ត្រូវបានកក់នៅម៉ោង {t} — សូមជ្រើសតារាងផ្សេង ឬម៉ោងផ្សេង។",
+    b_court_conflict_many: "តារាង {c} ត្រូវបានកក់នៅម៉ោង {t} — សូមជ្រើសតារាងផ្សេង ឬម៉ោងផ្សេង។",
+    b_court_use: "ប្ដូរទៅតារាង {c}",
+    b_court_taken_tap: "តារាង {c} ត្រូវបានកក់នៅម៉ោង {t} — សូមជ្រើសតារាងផ្សេង ឬប្ដូរម៉ោង។",
+    b_cta_court_taken: "សូមជ្រើសតារាងទំនេរ",
+    b_bday_one_court: "អំណោយថ្ងៃកំណើតគ្របដណ្ដប់តែមួយតារាង — បានប្ដូរទៅតារាង {c}។",
+    // v187 S5/S6
+    b_cta_past_closing: "លើសម៉ោងបិទ — សូមជ្រើសម៉ោងមុន",
+    b_court_closing_line: "រយៈពេលនេះលើសម៉ោងបិទ — សូមកាត់បន្ថយរយៈពេល ឬជ្រើសម៉ោងចាប់ផ្តើមមុន។",
+    o_sending_slow: "យើងកំពុងផ្ញើកូដរបស់អ្នក — វាអាចចំណាយពេលមួយនាទី។ សូមបញ្ចូលវានៅពេលវាមកដល់។",
+    o_verify_transient: "មិនអាចពិនិត្យកូដបានទេនៅពេលនេះ — សូមចុច ពិនិត្យកូដ។",
+    o_verify_retry: "ពិនិត្យកូដ",
   }
 };
 
@@ -3847,8 +3889,111 @@ var API_ACTION_TIMEOUT_MS = {
   cancelMyOpenPlayRegistration: 30000,
   cancelMyTournamentRegistration: 30000,
   getAvailability: 30000,
-  getMyActivity: 30000
+  getMyActivity: 30000,
+  getAvailabilityRange: 30000,   // v187 S3 — a week in one execution
+  getBootBundle: 30000,          // v187 S2 — config + founding + a week (+ session)
+  /* v187 S6 — sendOTP waits on Google's start-up AND the SMS provider's
+     round trip; at 25 s it timed out while the text was being delivered.
+     It is never auto-retried (it sends an SMS); a timeout moves the
+     customer to the code screen (ScreenPhone.onContinue). */
+  sendOTP: 40000,
+  verifyOTP: 30000
 };
+
+/* ====================================================================
+   v187 S1 — A READ THAT FAILS IN TRANSIT IS ASKED AGAIN.
+
+   MEASURED LIVE 2026-10-07 (v186): a no-op request takes 2.1–4.7 s, but
+   about one in eight fails after 15–32 s with Google's own HTML page
+   ("Sorry, unable to open the file at this time" — served in Khmer to a
+   Cambodian phone), and the page then showed the customer a dead end. That
+   failure is Google's (Apps Script start-up / the per-account concurrent
+   execution cap), it is transient, and for a READ asking again is free.
+
+   So an IDEMPOTENT READ is retried on a transient failure — timeout/abort,
+   network error, a non-JSON body (Google's HTML page), HTTP 5xx / 429 — up
+   to twice more, after ~0.7 s and ~2 s (+ jitter), and never past a 45 s
+   total. A MUTATION is never retried here: it keeps the v135/v179
+   unknown-outcome path and its stable intent id, exactly as before. The
+   list is by name; an action not on it is not retried. */
+var API_READ_RETRY_DELAYS_MS = [700, 2000];
+var API_READ_RETRY_JITTER_MS = 400;
+var API_READ_RETRY_CAP_MS = 45000;
+var API_READ_MIN_ATTEMPT_MS = 4000;   // an attempt with less budget than this is not worth sending
+var IDEMPOTENT_READS = new Set([
+  "getConfig", "getFoundingStatus", "getAvailability", "getAvailabilityRange", "getBootBundle",
+  "calculatePrice", "listOpenPlaySessions", "validateToken", "getMyActivity",
+  "myOpenPlayRegistrations", "myTournamentRegistrations", "getMyBookings", "listPublicTournaments"
+]);
+function _isTransientReadFailure(r) {
+  if (!r || r.ok !== false) return false;
+  if (r.timedOut === true || r.nonJson === true || r.connectionLost === true) return true;
+  if (r._transient === true && typeof r.status === "number") return r.status >= 500 || r.status === 429;
+  return false;
+}
+/* v187r — A RETRY BUDGET PER PAGE. The cap above bounds ONE read; nothing
+   bounded a page. When Google itself is failing (the per-account execution
+   cap is full — the very cause of its error page) every read of every open
+   page became three executions, each one adding to the cap it was failing
+   against. At most API_READ_RETRY_BUDGET re-sends per page per minute: the
+   ordinary one-in-eight failure is still retried; a page that is failing
+   on everything stops multiplying the load and reports the failure. */
+var API_READ_RETRY_BUDGET = 6;
+var API_READ_RETRY_WINDOW_MS = 60000;
+var _apiReadRetriesAt = [];
+function _apiReadRetrySpend() {
+  var now = Date.now();
+  while (_apiReadRetriesAt.length && now - _apiReadRetriesAt[0] >= API_READ_RETRY_WINDOW_MS) _apiReadRetriesAt.shift();
+  if (_apiReadRetriesAt.length >= API_READ_RETRY_BUDGET) return false;
+  _apiReadRetriesAt.push(now);
+  return true;
+}
+async function _apiRead(action, params) {
+  if (!IDEMPOTENT_READS.has(action) || MUTATING_ACTIONS.has(action)) return _apiRaw(action, params);
+  const started = Date.now();
+  let r = await _apiRaw(action, params);
+  for (let i = 0; i < API_READ_RETRY_DELAYS_MS.length; i++) {
+    if (!_isTransientReadFailure(r)) return r;
+    const wait = API_READ_RETRY_DELAYS_MS[i] + Math.floor(Math.random() * API_READ_RETRY_JITTER_MS);
+    const left = API_READ_RETRY_CAP_MS - (Date.now() - started) - wait;
+    if (left < API_READ_MIN_ATTEMPT_MS) break;
+    if (!_apiReadRetrySpend()) break;   // v187r — the page's budget is spent
+    await new Promise(function (res) { setTimeout(res, wait); });
+    r = await _apiRaw(action, params, { timeoutMs: Math.min(_apiTimeoutMs(action), left), attempt: i + 2 });
+  }
+  if (r && r.ok === false) r.retriesExhausted = true;
+  return r;
+}
+
+/* v187 S1 — THE LAST CONFIG THAT WORKED, KEPT ACROSS VISITS.
+   The v179 soft cache lives in sessionStorage, which a fresh tab does not
+   have — so every new visit re-asked getConfig and a single Google hiccup
+   put the full-page "We couldn't load today's court info" screen in front
+   of a returning customer. The last good answer is kept in localStorage and
+   the app renders from it at once while a fresh copy is fetched in the
+   background (stale-while-revalidate). Config carries NO money the customer
+   agrees to: every price on the booking screen is the server's quote
+   (v157), and createBooking reprices. */
+var CONFIG_LKG_KEY = "yard.cfg.lkg";
+function _configLkgGet() {
+  try {
+    var raw = localStorage.getItem(CONFIG_LKG_KEY);
+    if (!raw) return null;
+    var e = JSON.parse(raw);
+    return (e && e.d && e.d.ok === true && typeof e.t === "number") ? e : null;
+  } catch (e) { return null; }
+}
+/* v188 S7 — A WEEK-OLD COPY DECIDES NOTHING. The cached config still paints
+   the app at once (layout, labels) while a fresh one is fetched, but a copy
+   older than 7 days is not trusted for the two things it would otherwise
+   DECIDE: the pre-launch landing gate, and the "up to $X" price ceiling
+   (a rate card can change in a week). The server's own copy, when it
+   lands, is trusted. */
+var CONFIG_LKG_TRUST_MS = 7 * 24 * 3600 * 1000;
+function _configLkgTrusted(e) { return !!(e && typeof e.t === "number" && (Date.now() - e.t) <= CONFIG_LKG_TRUST_MS); }
+function _configLkgPut(data) {
+  try { if (data && data.ok === true) localStorage.setItem(CONFIG_LKG_KEY, JSON.stringify({ t: Date.now(), d: data })); } catch (e) {}
+}
 function _apiTimeoutMs(action) {
   var t = API_ACTION_TIMEOUT_MS[action];
   return (typeof t === "number" && t > 0) ? t : API_TIMEOUT_MS;
@@ -3885,8 +4030,30 @@ function genRequestId() {
    The id is now derived from what the customer asked for, so their own
    second tap is recognised as a repeat and refused. Nothing auto-retries.
    ==================================================================== */
-var _INTENT_IDLE_MS = 10 * 60 * 1000;
-var _intentIds = {};
+/* v188 S1 — THE ID SURVIVES A RELOAD. The unknown-outcome sentence tells the
+   customer to go and check; a customer who reloads instead (or whose phone
+   drops the tab) came back to an empty _intentIds, so the next Book tap
+   carried a NEW id and the server's dedupe could not see the repeat: a
+   second booking. The ids are kept in sessionStorage (this tab only) for
+   the same 15 minutes the server's dedupe window holds them. */
+var _INTENT_IDLE_MS = 15 * 60 * 1000;
+var INTENT_SS_KEY = "yard.intents";
+var _intentIds = _intentLoad();
+function _intentLoad() {
+  try {
+    var raw = sessionStorage.getItem(INTENT_SS_KEY);
+    var m = raw ? JSON.parse(raw) : null;
+    var out = {}, now = Date.now();
+    if (m && typeof m === "object") {
+      for (var k in m) {
+        var e = m[k];
+        if (e && typeof e.id === "string" && typeof e.at === "number" && now - e.at <= _INTENT_IDLE_MS) out[k] = { id: e.id, at: e.at, sent: e.sent === true };
+      }
+    }
+    return out;
+  } catch (x) { return {}; }
+}
+function _intentSave() { try { sessionStorage.setItem(INTENT_SS_KEY, JSON.stringify(_intentIds)); } catch (x) {} }
 function intentKey(action, parts) {
   return action + "|" + (Array.isArray(parts) ? parts : [parts])
     .map(function (p) { return (p === undefined || p === null) ? "" : String(p); }).join("|");
@@ -3898,15 +4065,53 @@ function intentRequestId(key) {
   }
   if (!_intentIds[key]) _intentIds[key] = { id: genRequestId(), at: now };
   else _intentIds[key].at = now;
+  _intentSave();
   return _intentIds[key].id;
 }
-function retireIntent(key) { delete _intentIds[key]; }
+function retireIntent(key) { delete _intentIds[key]; _intentSave(); }
+/* v189 F3 — WAS THIS ID ALREADY SENT? An id that went out before and is
+   still held had no definite answer (a lost reply, a timeout): the next send
+   of it is the client's retry of THAT attempt, so it carries clientRetry and
+   the server answers with the booking it may already have made instead of
+   asking "book another court?". Kept with the id in sessionStorage. */
+function intentWasSent(key) { return !!(_intentIds[key] && _intentIds[key].sent === true); }
+function markIntentSent(key) { if (_intentIds[key]) { _intentIds[key].sent = true; _intentSave(); } }
+/* v189 S3 — every intent of one action at once. After a cancellation the
+   customer's next Book for the same slot is a NEW booking: an id kept from
+   the cancelled one would be replayed by the server as "already saved". */
+function retireIntentsFor(action) {
+  var pre = action + "|";
+  for (var k in _intentIds) if (k.indexOf(pre) === 0) delete _intentIds[k];
+  _intentSave();
+}
 /* `timedOut` is set by api()'s AbortError branch below. A caller that reads
-   it must not tell the customer the request failed. */
-function isUnknownOutcome(r) { return !!(r && r.ok === false && (r.timedOut === true || r._transient === true)); }   // v179 F1 — a transport failure is an unknown outcome
+   it must not tell the customer the request failed.
+   v188 S1 — `duplicate` with ok:false is the server's "that id is STILL
+   RUNNING" ({ duplicate:true, pending:true }): the first attempt has not
+   finished, so its outcome is just as unknown — and the id must be KEPT. */
+function isUnknownOutcome(r) { return !!(r && r.ok === false && (r.timedOut === true || r._transient === true || r.duplicate === true)); }   // v179 F1 / v188 S1
 /* One sentence, in both languages, for "we do not know whether that went
-   through". It never says failed and it never invites a second tap. */
-function unknownOutcomeText(what, lang) {
+   through". It never says failed and it never invites a second tap.
+   v188 S1 — `checkIn` "myBookings": a booking may well exist already, so the
+   customer is sent to My Bookings to look BEFORE anything else (a bare
+   "reload this page" put them back on the Book button). */
+function unknownOutcomeText(what, lang, checkIn) {
+  if (checkIn === "myBookings") {
+    return (lang === "km")
+      ? ("យើង​មិន​ទាន់​បាន​ទទួល​ចម្លើយ​ពី​ម៉ាស៊ីន​មេ​ទេ ដូច្នេះ​យើង​មិន​ដឹង​ថា " + what + " បាន​រក្សា​ទុក​ឬ​អត់​ទេ — វា​ប្រហែល​ជា​មាន​រួច​ហើយ។ "
+         + "សូម​បើក \"ការ​កក់​របស់​ខ្ញុំ\" ដើម្បី​ពិនិត្យ​ជា​មុន​សិន មុន​នឹង​កក់​ម្ដង​ទៀត — កុំ​ចុច​ពីរ​ដង។")
+      : ("We did not get the server's answer, so we do not know whether " + what
+         + " was saved — it may well already exist. Open My Bookings first to check before booking again — "
+         + "please do not tap Book twice.");
+  }
+  /* v189 S8 — the server DID answer: the first attempt is still running. */
+  if (checkIn === "pending") {
+    return (lang === "km")
+      ? ("ម៉ាស៊ីន​មេ​នៅ​តែ​កំពុង​ដំណើរការ " + what + " — យើង​មិន​ទាន់​ដឹង​ថា​វា​បាន​រក្សា​ទុក​ឬ​អត់​ទេ។ "
+         + "សូម​រង់ចាំ​មួយ​នាទី រួច​ផ្ទុក​ទំព័រ​នេះ​ឡើង​វិញ​ដើម្បី​ពិនិត្យ​មុន​នឹង​ព្យាយាម​ម្ដង​ទៀត — កុំ​ចុច​ពីរ​ដង។")
+      : ("The server is still working on " + what + ", so we do not know yet whether it was saved. "
+         + "Wait a minute, then reload this page and check before trying again — please do not tap twice.");
+  }
   return (lang === "km")
     ? ("ការ​ភ្ជាប់​បាន​ផុត​ពេល​មុន​ពេល​ម៉ាស៊ីន​មេ​ឆ្លើយ​តប។ យើង​មិន​ដឹង​ថា " + what + " បាន​រក្សា​ទុក​ឬ​អត់​ទេ។ "
        + "សូម​ផ្ទុក​ទំព័រ​នេះ​ឡើង​វិញ​ដើម្បី​ពិនិត្យ​មុន​នឹង​ព្យាយាម​ម្ដង​ទៀត — កុំ​ចុច​ពីរ​ដង។")
@@ -3948,17 +4153,25 @@ async function api(action, params) {
     var _hit = _softCacheGet(action);
     if (_hit) return _hit;
     if (_softCacheInflight[action]) return _softCacheInflight[action];
-    _softCacheInflight[action] = _apiRaw(action, params).then(function (r) {
+    // v187 S2 — the boot bundle carries config + founding: wait for it
+    // rather than asking Google the same question in parallel.
+    if (typeof _afterBoot === "function" && action !== "getBootBundle") {
+      var _boot = _afterBoot();
+      if (_boot) return _boot.then(function () { return api(action, params); });
+    }
+    _softCacheInflight[action] = _apiRead(action, params).then(function (r) {
       delete _softCacheInflight[action];
       if (r && r.ok) _softCachePut(action, r);
+      if (r && r.ok && action === "getConfig") _configLkgPut(r);   // v187 S1
       return r;
     }, function (e) { delete _softCacheInflight[action]; throw e; });
     return _softCacheInflight[action];
   }
-  return _apiRaw(action, params);
+  return _apiRead(action, params);   // v187 S1 — reads retry on a transient failure; everything else is _apiRaw
 }
 
 async function _apiRaw(action, params) {
+  const opts = arguments.length > 2 ? arguments[2] : null;   // v187 S1 — { timeoutMs } for a read's retry
 
   const url = new URL(API_URL);
   url.searchParams.set("action", action);
@@ -3990,7 +4203,7 @@ async function _apiRaw(action, params) {
     // small writes and a longer budget would only delay a genuinely dead
     // request in a customer's hand.
     const ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
-    const _budget = _apiTimeoutMs(action);
+    const _budget = (opts && typeof opts.timeoutMs === "number" && opts.timeoutMs > 0) ? opts.timeoutMs : _apiTimeoutMs(action);   // v187 S1 — a retry gets what is left of the cap
     const timeoutId = ctrl ? setTimeout(() => ctrl.abort(), _budget) : null;
     const resp = await fetch(url.toString(), { method: "GET", signal: ctrl ? ctrl.signal : undefined });
     if (timeoutId) clearTimeout(timeoutId);
@@ -3998,8 +4211,23 @@ async function _apiRaw(action, params) {
        or 429 out of the Apps Script front door says nothing about whether
        the execution ran; for a mutation that is an unknown outcome, and the
        intent id must survive so the next tap is recognised as a repeat. */
-    if (!resp.ok) return { ok: false, _transient: true, error: "HTTP " + resp.status };
-    const data = await resp.json();
+    if (!resp.ok) return { ok: false, _transient: true, status: resp.status, error: "HTTP " + resp.status };
+    /* v187 S1 — GOOGLE'S OWN HTML PAGE IS NOT AN ANSWER. "Sorry, unable to
+       open the file at this time" arrives as HTML, resp.json() throws a
+       SyntaxError, and that used to read as a generic connection problem.
+       It is named here: transient, nothing known about whether the script
+       ran (for a mutation: unknown outcome, same as a timeout). */
+    let data;
+    try { data = await resp.json(); }
+    catch (eJson) {
+      return {
+        ok: false, _transient: true, nonJson: true,
+        isMutation: MUTATING_ACTIONS.has(action),
+        error: MUTATING_ACTIONS.has(action)
+          ? "Google's server answered with an error page before confirming. The server may still have completed this — reload and check before trying again."
+          : "Google's server is busy right now (it sent an error page). Please try again in a moment."
+      };
+    }
     return data;
   } catch (err) {
     if (err && err.name === "AbortError") {
@@ -4101,7 +4329,13 @@ function otpSendGuardRecord() {
 function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } }
 function setToken(t) { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch (e) {} }
 // M13: detect an auth/session failure from a server error string.
-function isSessionError(err) { return /session|token|expired|verify your phone/i.test(String(err || "")); }
+// v188 S2 — ONLY the backend's own sign-in refusals. The old pattern
+// (/session|token|expired|verify your phone/) matched open play's
+// "Session is full (12 players)", "Session has been cancelled" and "This
+// session started more than 30 minutes ago…" and SIGNED THE CUSTOMER OUT
+// for them. The explicit refusal is code AUTH_REQUIRED (isAuthRequired);
+// these are the exact strings the customer endpoints return without it.
+function isSessionError(err) { return /^(Session expired\. Please verify your phone again\.?|Phone or valid token required|Please (verify your phone|sign in) with the SMS code\b.*)$/i.test(String(err || "").trim()); }
 // M13: clear the stale token, drop it from app state, toast, and route to login.
 // v184 S1: `returnTo` (optional) is the screen ScreenOTP returns to after the code.
 function handleSessionExpiry(setState, go, lang, returnTo) {
@@ -4112,6 +4346,35 @@ function handleSessionExpiry(setState, go, lang, returnTo) {
 }
 // v184 S1 (K5/K6): the server's explicit "sign in with the SMS code first" refusal.
 function isAuthRequired(r) { return !!(r && r.ok === false && r.code === "AUTH_REQUIRED"); }
+/* v189 S7 — THE SERVER SPEAKS ENGLISH; A KHMER PAGE SHOULD NOT. Refusals the
+   site knows — by code, or (sendOTP has no codes) by the backend's exact
+   sentence — are shown in Khmer when the page is in Khmer. English mode, and
+   anything unknown, keep the server's own words. */
+var KM_SERVER_CODES = {
+  SIGNUP_DAILY_LIMIT: "លេខ​ទូរស័ព្ទ​នេះ​បាន​ចុះ​ឈ្មោះ​ដល់​ចំនួន​កំណត់​សម្រាប់​ថ្ងៃ​នេះ​ហើយ — សូម​សួរ​បុគ្គលិក​នៅ​តុ​ទទួល​ភ្ញៀវ។",
+  SIGNUP_LIMIT: "លេខ​ទូរស័ព្ទ​នេះ​បាន​ចុះ​ឈ្មោះ​ដល់​ចំនួន​កំណត់​ហើយ — សូម​សួរ​បុគ្គលិក​នៅ​តុ​ទទួល​ភ្ញៀវ។",
+  SIGNUP_BUSY: "មាន​មនុស្ស​ច្រើន​កំពុង​ចុះ​ឈ្មោះ — សូម​ព្យាយាម​ម្ដង​ទៀត​ក្នុង​ពីរ​បី​នាទី។",
+  SAME_SLOT_EXISTS: "អ្នក​បាន​កក់​តារាង​នៅ​ម៉ោង​នេះ​រួច​ហើយ — សូម​មើល \"ការ​កក់​របស់​ខ្ញុំ\"។"
+};
+var KM_SERVER_SENTENCES = {   // sendOTP's refusals, word for word (Backend sendOTP)
+  "Invalid phone number": "លេខ​ទូរស័ព្ទ​មិន​ត្រឹមត្រូវ​ទេ។",
+  "System busy": "ប្រព័ន្ធ​កំពុង​រវល់ — សូម​ព្យាយាម​ម្ដង​ទៀត​បន្តិច​ទៀត។",
+  "Too many requests. Wait an hour and try again.": "ស្នើសុំ​ច្រើន​ដង​ពេក។ សូម​រង់ចាំ​មួយ​ម៉ោង រួច​ព្យាយាម​ម្ដង​ទៀត។",
+  "Too many OTP requests from your network. Try again later.": "មាន​ការ​ស្នើសុំ​កូដ​ច្រើន​ពេក​ពី​បណ្ដាញ​របស់​អ្នក។ សូម​ព្យាយាម​ម្ដង​ទៀត​នៅ​ពេល​ក្រោយ។",
+  "We can't send a code to this number right now. Please use a Cambodian mobile number, or ask our staff at the counter.": "យើង​មិន​អាច​ផ្ញើ​កូដ​ទៅ​លេខ​នេះ​បាន​ទេ​ពេល​នេះ។ សូម​ប្រើ​លេខ​ទូរស័ព្ទ​ចល័ត​នៅ​កម្ពុជា ឬ​សួរ​បុគ្គលិក​នៅ​តុ​ទទួល​ភ្ញៀវ។",
+  "System is busy. Please try again in a few minutes.": "ប្រព័ន្ធ​កំពុង​រវល់។ សូម​ព្យាយាម​ម្ដង​ទៀត​ក្នុង​ពីរ​បី​នាទី។",
+  "We couldn't send the code right now. Please try again later or contact the counter.": "យើង​មិន​អាច​ផ្ញើ​កូដ​បាន​ទេ​ពេល​នេះ។ សូម​ព្យាយាម​ម្ដង​ទៀត​នៅ​ពេល​ក្រោយ ឬ​ទាក់ទង​តុ​ទទួល​ភ្ញៀវ។"
+};
+function serverText(r, lang, fallback) {
+  var err = (r && r.error) ? String(r.error) : "";
+  if (lang === "km") {
+    var c = (r && r.code) ? String(r.code) : "";
+    if (c && Object.prototype.hasOwnProperty.call(KM_SERVER_CODES, c)) return KM_SERVER_CODES[c];
+    var s = err.trim();
+    if (s && Object.prototype.hasOwnProperty.call(KM_SERVER_SENTENCES, s)) return KM_SERVER_SENTENCES[s];
+  }
+  return err || fallback || "";
+}
 function getStoredPhone() { try { return localStorage.getItem(PHONE_KEY) || ""; } catch (e) { return ""; } }
 function setStoredPhone(p) { try { p ? localStorage.setItem(PHONE_KEY, p) : localStorage.removeItem(PHONE_KEY); } catch (e) {} }
 function getLang() { try { return localStorage.getItem(LANG_KEY) || "en"; } catch (e) { return "en"; } }
@@ -4357,15 +4620,40 @@ function isBirthdayEligibleClient(member, dateStr, windowDays) {
    a slow earlier request in flight while a newer one resolves first, and
    without `seq` the older, wronger answer would land last and win.
    ==================================================================== */
+/* v187 S4 — THE QUOTE STOPS BLOCKING, AND STAYS THE ONLY PRICE.
+   Three changes, none of which lets a client number become the price:
+     · MEMO. Every answer is kept, per screen, under its exact request key
+       for QUOTE_MEMO_TTL_MS. Going back to a selection already priced (Court
+       3 → 4 → 3, 1h → 1h30 → 1h) shows the SERVER's answer for that key at
+       once instead of re-asking. Coming back to the foreground (v158) or an
+       explicit Retry empties the memo — those still re-ask.
+     · NO DEBOUNCE ON A TAP. The 250 ms wait is for the time wheel, whose
+       scroll commits a new time every frame. A tap on a court, a date or
+       the duration stepper asks at once (`arguments[1].debounceMs`, passed
+       by the screen; the very first quote of a mount keeps the debounce
+       because availability may still move the start time).
+     · SETTLED FOR *THIS* KEY. status/quote are reported "ok" only when the
+       answer in hand was given for the key being asked NOW. Before v187 the
+       render between an input change and this effect still carried the old
+       "ok" — a tap in that frame could book with the previous selection's
+       number. */
+var QUOTE_MEMO_TTL_MS = 120000;
 function useServerQuote(req) {
+  const _opts = (arguments.length > 1 && arguments[1]) ? arguments[1] : {};
   const [quote, setQuote] = useState(null);
   const [status, setStatus] = useState("pending");
   const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState("");          // v188r S2 — the refusal's code (AUTH_REQUIRED…)
+  const [answeredKey, setAnsweredKey] = useState(null);   // v187 S4 — the key `quote`/`status` belong to
   const [retryTick, setRetryTick] = useState(0);
   const seqRef = useRef(0);
+  const memoRef = useRef({});          // v187 S4 — key -> { quote, at }
+  const memoTickRef = useRef(0);
+  const firstRef = useRef(true);
   // The request is compared by VALUE, not by identity — a re-render that
   // rebuilds an identical object must not re-ask the server.
   const key = JSON.stringify(req || {});
+  const debounceMs = (typeof _opts.debounceMs === "number" && _opts.debounceMs >= 0) ? _opts.debounceMs : QUOTE_DEBOUNCE_MS;
   useEffect(() => {
     // v157 — RETIRE THE OLD ANSWER FIRST. Not after the new one arrives,
     // and not only on success: the instant the inputs change, the number on
@@ -4373,22 +4661,36 @@ function useServerQuote(req) {
     setQuote(null);
     setStatus("pending");
     setError("");
+    setErrorCode("");
     const seq = ++seqRef.current;
     let cancelled = false;
+    // v187 S4 — a re-ask (foreground return, Retry) empties the memo first.
+    if (memoTickRef.current !== retryTick) { memoRef.current = {}; memoTickRef.current = retryTick; }
+    const hit = memoRef.current[key];
+    if (hit && (Date.now() - hit.at) < QUOTE_MEMO_TTL_MS) {
+      setQuote(hit.quote); setStatus("ok"); setError(""); setAnsweredKey(key);
+      firstRef.current = false;
+      return () => { cancelled = true; };
+    }
+    const delay = firstRef.current ? QUOTE_DEBOUNCE_MS : debounceMs;
+    firstRef.current = false;
     const tmr = setTimeout(() => {
       api("calculatePrice", JSON.parse(key)).then(r => {
         if (cancelled || seq !== seqRef.current) return;
-        if (r && r.ok) { setQuote(r); setStatus("ok"); setError(""); return; }
+        if (r && r.ok) { memoRef.current[key] = { quote: r, at: Date.now() }; setQuote(r); setStatus("ok"); setError(""); setAnsweredKey(key); return; }
         setQuote(null);
         setStatus("error");
         setError((r && r.error) ? String(r.error) : "");
+        setErrorCode((r && r.code) ? String(r.code) : "");
+        setAnsweredKey(key);
       }).catch(err => {
         if (cancelled || seq !== seqRef.current) return;
         setQuote(null);
         setStatus("error");
         setError((err && err.message) ? String(err.message) : "");
+        setAnsweredKey(key);
       });
-    }, QUOTE_DEBOUNCE_MS);
+    }, delay);
     return () => { cancelled = true; clearTimeout(tmr); };
   }, [key, retryTick]);
 
@@ -4423,12 +4725,157 @@ function useServerQuote(req) {
     return () => { document.removeEventListener("visibilitychange", onVisChange); };
   }, []);
 
+  // v187 S4 — an answer for a DIFFERENT key is not an answer: until this
+  // key's effect has run, the hook reports "pending" with no quote.
+  const _forThisKey = answeredKey === key;
   return {
-    quote: quote,
-    status: status,
-    error: error,
+    quote: _forThisKey ? quote : null,
+    status: _forThisKey ? status : "pending",
+    error: _forThisKey ? error : "",
+    code: _forThisKey ? errorCode : "",
+    key: key,
     retry: function () { setRetryTick(function (n) { return n + 1; }); }
   };
+}
+
+/* ====================================================================
+   v187 S3 — AVAILABILITY WITHOUT WAITING.
+
+   The booking screen used to ask getAvailability on EVERY date change and
+   put a spinner over the time wheel until Google answered (2–5 s on a good
+   minute, 15–32 s on a bad one). Customers called it "Pick a time takes a
+   long time to load". Availability now lives in one store per date
+   (memory + sessionStorage, each entry stamped with when it was fetched):
+
+     · the boot bundle seeds today .. today+6 before the screen opens;
+     · opening the booking screen tops the week up with ONE
+       getAvailabilityRange when any day is missing or older than 45 s;
+     · a date with data renders AT ONCE; data older than 45 s is shown
+       immediately and refreshed in the background — no spinner over a
+       usable grid; only a date with no data at all shows the spinner;
+     · today's slots that have started since the copy was made are dropped
+       on read, the same rule the server applies.
+
+   Booking safety does not depend on any of this: createBooking re-checks
+   the cells under the script lock, and the H2 conflict path re-reads the
+   day (loadAvailability(date) always goes to the server). */
+var AVAIL_FRESH_MS = 45000;
+var AVAIL_KEEP_MS = 30 * 60 * 1000;   // older than this is not shown at all
+var AVAIL_WEEK_DAYS = 7;
+var AVAIL_SS_PREFIX = "yard-avail:";
+var _availMem = {};
+var _availInflight = {};
+var _availRangeInflight = null;
+var _availRangeUnsupported = false;
+function _availMinutes(hm) { var p = String(hm || "").split(":"); return parseInt(p[0], 10) * 60 + parseInt(p[1], 10); }
+function _availFilterPast(date, slots) {
+  if (!Array.isArray(slots)) return [];
+  var c = nowInCambodia();
+  if (date !== c.dateStr) return slots;
+  var nowMin = c.h * 60 + c.mi;
+  return slots.filter(function (s) { return _availMinutes(s && s.time) > nowMin; });
+}
+function availGet(date) {
+  var e = _availMem[date];
+  if (!e) {
+    try {
+      var raw = sessionStorage.getItem(AVAIL_SS_PREFIX + date);
+      if (raw) {
+        var p = JSON.parse(raw);
+        if (p && Array.isArray(p.slots) && typeof p.at === "number") { e = p; _availMem[date] = p; }
+      }
+    } catch (x) {}
+  }
+  if (!e) return null;
+  var age = Date.now() - e.at;
+  if (age > AVAIL_KEEP_MS) return null;
+  return { slots: _availFilterPast(date, e.slots), at: e.at, fresh: age < AVAIL_FRESH_MS };
+}
+function availPut(date, slots, at) {
+  // An answer to a request asked EARLIER than the copy in hand never
+  // overwrites it (a slow request landing after a fresher one).
+  if (typeof at === "number" && _availMem[date] && _availMem[date].at > at) return;
+  var e = { slots: Array.isArray(slots) ? slots : [], at: (typeof at === "number") ? at : Date.now() };
+  _availMem[date] = e;
+  try { sessionStorage.setItem(AVAIL_SS_PREFIX + date, JSON.stringify(e)); } catch (x) {}
+}
+function availSeed(map, at) {
+  if (!map || typeof map !== "object") return 0;
+  var n = 0;
+  for (var d in map) {
+    if (Object.prototype.hasOwnProperty.call(map, d) && Array.isArray(map[d])) { availPut(d, map[d], at); n++; }
+  }
+  return n;
+}
+function availWeekDates(from) {
+  var out = [];
+  var base = new Date(from + "T12:00:00");
+  for (var i = 0; i < AVAIL_WEEK_DAYS; i++) out.push(ymd(addDays(base, i)));
+  return out;
+}
+/* One day, straight from the server (de-duplicated while in flight, unless
+   `force`: the H2 "that slot was just taken" path must not be handed an
+   answer to a request that left BEFORE the conflicting booking). */
+function availFetch(date, force) {
+  if (_availInflight[date] && !force) return _availInflight[date];
+  var asked = Date.now();
+  var p = api("getAvailability", { date: date }).then(function (r) {
+    if (_availInflight[date] === p) delete _availInflight[date];
+    if (r && r.ok) availPut(date, r.slots || [], asked);
+    return r;
+  }, function (e) { if (_availInflight[date] === p) delete _availInflight[date]; throw e; });
+  _availInflight[date] = p;
+  return p;
+}
+/* The week from `from`, in ONE request — only when a day is missing or
+   stale, unless forced. Resolves null when nothing was asked. An old backend
+   ("Unknown action") is remembered and never asked again this page-load. */
+function availPrefetchWeek(from, force) {
+  if (_availRangeUnsupported) return Promise.resolve(null);
+  // The boot bundle is bringing this week right now: wait for it, then ask
+  // only for what it did not bring (normally nothing).
+  var boot = _afterBoot();
+  if (boot) return boot.then(function () { return availPrefetchWeek(from, false); });
+  if (_availRangeInflight) return _availRangeInflight;
+  if (!force) {
+    var allFresh = availWeekDates(from).every(function (d) { var e = availGet(d); return !!(e && e.fresh); });
+    if (allFresh) return Promise.resolve(null);
+  }
+  var asked = Date.now();
+  _availRangeInflight = api("getAvailabilityRange", { from: from, days: AVAIL_WEEK_DAYS }).then(function (r) {
+    _availRangeInflight = null;
+    if (r && r.ok === true && r.availability) availSeed(r.availability, asked);
+    else if (r && r.ok === false && /unknown action/i.test(String(r.error || ""))) _availRangeUnsupported = true;
+    return r;
+  }, function () { _availRangeInflight = null; return null; });
+  return _availRangeInflight;
+}
+/* A FRESH answer for one date: through the week request when the date is
+   in the week (one request also refreshes the neighbours the customer is
+   about to tap), else the single day. */
+function availFresh(date) {
+  var from = todayISO();
+  if (!_availRangeUnsupported && availWeekDates(from).indexOf(date) >= 0) {
+    return availPrefetchWeek(from, !_bootInflight).then(function () {
+      var e = availGet(date);
+      if (e && e.fresh) return { ok: true, slots: e.slots, viaRange: true };
+      return availFetch(date);
+    });
+  }
+  return availFetch(date);
+}
+
+/* v187 S1 — "is this taking long?" A spinner that has been up for ~6 s
+   says why, instead of looking frozen. */
+var SLOW_HINT_MS = 6000;
+function useSlowFlag(active, ms) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!active) { setSlow(false); return; }
+    const id = setTimeout(() => setSlow(true), ms || SLOW_HINT_MS);
+    return () => clearTimeout(id);
+  }, [active]);
+  return active && slow;
 }
 
 // Format duration (slots in 30-min increments) → "2h" / "2h 30m" / "30m"
@@ -4449,6 +4896,22 @@ function formatDurationKm(slots) {
   if (h === 0) return m + "នាទី";
   if (m === 0) return h + "ម៉ោង";
   return h + "ម៉ោង " + m + "នាទី";
+}
+
+// v188 S4 — Khmer digits ០–៩ (U+17E0–U+17E9) as 0–9; everything else unchanged.
+function toAsciiDigits(s) { return String(s == null ? "" : s).replace(/[០-៩]/g, function (c) { return String(c.charCodeAt(0) - 0x17E0); }); }
+/* v189 S1 — the code boxes. otpSixRun: the first run of EXACTLY six digits
+   (Khmer digits mapped) in what arrived — that run is the code. A longer run
+   is not one (it is a digit typed beside a code, resolved in setDigit). */
+function otpSixRun(raw) {
+  var runs = toAsciiDigits(raw).match(/\d+/g) || [];
+  for (var k = 0; k < runs.length; k++) if (runs[k].length === 6) return runs[k];
+  return "";
+}
+/* The caret goes AFTER a box's digit (never a selection): the next key makes
+   two characters and setDigit keeps the new one — the same digit included. */
+function otpCaretAfterDigit(e) {
+  try { var el = e && e.target; var n = String((el && el.value) || "").length; el.setSelectionRange(n, n); } catch (_eS) {}
 }
 
 function normalizePhone(p) {
@@ -4590,9 +5053,40 @@ function TierBadge({ tier, number }) {
 }
 
 /* ============== DateStrip — horizontal scroll of days ============== */
-function DateStrip({ value, onChange, daysAhead = 14, lang }) {
+/* v188 S3 — CAMBODIA'S TODAY, KEPT CURRENT. The booking screen computed
+   "today" once, at mount: a customer who left it open across midnight (a
+   phone on the table overnight) came back to a strip that started
+   YESTERDAY, a selected date the server refuses as past, and its slots.
+   Re-read when the page comes back to the foreground, when the window
+   regains focus, and every 60 s. */
+/* v188 S3 — the date strip is as long as the SERVER's booking window
+   (getConfig's bookingWindowDays), not a fixed 14 days that hid half of it;
+   14 when the config does not say. */
+function bookingWindowDays(config) {
+  const n = config ? Number(config.bookingWindowDays) : NaN;
+  return (Math.floor(n) === n && n >= 1 && n <= 90) ? n : 14;
+}
+function useCambodiaToday() {
+  const [today, setToday] = useState(() => todayISO());
+  useEffect(() => {
+    function check() { const n = todayISO(); setToday(p => (p === n ? p : n)); }
+    function onVis() { if (!document.hidden) check(); }
+    const id = setInterval(check, 60000);
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", check);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", check);
+    };
+  }, []);
+  return today;
+}
+
+function DateStrip({ value, onChange, daysAhead = 14, lang, todayStr }) {
   // v184 S5: Cambodia's today (not the device clock's), held at local noon.
-  const today = useMemo(() => { const c = nowInCambodia(); return new Date(c.y, c.mo - 1, c.d, 12, 0, 0); }, []);
+  // v188 S3: …recomputed when the caller's Cambodian date (todayStr) moves on.
+  const today = useMemo(() => { const c = nowInCambodia(); return new Date(c.y, c.mo - 1, c.d, 12, 0, 0); }, [todayStr]);
   const days = useMemo(() => {
     const arr = [];
     for (let i = 0; i < daysAhead; i++) arr.push(addDays(today, i));
@@ -4834,19 +5328,68 @@ function Stepper({ value, onChange, min, max, unitLabel }) {
 /* ============== CourtRail — floor-plan court selector ==============
    Courts laid out to match the real facility footprint (Sheet A-101):
    01–06 in a row, 08 as a landscape bay above the right end, 07 below it.
-   Picking by spatial position beats a left→right scroll. Same props and
-   toggle behaviour as before, so the caller is unchanged. The 8-court
-   footprint is fixed, so the layout is intentionally hard-coded. */
-function CourtRail({ value, onChange, count = 8, unavailable = [], pastClosing = false, lang }) {
+   Picking by spatial position beats a left→right scroll. The 8-court
+   footprint is fixed, so the layout is intentionally hard-coded.
+
+   v187 S5 — "COURT SELECTION DOESN'T WORK WELL", FIXED AT THE CAUSES:
+     D1  each court was a component DEFINED INSIDE CourtRail, so every render
+         of the booking screen (every quote, every availability answer)
+         created a NEW component type and React unmounted and re-mounted all
+         eight buttons. A tap whose pointerdown and click straddled one of
+         those renders landed on a node that no longer existed — the tap was
+         lost. CourtCell is now a top-level component: the buttons are the
+         same DOM nodes for the life of the screen.
+     D2  a busy court was a `disabled` button, and a disabled button fires no
+         click — so the "isn't free" explanation in toggle() could never be
+         shown. A busy court now answers the tap with WHY and WHEN
+         (aria-disabled, not disabled).
+     D3  while availability was loading every court rendered as TAKEN and
+         ignored taps. It now renders as "Checking" and taps select normally.
+     D4  a court the customer picked that is taken at the chosen time is
+         shown as exactly that (clay, "taken at 18:00") instead of being
+         swapped behind their back — see ScreenBooking's conflict line.
+   Status per court comes from the caller: `status[n]` is "open" | "taken" |
+   "closing" | "loading", `takenAt[n]` the first busy slot ("18:00"). */
+function CourtCell({ num, landscape, isSel, st, at, lang, onTap }) {
+  const blocked = st === "taken" || st === "closing";
+  const selBlocked = isSel && blocked;
+  const stateLbl = st === "loading" ? t("b_court_checking", null, lang)
+    : selBlocked ? t("b_court_yours", null, lang) + ", " + (st === "closing" ? t("b_court_closed", null, lang) : t("b_court_taken", null, lang) + (at ? " " + at : ""))
+    : blocked ? (st === "closing" ? t("b_court_closed", null, lang) : t("b_court_taken", null, lang) + (at ? " " + at : ""))
+    : isSel ? t("b_court_yours", null, lang)
+    : t("b_court_open", null, lang);
+  // Inline, not CSS: the customer stylesheet is sha-pinned (v123/v157).
+  const style = { gridArea: "c" + num };
+  if (selBlocked) { style.background = "var(--clay)"; style.borderColor = "var(--clay)"; style.opacity = 1; }
+  if (st === "loading") { style.opacity = 0.8; }
+  return (
+    <button
+      type="button"
+      style={style}
+      className={"court-cell" + (landscape ? " land" : "") + (isSel ? " sel" : "") + (blocked && !isSel ? " unavail" : "")}
+      aria-disabled={blocked && !isSel ? "true" : undefined}
+      aria-pressed={isSel}
+      aria-label={"Court " + num + " — " + stateLbl}
+      title={"Court " + pad2(num) + " · " + stateLbl}
+      data-court-state={selBlocked ? "sel-" + st : (isSel ? "sel" : st)}
+      onClick={() => onTap(num)}
+    >
+      <span className="court-lines" aria-hidden="true">
+        <span className="court-kitchen" />
+        <span className="court-net" />
+        <span className="court-center" />
+      </span>
+      <span className="cn">{pad2(num)}</span>
+    </button>
+  );
+}
+function CourtRail({ value, onChange, count = 8, status = {}, takenAt = {}, onBlockedTap, lang }) {
   function toggle(num) {
-    if (unavailable.includes(num)) {
-      // L3 fix: if the chosen duration simply runs past closing time, say so
-      // instead of the generic "isn't free" message (which implies it's
-      // booked/taken, not that the facility is closed then).
-      const msg = pastClosing
-        ? (lang === "km" ? "រយៈពេលនេះលើសម៉ោងបិទ — សូមកាត់បន្ថយរយៈពេល ឬជ្រើសម៉ោងចាប់ផ្តើមមុន" : "That duration runs past closing — try a shorter duration or an earlier start time")
-        : (lang === "km" ? "តារាង " + pad2(num) + " មិន​ទំនេរ​សម្រាប់​ពេល/រយៈពេល​នេះ" : "Court " + pad2(num) + " isn't free for this time/duration");
-      showToast(msg, "info");
+    const st = status[num] || "open";
+    const blocked = st === "taken" || st === "closing";
+    if (blocked && !value.includes(num)) {
+      // D2 — the tap is answered, with the reason and the time.
+      if (onBlockedTap) onBlockedTap(num, st, takenAt[num] || "");
       return;
     }
     if (value.includes(num)) {
@@ -4856,43 +5399,21 @@ function CourtRail({ value, onChange, count = 8, unavailable = [], pastClosing =
       onChange([...value, num].sort((a, b) => a - b));
     }
   }
-  function Court({ num, landscape }) {
-    const isUnavail = unavailable.includes(num);
-    const isSel = value.includes(num);
-    const stateLbl = isUnavail ? t("b_court_taken", null, lang)
-      : isSel ? t("b_court_yours", null, lang)
-      : t("b_court_open", null, lang);
-    return (
-      <button
-        type="button"
-        style={{ gridArea: "c" + num }}
-        className={"court-cell" + (landscape ? " land" : "") + (isSel ? " sel" : "") + (isUnavail ? " unavail" : "")}
-        disabled={isUnavail}
-        aria-pressed={isSel}
-        aria-label={"Court " + num + " — " + stateLbl}
-        title={"Court " + pad2(num) + " · " + stateLbl}
-        onClick={() => toggle(num)}
-      >
-        <span className="court-lines" aria-hidden="true">
-          <span className="court-kitchen" />
-          <span className="court-net" />
-          <span className="court-center" />
-        </span>
-        <span className="cn">{pad2(num)}</span>
-      </button>
-    );
-  }
+  const cell = (num, landscape) => (
+    <CourtCell key={num} num={num} landscape={!!landscape} isSel={value.includes(num)}
+      st={status[num] || "open"} at={takenAt[num] || ""} lang={lang} onTap={toggle} />
+  );
   return (
     <div className="court-map" role="group" aria-label="Select courts by facility layout">
       <div className="court-map-grid">
-        <Court num={8} landscape />
-        <Court num={1} />
-        <Court num={2} />
-        <Court num={3} />
-        <Court num={4} />
-        <Court num={5} />
-        <Court num={6} />
-        <Court num={7} />
+        {cell(8, true)}
+        {cell(1)}
+        {cell(2)}
+        {cell(3)}
+        {cell(4)}
+        {cell(5)}
+        {cell(6)}
+        {cell(7)}
       </div>
       <div className="court-map-legend">
         <span><i className="dot open" />{t("b_court_open", null, lang)}</span>
@@ -4979,6 +5500,8 @@ function ScreenPhone({ state, setState, go, lang }) {
   }
 
   const valid = normalizePhone(phone).length >= 8;
+  // v187 S6 — a send still waiting after ~6 s says why (Google, not them).
+  const sendSlow = useSlowFlag(sending);
 
   useEffect(() => {
     api("getFoundingStatus").then(r => {
@@ -5006,8 +5529,21 @@ function ScreenPhone({ state, setState, go, lang }) {
     const r = await api("sendOTP", { phone: norm });
     setSending(false);
     if (r.ok && r.sent !== false) otpSendGuardRecord();
+    /* v187 S6 — A SEND WHOSE ANSWER WAS LOST IS NOT A FAILED SEND.
+       The backend records the code BEFORE it texts it, so after a timeout /
+       Google's error page / a dropped connection the SMS has very likely
+       gone out (the owner saw exactly that: "Request timeout" on screen,
+       code on the phone). The customer goes to the code screen with that
+       said plainly; Resend opens after the usual 60 s, and the backend's own
+       rate limits answer it. Not retried here: a retry is a second SMS. */
+    if (isUnknownOutcome(r)) {
+      otpSendGuardRecord();
+      setState(s => ({ ...s, phone: norm, otpSendPending: true }));
+      go("otp");
+      return;
+    }
     if (!r.ok) {
-      showToast(r.error || t("error", null, lang), "error");
+      showToast(serverText(r, lang, t("error", null, lang)), "error");   // v189 S7 — Khmer for the known refusals
       return;
     }
     // The backend returns ok:true even when the SMS itself failed to send
@@ -5016,9 +5552,10 @@ function ScreenPhone({ state, setState, go, lang }) {
     // real reason so the failure isn't silent. (r.sent===false is explicit so
     // older backends that omit the field stay backward-compatible.)
     if (r.sent === false) {
-      showToast(r.error || "We couldn't send your code. Please try again in a moment.", "error");
+      showToast(serverText(r, lang, lang === "km" ? "មិនអាចផ្ញើកូដបានទេ។ សូមព្យាយាមម្តងទៀតនៅពេលក្រោយ។" : "We couldn't send your code. Please try again in a moment."), "error");   // v189 S7
       return;
     }
+    setState(s => ({ ...s, otpSendPending: false }));   // v187 S6 — a confirmed send: no "still sending" note
     setState(s => ({ ...s, phone: norm }));
     go("otp");
   }
@@ -5166,7 +5703,7 @@ function ScreenPhone({ state, setState, go, lang }) {
         </div>
 
         <CTA onClick={onContinue} disabled={!valid || sending} tone="green">
-          {sending ? t("loading", null, lang) : t("p_cta", null, lang)}
+          {sending ? (sendSlow ? t("slow_connecting", null, lang) : t("loading", null, lang)) : t("p_cta", null, lang)}
         </CTA>
 
         {/* DISCOVERY ROW — Membership · About links for unauth visitors.
@@ -5260,8 +5797,23 @@ function ScreenOTP({ state, setState, go, lang }) {
   // loop can't dodge this cooldown.
   const [resendIn, setResendIn] = useState(60);
   const [resendMaxHit, setResendMaxHit] = useState(false);
+  // v187s O3 — a Resend still in flight: the button is shown disabled (state)
+  // and a ref refuses a second tap that lands before React re-renders.
+  const resendInFlightRef = useRef(false);
+  const [resendSending, setResendSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState("");
+  // v187 S6 — the send's answer was lost (it very likely went out): say so.
+  const [sendPending, setSendPending] = useState(!!state.otpSendPending);
+  // v187 S6 — a verify whose answer was lost: the code that was not checked.
+  const [verifyLost, setVerifyLost] = useState("");
+  // v187 S6 — one random id per entered code, the same on a re-tap, so the
+  // backend can hand back a success whose first answer died in transit.
+  const verifyIdsRef = useRef({});
+  function verifyIdFor(c) {
+    if (!verifyIdsRef.current[c]) verifyIdsRef.current[c] = genRequestId();
+    return verifyIdsRef.current[c];
+  }
 
   useEffect(() => {
     if (resendIn <= 0) return;
@@ -5269,13 +5821,67 @@ function ScreenOTP({ state, setState, go, lang }) {
     return () => clearInterval(id);
   }, [resendIn]);
 
-  function setDigit(i, v) {
-    v = v.replace(/\D/g, "").slice(-1);
+  /* v188 S4 — two or more digits (a paste, an autofilled code) spread across
+     the boxes from box i onward; a whole code (6+) fills from box 1. */
+  function spreadDigits(i, digits) {
+    const arrM = code.padEnd(6, " ").split("");
+    const from = digits.length >= 6 ? 0 : i;
+    for (let k = 0; k < digits.length && from + k < 6; k++) arrM[from + k] = digits[k];
+    const nextM = arrM.join("").trimEnd();
+    setCode(nextM);
+    setError("");
+    setVerifyLost("");
+    const filledM = nextM.replace(/\s/g, "").length;
+    const el = document.getElementById("otp-" + Math.min(5, from + digits.length));
+    el && el.focus();
+    if (filledM === 6 && nextM.indexOf(" ") < 0) tryVerify(nextM.trim());
+  }
+
+  function setDigit(i, v, caretEnd) {
+    /* v189 S1 — A WHOLE CODE IS READ AS IT ARRIVED. If what landed in the
+       box holds a run of exactly six digits ("246810", "Your code: 246810",
+       "Your 6-digit code is 246810"), that run IS the code, wherever the
+       caret was and whatever the box held. */
+    const run6 = otpSixRun(v);
+    if (run6) { spreadDigits(0, run6); return; }
+    /* v188 S4 — a Khmer keyboard types ០–៩, which /\D/ used to throw away
+       (the box stayed empty and the customer could not enter the code); and
+       a pasted or autofilled code arrived in ONE box, where .slice(-1) kept
+       its last digit only. Khmer digits are mapped to 0–9 first, and two or
+       more digits are spread across the boxes from this one onward. */
+    let digits = toAsciiDigits(v).replace(/\D/g, "");
+    /* v188r S1 — TYPING OVER A FILLED BOX IS NOT A PASTE. A box that holds
+       "3" and is typed into with the caret beside the 3 delivers "39" (or
+       "93"): one NEW digit, not two. Read as a paste, the 9 spilled into the
+       next box, every digit after it shifted, and a sixth box filling
+       auto-submitted a code the customer never typed. A box that already
+       held a digit and now holds two keeps only the digit that is new; a
+       whole code arriving on top of one digit (autofill appending to it)
+       loses that one digit. A paste is three or more digits, or two into an
+       EMPTY box (which cannot be an overtype). */
+    const prevD = (code[i] && code[i] !== " ") ? code[i] : "";
+    if (prevD && digits.length === 2) {
+      digits = digits[0] === prevD ? digits[1] : (digits[1] === prevD ? digits[0] : digits.slice(-1));
+    } else if (prevD && digits.length === 7) {
+      /* v189 S1 — the old digit is at ONE end of the seven; the code is the
+         other six. Only when BOTH ends equal the old digit is the content
+         ambiguous ("2" + "246812" vs "246812" + "2"); then where the insert
+         ended decides (caret at 6 = inserted before the old digit), and
+         failing that the append — the caret sits after the digit. */
+      const _aOk = digits[0] === prevD, _bOk = digits[6] === prevD;
+      digits = (_aOk && !_bOk) ? digits.slice(1)
+        : (_bOk && !_aOk) ? digits.slice(0, 6)
+        : (_aOk && _bOk) ? (caretEnd === 6 ? digits.slice(0, 6) : digits.slice(1))
+        : digits;
+    }
+    if (digits.length > 1) { spreadDigits(i, digits); return; }
+    v = digits.slice(-1);
     const arr = code.padEnd(6, " ").split("");
     arr[i] = v || " ";
     const next = arr.join("").trimEnd();
     setCode(next);
     setError("");
+    setVerifyLost("");
 
     if (v && i < 5) {
       const el = document.getElementById("otp-" + (i + 1));
@@ -5289,12 +5895,33 @@ function ScreenOTP({ state, setState, go, lang }) {
 
   async function tryVerify(c) {
     setVerifying(true);
+    setVerifyLost("");
     const r = await api("verifyOTP", {
       phone: state.phone,
       code: c,
-      device: navigator.userAgent.substring(0, 80)
+      device: navigator.userAgent.substring(0, 80),
+      verifyId: verifyIdFor(c)
     });
     setVerifying(false);
+    /* v187 S6 — NO ANSWER IS NOT "WRONG CODE". A timeout / Google's error
+       page / a dropped connection says nothing about the code: it is kept
+       on screen with one button to check it again (same verifyId — a
+       success the server already recorded comes straight back). Only the
+       SERVER's answer is shown as an error, and only its "Incorrect code"
+       counts an attempt. Not auto-retried: the customer's tap is the retry. */
+    if (isUnknownOutcome(r)) {
+      setVerifyLost(c);
+      return;
+    }
+    /* v187s O2 — "SYSTEM BUSY" IS NOT A VERDICT ON THE CODE EITHER. The
+       backend refused before reading OTP_Log (its lock was taken — route()
+       answers busy:true, an older backend the bare "System busy"): nothing
+       was checked and no attempt was counted. Same path as a lost answer —
+       the code stays in the boxes, one tap checks it again. */
+    if (r && r.ok === false && (r.busy === true || /^System busy/i.test(String(r.error || "")))) {
+      setVerifyLost(c);
+      return;
+    }
     if (!r.ok || !r.verified) {
       setError(r.error || t("error", null, lang));
       setCode("");
@@ -5315,7 +5942,7 @@ function ScreenOTP({ state, setState, go, lang }) {
   }
 
   async function resend() {
-    if (resendIn > 0 || resendMaxHit) return;
+    if (resendInFlightRef.current || resendIn > 0 || resendMaxHit) return;
     // M10 fix: shared OTP-send guard — 60s cooldown + 5-sends-per-page-session
     // hard cap, enforced across both ScreenPhone and ScreenOTP so no combination
     // of Back/Continue/Resend taps can loop unlimited SMS sends.
@@ -5329,10 +5956,25 @@ function ScreenOTP({ state, setState, go, lang }) {
       }
       return;
     }
-    setResendIn(60);
-    const r = await api("sendOTP", { phone: state.phone });
+    /* v187s O3 — ONE SEND PER TAP, HOWEVER FAST THE TAPS. The cooldown only
+       starts once a send has been RECORDED (after its answer), so a second
+       tap while the first send was still in flight (it can take up to the
+       40 s sendOTP budget) fired a second SMS. The button now stays disabled
+       until this send answers or times out; then the usual 60 s countdown. */
+    resendInFlightRef.current = true;
+    setResendSending(true);
+    let r;
+    try {
+      r = await api("sendOTP", { phone: state.phone });
+    } finally {
+      resendInFlightRef.current = false;
+      setResendSending(false);
+      setResendIn(60);
+    }
     if (r.ok && r.sent !== false) otpSendGuardRecord();
-    if (!r.ok) { showToast(r.error || t("error", null, lang), "error"); return; }
+    // v187 S6 — lost answer: the text is very likely on its way (see ScreenPhone).
+    if (isUnknownOutcome(r)) { otpSendGuardRecord(); setSendPending(true); return; }
+    if (!r.ok) { showToast(serverText(r, lang, t("error", null, lang)), "error"); return; }   // v189 S7
     /* v180 F8 — "SENT" WAS A LIE WHENEVER THE BUDGET CAPPED THE SEND.
        sendOTP answers ok:true even when no SMS went out; the delivery result
        is in r.sent, and since v178 F3 it routinely comes back
@@ -5343,7 +5985,7 @@ function ScreenOTP({ state, setState, go, lang }) {
        path in ScreenPhone: r.sent === false is explicit so a backend that
        predates the field stays backward-compatible. */
     if (r.sent === false) {
-      showToast(r.error || (lang === "km"
+      showToast(serverText(r, lang, lang === "km"
         ? "មិនអាចផ្ញើកូដបានទេ។ សូមព្យាយាមម្តងទៀតនៅពេលក្រោយ។"
         : "We couldn't send your code. Please try again in a moment."), "error");
       return;
@@ -5373,6 +6015,11 @@ function ScreenOTP({ state, setState, go, lang }) {
         <p style={{ fontSize: 14, lineHeight: 1.45, maxWidth: "32ch", margin: "6px 0 22px" }}>
           {t("o_sub", null, lang)}
         </p>
+        {sendPending ? (
+          <div className="hint otp-sending" role="status" style={{ margin: "-10px 0 18px", fontWeight: 600 }}>
+            {t("o_sending_slow", null, lang)}
+          </div>
+        ) : null}
       </div>
 
       <SectionLabel n="01">{t("o_label", null, lang)}</SectionLabel>
@@ -5389,14 +6036,46 @@ function ScreenOTP({ state, setState, go, lang }) {
               <input
                 id={"otp-" + i}
                 inputMode="numeric"
+                autoComplete={i === 0 ? "one-time-code" : "off"}
                 pattern="[0-9]*"
                 value={filled ? ch : ""}
-                onChange={(e) => setDigit(i, e.target.value)}
+                /* v189 S1 — THE DIGIT IS NOT SELECTED ANY MORE. v188r
+                   selected it on focus/tap so a key would replace it; but
+                   typing the SAME digit over a selected digit leaves the
+                   value unchanged, React fires no onChange, focus stays put,
+                   and every key after that lands one box behind ("124", tap
+                   box 1, type 123456 → "2356__"). The caret goes AFTER the
+                   digit instead: every key now makes two characters ("11",
+                   "33", "27"), which the two-digit rule in setDigit resolves
+                   to the new digit. A paste is read from the clipboard
+                   (whatever the box held) and spread across the boxes. */
+                onFocus={otpCaretAfterDigit}
+                onClick={otpCaretAfterDigit}
+                onPaste={(e) => {
+                  const _txt = (e.clipboardData && typeof e.clipboardData.getData === "function") ? String(e.clipboardData.getData("text") || "") : "";
+                  const _pd = otpSixRun(_txt) || toAsciiDigits(_txt).replace(/\D/g, "");   // v189 S1 — a 6-digit run in the text is the code
+                  if (_pd.length < 2) return;   // one digit (or none): the browser types it
+                  e.preventDefault();
+                  spreadDigits(i, _pd);
+                }}
+                onChange={(e) => { let _ce = null; try { _ce = e.target.selectionEnd; } catch (_eC) {} setDigit(i, e.target.value, _ce); }}
                 onKeyDown={(e) => {
                   if (e.key === "Backspace" && !ch) {
                     const prev = document.getElementById("otp-" + Math.max(0, i - 1));
                     prev && prev.focus();
+                    return;
                   }
+                  if (!filled || e.metaKey || e.ctrlKey || e.altKey) return;
+                  let _s = -1, _e = -1;
+                  try { _s = e.target.selectionStart; _e = e.target.selectionEnd; } catch (_eK) {}
+                  /* v189 S1 — safety nets for a box whose digit IS selected
+                     (a long-press, an old iOS) or whose caret sits BEFORE
+                     it: the same digit typed over a selection changes
+                     nothing (no onChange → focus stuck); Backspace before
+                     the digit deletes nothing. Both are done here instead. */
+                  const _kd = (typeof e.key === "string" && e.key.length === 1) ? toAsciiDigits(e.key) : "";
+                  if (_kd === ch && _s === 0 && _e >= 1) { e.preventDefault(); setDigit(i, ch + ch); return; }
+                  if (e.key === "Backspace" && _s === 0 && _e === 0) { e.preventDefault(); setDigit(i, ""); }
                 }}
               />
             </label>
@@ -5407,6 +6086,14 @@ function ScreenOTP({ state, setState, go, lang }) {
       {error ? (
         <div className="hint" style={{ marginTop: 14, color: "var(--clay)", fontWeight: 600 }}>{error}</div>
       ) : null}
+      {verifyLost ? (
+        <div className="hint otp-verify-lost" role="status" style={{ marginTop: 14, fontWeight: 600 }}>
+          <div>{t("o_verify_transient", null, lang)}</div>
+          <button className="btn otp-verify-retry" style={{ marginTop: 10 }} onClick={() => tryVerify(verifyLost)}>
+            {t("o_verify_retry", null, lang)}
+          </button>
+        </div>
+      ) : null}
 
       <div className="hint" style={{ marginTop: 18, display: "flex", justifyContent: "space-between" }}>
         <span>{t("o_remember", null, lang)}</span>
@@ -5416,7 +6103,7 @@ function ScreenOTP({ state, setState, go, lang }) {
             </span>
           : resendIn > 0
             ? <span className="mono" style={{ fontWeight: 500 }}>{t("o_resend_in", { s: resendIn }, lang)}</span>
-            : <button className="ulink" onClick={resend} disabled={resendMaxHit} style={{ fontSize: 12 }}>{t("o_resend", null, lang)}</button>}
+            : <button className="ulink otp-resend" onClick={resend} disabled={resendMaxHit || resendSending} aria-busy={resendSending ? "true" : undefined} style={{ fontSize: 12, opacity: resendSending ? 0.5 : 1 }}>{t("o_resend", null, lang)}</button>}
       </div>
 
       {verifying ? <Loading message={t("o_verifying", null, lang)} /> : null}
@@ -5425,7 +6112,7 @@ function ScreenOTP({ state, setState, go, lang }) {
 }
 
 /* ===================== SCREEN 3: BOOKING ===================== */
-function ScreenBooking({ state, setState, go, lang, config }) {
+function ScreenBooking({ state, setState, go, lang, config, configTrusted }) {
   const isMember = !!state.isMember;
   const isGuest = !isMember;
   const member = state.member;
@@ -5433,6 +6120,7 @@ function ScreenBooking({ state, setState, go, lang, config }) {
   const memberName = (member && member.name) ? member.name.split(" ")[0] : "";
 
   // Booking state
+  const todayStr = useCambodiaToday();   // v188 S3
   const [date, setDate] = useState(state.date || todayISO());
   const [time, setTime] = useState(state.time || "18:00");
   const [slots, setSlots] = useState(state.slots || 2);   // 30-min slots; 2 = 1 hour
@@ -5445,10 +6133,20 @@ function ScreenBooking({ state, setState, go, lang, config }) {
     (guestRecord ? guestRecord.name : "")
   );
 
-  // Live data
-  const [availLoading, setAvailLoading] = useState(true);
-  const [availSlots, setAvailSlots] = useState([]);
+  // Live data — v187 S3: the availability store answers first, the network second
+  const [availLoading, setAvailLoading] = useState(() => !availGet(state.date || todayISO()));
+  const [availSlots, setAvailSlots] = useState(() => { const c = availGet(state.date || todayISO()); return c ? c.slots : []; });
+  const [availError, setAvailError] = useState("");
   const [foundingStatus, setFoundingStatus] = useState(null);
+  // v187 S5 — has the CUSTOMER chosen courts? Until they have, the default
+  // court follows availability silently; once they have, it is never
+  // changed behind their back (a conflict is shown, not "fixed").
+  const userPickedCourtsRef = useRef(!!(state.pickedCourts && state.pickedCourts.length));
+  // v187 S4 — the time wheel commits a new time every frame while it
+  // scrolls; only those changes wait for the quote debounce.
+  const lastWheelAtRef = useRef(0);
+  const timeRef = useRef(time); timeRef.current = time;
+  const dateRef = useRef(date); dateRef.current = date;
 
   // Birthday gift state
   const [bdayClaimed, setBdayClaimed] = useState(false);
@@ -5471,34 +6169,77 @@ function ScreenBooking({ state, setState, go, lang, config }) {
   // A ref flips immediately and reliably blocks the second call.
   const submittingRef = useRef(false);
 
-  /* Fetch availability for a given date and update the slots/time state.
-     Extracted so the booking-conflict path (H2) can re-run the same load. */
-  function loadAvailability(targetDate, opts) {
-    opts = opts || {};
-    setAvailLoading(true);
-    return api("getAvailability", { date: targetDate }).then(r => {
-      if (opts.cancelled && opts.cancelled()) return r;
-      setAvailLoading(false);
-      if (!r.ok) {
-        showToast(r.error || t("error", null, lang), "error");
-        setAvailSlots([]);
-        return r;
-      }
-      setAvailSlots(r.slots || []);
+  /* Put one date's slots on screen. Only for the date still selected (the
+     customer may have tapped on), and the "first free time" jump only on
+     a date's FIRST paint — a background refresh never moves their time. */
+  function applyAvail(targetDate, slotsArr, isFirstPaint) {
+    if (dateRef.current !== targetDate) return;
+    setAvailSlots(slotsArr);
+    setAvailLoading(false);
+    setAvailError("");
+    if (isFirstPaint) {
       // Pick first available time if current isn't available
-      const cur = (r.slots || []).find(s => s.time === time);
+      const cur = slotsArr.find(s => s.time === timeRef.current);
       if (!cur || cur.availableCount <= 0) {
-        const firstFree = (r.slots || []).find(s => s.availableCount > 0);
+        const firstFree = slotsArr.find(s => s.availableCount > 0);
         if (firstFree) setTime(firstFree.time);
       }
+    }
+  }
+
+  /* Fetch availability for a given date and update the slots/time state.
+     Extracted so the booking-conflict path (H2) can re-run the same load.
+     v187 S3 — `preferCache` (the date effect) paints from the store at once
+     and refreshes in the background only when the copy is older than 45 s;
+     a call WITHOUT it (H2: "that slot was just taken") always asks the
+     server, and keeps the current grid on screen while it does. */
+  function loadAvailability(targetDate, opts) {
+    opts = opts || {};
+    const cached = availGet(targetDate);
+    const painted = !!(opts.preferCache && cached);
+    if (painted) {
+      applyAvail(targetDate, cached.slots, true);
+      if (cached.fresh) return Promise.resolve({ ok: true, slots: cached.slots, fromCache: true });
+    } else if (opts.preferCache) {
+      // Nothing usable for this date: the spinner — and NOT the previous
+      // date's grid, which used to sit under it driving the court rail.
+      setAvailSlots([]);
+      setAvailLoading(true);
+      setAvailError("");
+    }
+    return (opts.preferCache ? availFresh(targetDate) : availFetch(targetDate, true)).then(r => {
+      if (opts.cancelled && opts.cancelled()) return r;
+      if (!r || !r.ok) {
+        if (dateRef.current === targetDate && !painted && !availGet(targetDate)) {
+          setAvailLoading(false);
+          setAvailSlots([]);
+          setAvailError((r && r.error) || t("error", null, lang));
+        }
+        if (!painted) showToast((r && r.error) || t("error", null, lang), "error");
+        return r;
+      }
+      applyAvail(targetDate, r.slots || [], !painted);
       return r;
     });
   }
 
+  /* v187 S3 — the week is topped up in ONE request when the screen opens
+     (a no-op when the boot bundle already brought it). Declared before the
+     date effect so that effect finds the week request in flight and waits
+     for it instead of asking for today separately. */
+  useEffect(() => { availPrefetchWeek(todayStr, false); }, [todayStr]);
+
+  /* v188 S3 — Cambodian midnight passed with this screen open: a selected
+     date that is now in the past moves to today (the date effect below
+     then repaints it); the strip starts at the new today. */
+  useEffect(() => {
+    if (date < todayStr) setDate(todayStr);
+  }, [todayStr]);
+
   /* Load availability whenever date changes */
   useEffect(() => {
     let cancelled = false;
-    loadAvailability(date, { cancelled: () => cancelled });
+    loadAvailability(date, { preferCache: true, cancelled: () => cancelled });
     return () => { cancelled = true; };
   }, [date]);
 
@@ -5517,6 +6258,8 @@ function ScreenBooking({ state, setState, go, lang, config }) {
      `courtNumbers`: the server may assign different courts at book time, so
      the quote takes v145 F3's worst-assignment floor, which is exactly what
      makes quote >= charge true rather than merely likely. */
+  const quoteWantsToken = !!(isMember && member &&
+    (bdayClaimed || isBirthdayEligibleClient(member, date, (config && config.birthdayWindowDays) || 3)));   // v189 S4
   const quoteReq = useMemo(() => ({
     date: date, time: time, slots: slots,
     courts: pickedCourts.length,
@@ -5531,9 +6274,20 @@ function ScreenBooking({ state, setState, go, lang, config }) {
     // zeroed. (The same omission is applied to the createBooking call in
     // submit() below, so quote and charge ask the identical question.)
     useBirthday: bdayClaimed ? 1 : undefined,
-    phone: state.phone || ""
-  }), [date, time, slots, pickedCourts.join(","), bdayClaimed, state.phone]);
-  const serverQuoteState = useServerQuote(quoteReq);
+    phone: state.phone || "",
+    // v188 S9 — the session token, so the server can honour (and is willing
+    // to quote) the birthday gift: it no longer quotes one to a bare phone.
+    // v189 S4 — ONLY where a birthday gift is possible: a member whose
+    // birthday is in the window (or whose gift is claimed). A guest's quote
+    // carries no token — nothing in it needs one, and every token the
+    // server checks is a sheet read on the quote's critical path.
+    token: (state.token && quoteWantsToken) ? state.token : undefined
+  }), [date, time, slots, pickedCourts.join(","), bdayClaimed, state.phone, state.token, quoteWantsToken]);
+  // v187 S4 — a tap (court, date, duration) asks at once; a wheel scroll
+  // (a new time every frame) keeps the 250 ms debounce.
+  const serverQuoteState = useServerQuote(quoteReq, {
+    debounceMs: (Date.now() - lastWheelAtRef.current < 600) ? QUOTE_DEBOUNCE_MS : 0
+  });
   const serverQuote = serverQuoteState.quote;
   const quoteStatus = serverQuoteState.status;
   const quoteError = serverQuoteState.error;
@@ -5598,6 +6352,24 @@ function ScreenBooking({ state, setState, go, lang, config }) {
     }
   }, [quoteStatus, serverQuote]);
 
+  /* v188r S2 — A DEAD SIGN-IN IS NOT A PRICE ERROR. The server quotes the
+     birthday gift only to a signed-in customer (v188 S9): with a token that
+     has expired or been revoked, a claimed gift is answered AUTH_REQUIRED,
+     which this screen used to print as "Price unavailable" with Book dead
+     and a Retry that asked the same question again. The claim is dropped
+     (the quote re-asks WITHOUT it, so the usual price comes back and Book
+     works), and the customer is told why and offered the sign-in that
+     brings the gift back — the same sign-in path every other refusal uses,
+     returning to this screen. */
+  const [bdayAuthLost, setBdayAuthLost] = useState(false);
+  const quoteCode = serverQuoteState.code;
+  useEffect(() => {
+    if (quoteStatus !== "error" || quoteCode !== "AUTH_REQUIRED" || !bdayClaimed) return;
+    setBdayClaimed(false);
+    setBdayAuthLost(true);
+    showToast(t("q_bday_signin", null, lang), "error");
+  }, [quoteStatus, quoteCode]);
+
   /* Client estimate — kept ONLY as the rate-bucket skeleton for the
      itemised breakdown and as the pre-confirmation ceiling below. Every
      dollar the customer is asked to agree to comes from the server. */
@@ -5629,7 +6401,8 @@ function ScreenBooking({ state, setState, go, lang, config }) {
       date: date, time: time, slots: slots, courts: pickedCourts.length
     });
   }, [config, date, time, slots, pickedCourts.length]);
-  const estimateCeiling = (config && !config.fairUse && rackEstimate) ? rackEstimate.total : null;
+  // v188 S7 — no ceiling from a cached config older than a week (configTrusted === false).
+  const estimateCeiling = (config && configTrusted !== false && !config.fairUse && rackEstimate) ? rackEstimate.total : null;
 
   /* The price shown/quoted. NULL until the server has answered — there is
      no client-computed total on this screen any more. */
@@ -5675,11 +6448,23 @@ function ScreenBooking({ state, setState, go, lang, config }) {
       });
   }, [availSlots, date]);
 
-  /* Court availability for the *selected* time + duration */
+  /* Court availability for the *selected* time + duration.
+     v187 S5 — per court: "open" | "taken" (+ the first busy slot) |
+     "closing" (the window runs past the last slot) | "loading" (no data
+     yet for this date — NOT "taken", which is what every court used to say
+     while the grid loaded, with every tap ignored). */
   const courtAvailability = useMemo(() => {
+    const status = {}, takenAt = {};
+    if (availLoading) {
+      for (let c = 1; c <= COURTS_COUNT; c++) status[c] = "loading";
+      return { available: [], unavailable: [], pastClosing: false, loading: true, status, takenAt };
+    }
     // Find the slot index for `time`. If not found, no courts available.
     const startIdx = (availSlots || []).findIndex(s => s.time === time);
-    if (startIdx < 0) return { available: [], unavailable: [1, 2, 3, 4, 5, 6, 7, 8], pastClosing: false };
+    if (startIdx < 0) {
+      for (let c = 1; c <= COURTS_COUNT; c++) { status[c] = "taken"; takenAt[c] = time; }
+      return { available: [], unavailable: [1, 2, 3, 4, 5, 6, 7, 8], pastClosing: false, loading: false, status, takenAt };
+    }
     const unavailable = [];
     const available = [];
     // L3 fix: distinguish "runs past closing" (no availability ROW exists for
@@ -5689,45 +6474,70 @@ function ScreenBooking({ state, setState, go, lang, config }) {
     let pastClosing = false;
     for (let c = 0; c < COURTS_COUNT; c++) {
       let ok = true;
+      status[c + 1] = "open";
       for (let s = 0; s < slots; s++) {
         const row = availSlots[startIdx + s];
-        if (!row) { ok = false; pastClosing = true; break; }
-        if (!row.courts || !row.courts[c]) { ok = false; break; }
+        if (!row) { ok = false; pastClosing = true; status[c + 1] = "closing"; break; }
+        if (!row.courts || !row.courts[c]) { ok = false; status[c + 1] = "taken"; takenAt[c + 1] = row.time; break; }
       }
       if (ok) available.push(c + 1);
       else unavailable.push(c + 1);
     }
-    return { available, unavailable, pastClosing };
-  }, [availSlots, time, slots]);
+    return { available, unavailable, pastClosing, loading: false, status, takenAt };
+  }, [availSlots, availLoading, time, slots]);
 
-  /* If selected courts become unavailable for the chosen time+duration, prune
-     them — but TELL the user, so their picked court is never silently swapped. */
-  const courtPruneMountedRef = useRef(false);
+  /* v187 S5 — THE PRUNE IS GONE. It used to re-run on every change of the
+     unavailable set and silently swap the customer's court for the first
+     free one, with a 3-second toast:
+       · on the FIRST frame, before availability had answered (every court
+         "unavailable"), it reset any seeded selection to [1] — and then,
+         when the grid landed with court 1 busy, toasted "Court 01 isn't
+         free — switched" about a court the customer never picked;
+       · while the time wheel scrolled THROUGH a busy slot, each passing
+         frame pruned permanently, so Court 3 picked for 19:00 became Court
+         1 because 18:30 went past under the finger.
+     Now: until the customer touches the courts, the DEFAULT follows
+     availability silently (first free court). After they have, their
+     selection is kept; a court that is taken at the chosen time is shown as
+     theirs-and-taken with the time, the line under the rail says so with a
+     one-tap alternative, and Book waits until they choose. */
+  const pickedConflicts = courtAvailability.loading ? [] : pickedCourts.filter(n => courtAvailability.unavailable.includes(n));
   useEffect(() => {
-    const valid = pickedCourts.filter(n => courtAvailability.available.includes(n));
-    if (valid.length !== pickedCourts.length) {
-      const dropped = pickedCourts.filter(n => !courtAvailability.available.includes(n));
-      const next = (valid.length === 0 && courtAvailability.available.length > 0)
-        ? [courtAvailability.available[0]]
-        : (valid.length ? valid : [courtAvailability.available[0] || 1]);
-      setPickedCourts(next);
-      if (courtPruneMountedRef.current && dropped.length && courtAvailability.available.length > 0) {
-        const dl = dropped.map(n => pad2(n)).join(", ");
-        showToast(
-          (dropped.length === 1 ? "Court " + dl + " isn't" : "Courts " + dl + " aren't") +
-          " free for the full time — switched to Court " + pad2(next[0]) + ".",
-          "info"
-        );
-      }
-    }
-    courtPruneMountedRef.current = true;
-  }, [courtAvailability.unavailable.join(",")]);
+    if (courtAvailability.loading || userPickedCourtsRef.current) return;
+    if (pickedConflicts.length === 0) return;
+    const keep = pickedCourts.filter(n => !pickedConflicts.includes(n));
+    const next = keep.concat(courtAvailability.available.filter(n => keep.indexOf(n) < 0)).slice(0, Math.max(1, pickedCourts.length));
+    if (next.length > 0 && next.join(",") !== pickedCourts.join(",")) setPickedCourts(next.sort((x, y) => x - y));
+  }, [courtAvailability.loading, courtAvailability.unavailable.join(","), pickedCourts.join(",")]);
+
+  /* The customer's own court changes go through here. */
+  function chooseCourts(next) {
+    userPickedCourtsRef.current = true;
+    setPickedCourts(next);
+  }
+  /* "Use Court N instead": swap each conflicting court for a free one. */
+  function resolveCourtConflicts() {
+    const keep = pickedCourts.filter(n => !pickedConflicts.includes(n));
+    const free = courtAvailability.available.filter(n => keep.indexOf(n) < 0);
+    const next = keep.concat(free.slice(0, pickedConflicts.length));
+    if (next.length > 0) chooseCourts(next.sort((x, y) => x - y));
+  }
+  const conflictAlt = courtAvailability.available.filter(n => pickedCourts.indexOf(n) < 0)[0] || 0;
+  function onBlockedCourtTap(num, st, at) {
+    showToast(st === "closing"
+      ? (lang === "km" ? "រយៈពេលនេះលើសម៉ោងបិទ — សូមកាត់បន្ថយរយៈពេល ឬជ្រើសម៉ោងចាប់ផ្តើមមុន" : "That duration runs past closing — try a shorter duration or an earlier start time")
+      : t("b_court_taken_tap", { c: pad2(num), t: at || time }, lang), "info");
+  }
 
   /* Force 2 slots + 1 court when birthday session claimed */
   useEffect(() => {
     if (bdayClaimed) {
       if (slots !== 4) setSlots(4); // 4 × 30min = 2 hours
-      if (pickedCourts.length !== 1) setPickedCourts([pickedCourts[0] || courtAvailability.available[0] || 1]);
+      if (pickedCourts.length !== 1) {
+        const keepOne = pickedCourts.filter(n => !pickedConflicts.includes(n))[0] || pickedCourts[0] || courtAvailability.available[0] || 1;
+        setPickedCourts([keepOne]);
+        showToast(t("b_bday_one_court", { c: pad2(keepOne) }, lang), "info");
+      }
     }
   }, [bdayClaimed]);
 
@@ -5756,6 +6566,10 @@ function ScreenBooking({ state, setState, go, lang, config }) {
     // v157 QUOTETRUTH — the button says what it is doing. It is not
     // actionable on an unconfirmed price, and a failed quote is LOUD.
     if (quoteStatus === "error") return t("q_cta_failed", null, lang);
+    // v187 S5 — past closing is not "taken": the fix is the time, not the court.
+    if (pickedConflicts.length > 0 && pickedConflicts.every(n => courtAvailability.status[n] === "closing")) return t("b_cta_past_closing", null, lang);
+    if (pickedConflicts.length > 0) return t("b_cta_court_taken", null, lang);   // v187 S5
+    if (bookArmed) return t("q_cta_checking", null, lang);                      // v187 S4 — tapped; waiting for THIS price
     if (quoteStatus !== "ok") return t("q_cta_confirming", null, lang);
     if (bdayClaimed) return t("b_cta_claim", null, lang);
     return t("b_cta_confirm", null, lang);
@@ -5780,16 +6594,59 @@ function ScreenBooking({ state, setState, go, lang, config }) {
     if (isGuest && !guestName.trim()) return true;
     if (submitting) return true;
     if (courtAvailability.available.length === 0) return true;
+    if (pickedConflicts.length > 0) return true;   // v187 S5 — a picked court is taken: they choose, we don't swap
     if (isPastStart) return true;   // can't book a start time that already passed today
-    // v157 QUOTETRUTH — THE BOOK BUTTON WAITS FOR THE PRICE. Pre-v157 it did
-    // not: the fair-use quote arrived 350ms later and the button was live the
-    // whole time, so a customer could commit at a number the server never
-    // agreed to. Now an unconfirmed or failed quote is simply not bookable.
+    // v157 QUOTETRUTH — a FAILED quote is not bookable (Retry re-asks).
+    // v187 S4 — a PENDING one no longer disables the button: the tap is
+    // held (onBookTap) and goes through only when the server's price for
+    // exactly this selection is in hand. quoteNotSettled() is that gate.
+    if (quoteStatus === "error") return true;
+    return false;
+  }
+
+  /* v157 QUOTETRUTH — THE BOOK BUTTON WAITS FOR THE PRICE. Pre-v157 it did
+     not: the fair-use quote arrived 350ms later and the button was live the
+     whole time, so a customer could commit at a number the server never
+     agreed to. v187 S4: the button stays tappable, and THIS is what decides
+     whether a tap books now or is held for the price. */
+  function quoteNotSettled() {
     if (quoteStatus !== "ok" || !pricingShown) return true;
     return false;
   }
 
-  async function submit() {
+  /* v187 S4 — BOOK STAYS TAPPABLE; THE PRICE STILL DECIDES.
+     A tap while the server's quote for this selection is still on its way
+     is HELD (bookArmed = that request key), the button says "Checking
+     price…", and the booking goes through by itself the moment the answer
+     for THAT key lands. Changing anything first drops the hold — the tap
+     was for the old selection. A failed quote drops it too (the price block
+     says why). submit() is unchanged and still refuses an unconfirmed price,
+     and submittingRef still stops a double write. */
+  const [bookArmed, setBookArmed] = useState(null);
+  function onBookTap() {
+    if (ctaDisabled()) return;
+    if (quoteNotSettled()) { setBookArmed(serverQuoteState.key); return; }
+    submit();
+  }
+  useEffect(() => {
+    if (!bookArmed) return;
+    if (bookArmed !== serverQuoteState.key || quoteStatus === "error") { setBookArmed(null); return; }
+    if (!quoteNotSettled()) { setBookArmed(null); submit(); }
+  }, [bookArmed, quoteStatus, serverQuoteState.key, pricingShown]);
+
+  /* v189 S8 — what the customer chose survives a trip through the sign-in
+     screen: ScreenBooking starts from state.date / time / slots, and from
+     state.pickedCourts only when the customer really chose courts (a default
+     court stays a default). Cleared again once a booking is made. */
+  function keepSelection() {
+    const _picked = userPickedCourtsRef.current ? pickedCourts.slice() : undefined;
+    setState(s => ({ ...s, date: date, time: time, slots: slots, pickedCourts: _picked }));
+  }
+  // v189 C1 — "you already booked Court N at this time": { booking, lang } while asked.
+  const [sameSlot, setSameSlot] = useState(null);
+
+  async function submit(opts) {
+    opts = opts || {};
     if (ctaDisabled()) return;
     // v157 — defence in depth: no write on an unconfirmed price, ever.
     if (quoteStatus !== "ok" || !pricingShown) return;
@@ -5799,8 +6656,17 @@ function ScreenBooking({ state, setState, go, lang, config }) {
     /* v135 P0-A LINK 2 — the id is THIS booking: this phone, this date, this
      * time, this duration, these courts. Tap Book twice after a timeout and
      * the backend recognises the repeat and refuses it instead of holding a
-     * second court. Retired only on a definite answer. */
-    const _iKey = intentKey("createBooking", [state.phone, date, time, slots, pickedCourts.join(","), bdayClaimed ? 1 : 0]);
+     * second court. Retired only on a definite answer.
+     * v189 S2 — courts the SERVER picks are keyed by their COUNT ("auto:1"),
+     * not by the court the page happened to show: after a reload the default
+     * court can differ, and the same Book must still carry the same id.
+     * v189 C1 — "book another court as well" is a NEW intent (its own id). */
+    const _iKey = intentKey("createBooking", [state.phone, date, time, slots,
+      userPickedCourtsRef.current ? pickedCourts.join(",") : "auto:" + pickedCourts.length, bdayClaimed ? 1 : 0]
+      .concat(opts.allowSameSlot ? ["sameSlot"] : []));
+    const _iId = intentRequestId(_iKey);
+    const _iRetry = intentWasSent(_iKey);   // v189 F3 — a prior attempt with this id went out
+    markIntentSent(_iKey);
     try {
       const r = await api("createBooking", {
         token: state.token || "",
@@ -5813,11 +6679,21 @@ function ScreenBooking({ state, setState, go, lang, config }) {
         // honors requestedCourts when free, else falls back. `courts` (count)
         // kept for backward compatibility.
         requestedCourts: pickedCourts.join(","),
+        // v188 S5 — courts the CUSTOMER chose are a requirement, not a hint:
+        // `courtList` makes the server refuse ("Court N is no longer
+        // available…") instead of silently booking other courts. The
+        // default court (never touched) stays a best-effort preference.
+        courtList: userPickedCourtsRef.current ? pickedCourts.join(",") : undefined,
         // v157 — see quoteReq above: `0` on the wire is the string "0", which
         // the server reads as a CLAIM. Omitted unless the gift was claimed.
         useBirthday: bdayClaimed ? 1 : undefined,
+        // v189 C1 — the customer said yes to a second court at the same time
+        // (the server reads "true"; a query string carries true as "true").
+        allowSameSlot: opts.allowSameSlot ? true : undefined,
         source: "Web",
-        clientRequestId: intentRequestId(_iKey)
+        clientRequestId: _iId,
+        // v189 F3 — the re-send of an id already sent is a retry of that attempt (first send: omitted).
+        clientRetry: _iRetry ? "1" : undefined
       });
       if (r.ok) retireIntent(_iKey);
       if (!r.ok && isUnknownOutcome(r)) {
@@ -5825,11 +6701,31 @@ function ScreenBooking({ state, setState, go, lang, config }) {
          * The server very likely made this booking. The customer is told the
          * outcome is unknown and sent to check; if they do tap Book again,
          * the same id goes out and the backend refuses the duplicate. */
-        showToast(unknownOutcomeText(lang === "km" ? "ការ​កក់​របស់​អ្នក" : "your booking", lang), "error");
+        showToast(unknownOutcomeText(lang === "km" ? "ការ​កក់​របស់​អ្នក" : "your booking", lang, "myBookings"), "error");
+        return;
+      }
+      /* v188 S1 — the server recognised a REPEAT of a booking it already
+         holds (same id, or same phone + same slot) and answered with that
+         booking rather than writing a second one. That is a success: the
+         booking exists. With no booking attached (the bare "Already saved"
+         replay) the customer is sent to My Bookings to see it. */
+      if (r.ok && r.duplicate === true && !r.confirmation) {
+        retireIntent(_iKey);
+        showToast(lang === "km" ? "ការ​កក់​នេះ​មាន​រួច​ហើយ — មើល​ក្នុង \"ការ​កក់​របស់​ខ្ញុំ\"។" : "This booking is already saved — here it is in My Bookings.", "success");
+        go("myBookings");
+        return;
+      }
+      /* v189 C1 — THE SAME CUSTOMER ALREADY HOLDS THIS SLOT. With courts left
+         to the server, a second Book for the same time is usually a repeat,
+         not a wish for a second court — the server asks instead of booking
+         it. A definite answer: the id is retired, and the customer chooses. */
+      if (r && r.ok === false && r.code === "SAME_SLOT_EXISTS" && !opts.allowSameSlot) {
+        retireIntent(_iKey);
+        setSameSlot({ booking: r.booking || null, error: String(r.error || "") });
         return;
       }
       if (!r.ok) retireIntent(_iKey);
-      if (isAuthRequired(r)) { handleSessionExpiry(setState, go, lang, "booking"); return; }   // v184 K6
+      if (isAuthRequired(r)) { keepSelection(); handleSessionExpiry(setState, go, lang, "booking"); return; }   // v184 K6 / v189 S8
       if (!r.ok) {
         // M13: graceful session-expiry re-auth. If the backend rejected us on
         // an auth/session problem, the token is stale — clear it and bounce to
@@ -5876,13 +6772,15 @@ function ScreenBooking({ state, setState, go, lang, config }) {
           showToast(
             lang === "km"
               ? "ពេល​នេះ​ត្រូវ​បាន​កក់​រួច — ភាព​ទំនេរ​ត្រូវ​បាន​ផ្ទុក​ឡើង​វិញ សូម​ជ្រើស​ម្ដង​ទៀត។"
-              : "That slot was just taken — availability refreshed, please pick again.",
+              // v188 S5 — the chosen court's own refusal names the court: show it.
+              : (/^Courts? [\d, ]+ (is|are) no longer available/.test(_err) ? _err + " Availability refreshed."
+                : "That slot was just taken — availability refreshed, please pick again."),
             "error"
           );
           loadAvailability(date);
           return;
         }
-        showToast(_err || t("error", null, lang), "error");
+        showToast(serverText(r, lang, t("error", null, lang)), "error");   // v189 S7
         return;
       }
       // H3: stash the quote so the confirm screen can reconcile it against
@@ -5892,10 +6790,13 @@ function ScreenBooking({ state, setState, go, lang, config }) {
       // quote-vs-charge check rather than a comparison of two guesses.
       const quotedTotal = pricingShown ? pricingShown.total : null;
       const requestedCourts = pickedCourts.join(",");
-      setState(s => ({ ...s, confirmation: r.confirmation, quotedTotal: quotedTotal, requestedCourts: requestedCourts }));
+      setState(s => ({ ...s, confirmation: r.confirmation, quotedTotal: quotedTotal, requestedCourts: requestedCourts,
+        date: undefined, time: undefined, slots: undefined, pickedCourts: undefined }));   // v189 S8 — the kept selection is spent
       // M9 fix: persist so a refresh on the confirmation screen restores it
       // instead of dying to a blank/dead screen.
       saveLastConfirmation(r.confirmation, quotedTotal, requestedCourts);
+      // v188 S1 — a repeat answered with the booking already held: say so.
+      if (r.duplicate === true) showToast(lang === "km" ? "អ្នក​មាន​ការ​កក់​នេះ​រួច​ហើយ — មិន​បាន​កក់​ពីរ​ដង​ទេ។" : "You already have this booking — nothing was booked twice.", "success");
       go("confirm");
     } finally {
       submittingRef.current = false;
@@ -5905,6 +6806,10 @@ function ScreenBooking({ state, setState, go, lang, config }) {
 
   const lockedDuration = bdayClaimed && isMember;
   const lockedCourts = bdayClaimed && isMember;
+  // v187 S1 — the spinner over the time wheel says why after ~6 s.
+  const availSlow = useSlowFlag(availLoading);
+  // v187 S4 — wheel changes are marked so the quote keeps its debounce.
+  function onWheelTime(v) { lastWheelAtRef.current = Date.now(); setTime(v); }
 
   return (
     <div className="screen scr-pad-top">
@@ -5953,6 +6858,16 @@ function ScreenBooking({ state, setState, go, lang, config }) {
         </div>
       )}
 
+      {/* v188r S2 — the gift was dropped because the sign-in died. */}
+      {bdayAuthLost && (
+        <div className="hint bday-signin" role="status" style={{ margin: "0 0 18px", color: "var(--clay)", fontWeight: 600 }}>
+          <div>{t("q_bday_signin", null, lang)}</div>
+          <button className="ulink bday-signin-btn" style={{ marginTop: 8 }} onClick={() => { keepSelection(); handleSessionExpiry(setState, go, lang, "booking"); }}>
+            {t("q_bday_signin_btn", null, lang)}
+          </button>
+        </div>
+      )}
+
       {/* Birthday gift card for eligible members */}
       {isMember && bdayEligible && (
         <div className={"gift" + (bdayClaimed ? " claimed" : "")}>
@@ -5969,16 +6884,24 @@ function ScreenBooking({ state, setState, go, lang, config }) {
       <SectionLabel n="01" right={t("b_date_right", { n: 14 }, lang)}>
         {t("b_label_date", null, lang)}
       </SectionLabel>
-      <DateStrip value={date} onChange={setDate} daysAhead={14} lang={lang} />
+      <DateStrip value={date} onChange={setDate} daysAhead={bookingWindowDays(config)} lang={lang} todayStr={todayStr} />
 
       {/* TIME */}
       <div style={{ marginTop: 18 }}>
         <SectionLabel n="02" right={peakLabel}>{t("b_label_time", null, lang)}</SectionLabel>
         {availLoading
-          ? <div className="wheel" style={{ height: 260, display: "flex", alignItems: "center", justifyContent: "center" }}><BouncingBall size="md" /></div>
+          ? <div className="wheel" style={{ height: 260, display: "flex", flexDirection: "column", gap: 10, alignItems: "center", justifyContent: "center" }}>
+              <BouncingBall size="md" />
+              {availSlow ? <div className="hint avail-slow" style={{ textAlign: "center" }}>{t("slow_connecting", null, lang)}</div> : null}
+            </div>
+          : (wheelSlots.length === 0 && availError)
+            ? <div className="empty avail-error">
+                <div>{availError}</div>
+                <button className="ulink" style={{ marginTop: 8 }} onClick={() => loadAvailability(date, { preferCache: true })}>{t("retry", null, lang)}</button>
+              </div>
           : wheelSlots.length === 0
             ? <div className="empty"><div>{t("b_no_slots", null, lang)}</div></div>
-            : <WheelPicker value={time} onChange={setTime} slots={wheelSlots} lang={lang} />}
+            : <WheelPicker value={time} onChange={onWheelTime} slots={wheelSlots} lang={lang} />}
         <div className="hint" style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ display: "inline-block", width: 8, height: 8, background: "var(--coral)", border: "2px solid var(--ink)" }} />
           <span>{t("b_peak_pip_hint", null, lang)}</span>
@@ -6019,12 +6942,33 @@ function ScreenBooking({ state, setState, go, lang, config }) {
         </SectionLabel>
         <CourtRail
           value={pickedCourts}
-          onChange={setPickedCourts}
+          onChange={chooseCourts}
           count={COURTS_COUNT}
-          unavailable={courtAvailability.unavailable}
-          pastClosing={courtAvailability.pastClosing}
+          status={courtAvailability.status}
+          takenAt={courtAvailability.takenAt}
+          onBlockedTap={onBlockedCourtTap}
           lang={lang}
         />
+        {/* v187 S5 — a picked court that is taken at the chosen time is SAID,
+            with the time, and one tap away from a free one. Nothing is
+            swapped behind the customer's back. */}
+        {pickedConflicts.length > 0 && courtAvailability.status[pickedConflicts[0]] === "taken" && (
+          <div className="hint court-conflict" role="alert" style={{ marginTop: 8, color: "var(--clay)", fontWeight: 600 }}>
+            {pickedConflicts.length === 1
+              ? t("b_court_conflict", { c: pad2(pickedConflicts[0]), t: courtAvailability.takenAt[pickedConflicts[0]] || time }, lang)
+              : t("b_court_conflict_many", { c: pickedConflicts.map(pad2).join(", "), t: courtAvailability.takenAt[pickedConflicts[0]] || time }, lang)}
+            {conflictAlt ? (
+              <button className="ulink court-conflict-fix" onClick={resolveCourtConflicts} style={{ marginLeft: 8, fontSize: 12 }}>
+                {t("b_court_use", { c: pad2(conflictAlt) }, lang)}
+              </button>
+            ) : null}
+          </div>
+        )}
+        {pickedConflicts.length > 0 && courtAvailability.status[pickedConflicts[0]] === "closing" && (
+          <div className="hint court-conflict court-closing" role="alert" style={{ marginTop: 8, color: "var(--clay)", fontWeight: 600 }}>
+            {t("b_court_closing_line", null, lang)}
+          </div>
+        )}
         <div className="hint" style={{ marginTop: 8 }}>
           {lockedCourts
             ? t("b_court_lock_hint", null, lang)
@@ -6275,10 +7219,35 @@ function ScreenBooking({ state, setState, go, lang, config }) {
 
       {/* CTA */}
       <div style={{ marginTop: 14 }}>
-        <CTA tone={ctaTone()} disabled={ctaDisabled()} onClick={submit}>
+        <CTA tone={ctaTone()} disabled={ctaDisabled()} onClick={onBookTap}>
           {submitting ? t("loading", null, lang) : ctaLabel()}
         </CTA>
       </div>
+
+      {/* v189 C1 — the customer already holds this time: ask, don't double-book. */}
+      {sameSlot && (() => {
+        const _b = sameSlot.booking || {};
+        const _cn = Array.isArray(_b.courtNumbers) ? _b.courtNumbers.join(", ") : String(_b.courtNumbers == null ? "" : _b.courtNumbers).split(",").map(x => x.trim()).filter(Boolean).join(", ");
+        const _many = _cn.indexOf(",") >= 0;
+        const _q = lang === "km"
+          ? "អ្នក​បាន​កក់" + (_cn ? "តារាង " + _cn : "តារាង​មួយ") + " នៅ​ម៉ោង​នេះ​រួច​ហើយ។ កក់​តារាង​មួយ​ទៀត​ដែរ​ឬ​ទេ?"
+          : "You already booked " + (_cn ? (_many ? "Courts " : "Court ") + _cn : "a court") + " at this time. Book another court as well?";
+        return (
+          <div className="modal-backdrop same-slot" onClick={() => setSameSlot(null)}>
+            <div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+              <p className="same-slot-q" style={{ fontSize: 16, fontWeight: 600 }}>{_q}</p>
+              <div className="actions">
+                <button className="btn ghost same-slot-no" onClick={() => { setSameSlot(null); go("myBookings"); }}>
+                  {lang === "km" ? "ទេ បង្ហាញ​ការ​កក់​របស់​ខ្ញុំ" : "No, show my booking"}
+                </button>
+                <button className="btn coral same-slot-yes" onClick={() => { setSameSlot(null); submit({ allowSameSlot: true }); }}>
+                  {lang === "km" ? "បាទ/ចាស កក់​មួយ​ទៀត" : "Yes, book another"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="footer-note" style={{ marginTop: 18 }}>
         THE YARD · TOUL KORK · PHNOM PENH
@@ -6658,6 +7627,10 @@ function ScreenMyBookings({ state, setState, go, lang, config }) {
       setOpRegs(r.openPlay || []);
       setTrnRegs(r.tournaments || []);
       setWalkIns(r.walkIns || []);
+      /* v189 S6 — getMyActivity answers ok:true with the bookings section's
+         own refusal inside it; "Session expired…" there is a dead sign-in,
+         not a list error: the usual sign-in path, back to My Bookings. */
+      if (r.bookingsError && isSessionError(r.bookingsError)) { handleSessionExpiry(setState, go, lang, "myBookings"); return; }
       if (r.bookingsError) showToast(r.bookingsError, "error");
     } else {
       setData({ upcoming: [], past: [], cancelled: [] });
@@ -6695,6 +7668,7 @@ function ScreenMyBookings({ state, setState, go, lang, config }) {
       if (isSessionError(r.error)) { handleSessionExpiry(setState, go, lang); return; }
       showToast(r.error || t("error", null, lang), "error"); return;
     }
+    retireIntentsFor("createBooking");   // v189 S3 — a later Book is a new booking
     showToast(lang === "km" ? "បាន​បោះបង់" : "Cancelled", "success");
     load();
   }
@@ -7307,7 +8281,7 @@ function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, on
           max={maxDate}
           onChange={(e) => setDate(e.target.value)}
           disabled={saving}
-          style={{ width: "100%", padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 14, border: "1.5px solid var(--ink)", borderRadius: 4, background: "var(--paper)" }}
+          style={{ width: "100%", padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 16, border: "1.5px solid var(--ink)", borderRadius: 4, background: "var(--paper)" }}
         />
 
         {/* Time */}
@@ -7325,7 +8299,7 @@ function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, on
             value={time}
             onChange={(e) => setTime(e.target.value)}
             disabled={saving}
-            style={{ width: "100%", padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 14, border: "1.5px solid var(--ink)", borderRadius: 4, background: "var(--paper)" }}
+            style={{ width: "100%", padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 16, border: "1.5px solid var(--ink)", borderRadius: 4, background: "var(--paper)" }}
           >
             {!chosen && <option value={time}>{time}</option>}
             {timeOptions.map(o => (
@@ -7346,7 +8320,7 @@ function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, on
               value={slots}
               onChange={(e) => setSlots(parseInt(e.target.value))}
               disabled={saving}
-              style={{ width: "100%", padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 14, border: "1.5px solid var(--ink)", borderRadius: 4, background: "var(--paper)" }}
+              style={{ width: "100%", padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 16, border: "1.5px solid var(--ink)", borderRadius: 4, background: "var(--paper)" }}
             >
               {durationChoices.map(n => (
                 <option key={n} value={n}>{lang === "km" ? formatDurationKm(n) : formatDuration(n)}</option>
@@ -7361,7 +8335,7 @@ function EditBookingModal({ booking, state, lang, config, onClose, onUpdated, on
               value={courtCount}
               onChange={(e) => setCourtCount(parseInt(e.target.value))}
               disabled={saving}
-              style={{ width: "100%", padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 14, border: "1.5px solid var(--ink)", borderRadius: 4, background: "var(--paper)" }}
+              style={{ width: "100%", padding: "10px 12px", fontFamily: "var(--mono)", fontSize: 16, border: "1.5px solid var(--ink)", borderRadius: 4, background: "var(--paper)" }}
             >
               {[1, 2, 3, 4].map(n => (
                 <option key={n} value={n}>{n}</option>
@@ -8151,7 +9125,8 @@ function OpenPlaySessionModal({ session, myReg, profile, state, setState, go, la
       });
       if (r.ok) retireIntent(_iKey);
       if (!r.ok && isUnknownOutcome(r)) {
-        setError(unknownOutcomeText("your registration", lang));
+        // v189 S8 — the server ANSWERED "still running" (duplicate): it did not time out.
+        setError(unknownOutcomeText(lang === "km" ? "ការ​ចុះ​ឈ្មោះ​របស់​អ្នក" : "your registration", lang, r.duplicate === true ? "pending" : undefined));   // v188 S6 — Khmer phrase in the Khmer sentence
         return;
       }
       if (!r.ok) retireIntent(_iKey);
@@ -8166,13 +9141,29 @@ function OpenPlaySessionModal({ session, myReg, profile, state, setState, go, la
         setSuccessResp(r);
         setMode("success");
       } else {
-        if (isSessionError(r.error)) { onClose && onClose(); handleSessionExpiry(setState, go, lang); return; }
+        // v188 S10 — the per-number sign-up limit: the server's own sentence, plainly.
+        // v188 (integration) G3 — the backend's gate answers SIGNUP_DAILY_LIMIT
+        // or SIGNUP_BUSY (_v188PublicSignupGate); every SIGNUP_* code is one.
+        if (r.code === "SIGNUP_BUSY" && !r.error) {
+          setError(lang === "km"
+            ? "មាន​មនុស្ស​ច្រើន​កំពុង​ចុះ​ឈ្មោះ — សូម​ព្យាយាម​ម្ដង​ទៀត​ក្នុង​ពីរ​បី​នាទី។"
+            : "Lots of people are signing up right now — please try again in a few minutes, or ask our staff at the counter.");
+          return;
+        }
+        if (/^SIGNUP_/.test(String(r.code || ""))) {
+          setError(serverText(r, lang, lang === "km"   // v189 S7 — Khmer page: the code's Khmer sentence, not the server's English
+            ? "លេខ​ទូរស័ព្ទ​នេះ​បាន​ចុះ​ឈ្មោះ​ដល់​ចំនួន​កំណត់​ហើយ — សូម​សួរ​បុគ្គលិក​នៅ​តុ​ទទួល​ភ្ញៀវ។"
+            : "This phone number has reached its sign-up limit — please ask our staff at the counter."));
+          return;
+        }
         // M15: friendly message when the session just filled up at submit time.
+        // v188 S2 — checked FIRST: "Session is full" is not a sign-in problem.
         if (r.error && /full|capacity|no spots|sold out/i.test(String(r.error))) {
           setError("This session just filled up. Refresh to check for openings or pick another session.");
-        } else {
-          setError(r.error || "Failed to register");
+          return;
         }
+        if (isAuthRequired(r) || isSessionError(r.error)) { if (onClose) onClose(); handleSessionExpiry(setState, go, lang, "openplay"); return; }
+        setError(r.error || "Failed to register");
       }
     } finally {
       inFlightRef.current = false;
@@ -8366,6 +9357,12 @@ function OpenPlaySessionModal({ session, myReg, profile, state, setState, go, la
               {successResp && successResp.alreadyRegistered ? "Already registered" : "You're in!"}
             </h2>
             <div className="op-success-msg">{successResp && successResp.message}</div>
+            {/* v189 C4 — a text is promised only when the server did not say it failed. */}
+            <div className="op-success-sms">
+              {(successResp && successResp.smsSent !== false && !successResp.alreadyRegistered)
+                ? (lang === "km" ? "សារ​បញ្ជាក់​ត្រូវ​បាន​ផ្ញើ​ទៅ​ទូរស័ព្ទ​របស់​អ្នក។" : "A confirmation text was sent to your phone.")
+                : (lang === "km" ? "កន្លែង​របស់​អ្នក​ត្រូវ​បាន​រក្សា​ទុក — សូម​ថត​អេក្រង់​ទំព័រ​នេះ​ទុក។" : "Your spot is saved — screenshot this page.")}
+            </div>
             <div className="op-success-detail">
               <div><b>{title}</b></div>
               <div>{fmtSessionDate(session.date)} · {session.startTime}</div>
@@ -8411,7 +9408,7 @@ function OpenPlaySessionModal({ session, myReg, profile, state, setState, go, la
 
         .op-field { margin-top: 16px; }
         .op-field label { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.7; margin-bottom: 6px; font-weight: 600; }
-        .op-field input { width: 100%; padding: 10px 12px; font-size: 15px; font-family: inherit; border: 1.5px solid rgba(26,26,26,0.15); background: #FFF; border-radius: 4px; box-sizing: border-box; color: #1A1A1A; }
+        .op-field input { width: 100%; padding: 10px 12px; font-size: 16px; font-family: inherit; border: 1.5px solid rgba(26,26,26,0.15); background: #FFF; border-radius: 4px; box-sizing: border-box; color: #1A1A1A; }
         .op-field input:focus { outline: none; border-color: #1A1A1A; }
         .op-hint { font-size: 11px; opacity: 0.55; margin-top: 5px; line-height: 1.4; }
 
@@ -8430,6 +9427,7 @@ function OpenPlaySessionModal({ session, myReg, profile, state, setState, go, la
 
         .op-success-icon { width: 56px; height: 56px; margin: 8px auto 14px; border-radius: 50%; background: #3D7A4F; color: #F1EAD6; font-size: 32px; display: flex; align-items: center; justify-content: center; font-weight: 700; }
         .op-success-msg { text-align: center; font-size: 15px; margin: 4px 0 18px; opacity: 0.85; }
+        .op-success-sms { text-align: center; font-size: 13px; margin: -10px 0 16px; opacity: 0.75; }
         .op-success-detail { padding: 14px; background: rgba(26,26,26,0.04); border-radius: 4px; font-family: var(--mono); font-size: 12px; margin-bottom: 16px; text-align: center; }
         .op-success-detail b { font-family: var(--serif); font-size: 16px; font-weight: 500; }
         .op-success-detail > div { margin: 4px 0; }
@@ -9320,77 +10318,253 @@ function LandingPage({ config, lang, setLang }) {
   );
 }
 
+/* ====================================================================
+   v187 S1/S2 — THE BOOT: ONE REQUEST, AND NO DEAD END.
+
+   Before v187 the page asked getConfig and validateToken separately, then
+   the screens asked getFoundingStatus and getAvailability — 3–4 Apps
+   Script executions before the customer could pick a time, each paying
+   the 2–5 s platform floor and each with its own ~1-in-8 chance of
+   Google's error page. One failed getConfig put the full-page "We couldn't
+   load today's court info" screen in front of them; one failed
+   validateToken SIGNED THEM OUT (the token was cleared on any non-answer).
+
+   Now: ONE getBootBundle (config + founding + a week of availability + the
+   session check), which seeds the per-endpoint caches the screens read;
+   an old backend that does not know it gets the separate calls. Anything
+   cached from a previous visit (the last good config, the last session for
+   THIS token) renders at once and is refreshed behind the page. Only a
+   first-ever visitor whose every attempt failed sees the error screen, and
+   it retries by itself every 10 s. A transport failure is never read as
+   "your session is invalid" — only the server saying so is. */
+var SESSION_LKG_KEY = "yard.session.lkg";
+var SESSION_LKG_MAX_MS = 3 * 24 * 3600 * 1000;
+var BOOT_RETRY_EVERY_S = 10;
+function _sessionLkgGet(token) {
+  try {
+    var e = JSON.parse(localStorage.getItem(SESSION_LKG_KEY) || "null");
+    if (!e || !token || e.tk !== String(token).slice(-16) || typeof e.t !== "number" || Date.now() - e.t > SESSION_LKG_MAX_MS) return null;
+    return e.d || null;
+  } catch (x) { return null; }
+}
+function _sessionLkgPut(token, r) {
+  try {
+    localStorage.setItem(SESSION_LKG_KEY, JSON.stringify({ tk: String(token).slice(-16), t: Date.now(),
+      d: { ok: true, valid: true, phone: r.phone || "", isMember: !!r.isMember, member: r.member || null, guest: r.guest || null } }));
+  } catch (x) {}
+}
+function _sessionLkgClear() { try { localStorage.removeItem(SESSION_LKG_KEY); } catch (x) {} }
+/* The bundle in flight, caches seeded INSIDE it (before anyone chained on it
+   resumes). A returning visitor's booking screen renders at once from the
+   cached config + session while this is still on its way; its own
+   availability / founding requests WAIT for it (_afterBoot) instead of
+   asking Google the same questions in parallel. */
+var _bootInflight = null;
+function _bootBundleFetch(token) {
+  var asked = Date.now();
+  var p = api("getBootBundle", token ? { days: AVAIL_WEEK_DAYS, token: token } : { days: AVAIL_WEEK_DAYS }).then(function (b) {
+    if (b && b.ok === true && b.bundle === 1) {
+      if (b.config && b.config.ok === true) { _softCachePut("getConfig", b.config); _configLkgPut(b.config); }
+      if (b.founding && b.founding.ok === true) _softCachePut("getFoundingStatus", b.founding);
+      if (b.availability) availSeed(b.availability, asked);
+    }
+    return b;
+  });
+  _bootInflight = p;
+  var clear = function () { if (_bootInflight === p) _bootInflight = null; };
+  p.then(clear, clear);
+  return p;
+}
+/* null when no boot is in flight; else a promise that settles (never
+   rejects) once the bundle has answered and seeded what it brought. */
+function _afterBoot() {
+  return _bootInflight ? _bootInflight.then(function () {}, function () {}) : null;
+}
+async function _bootLoad(token, started) {
+  var b = await (started || _bootBundleFetch(token));
+  if (b && b.ok === true && b.bundle === 1) {
+    var cfg = (b.config && b.config.ok === true) ? b.config : null;
+    var ses = token ? (b.session || null) : null;
+    // A part that failed inside the bundle is asked for on its own.
+    if (!cfg) cfg = await api("getConfig");
+    if (token && !(ses && ses.ok === true)) ses = await api("validateToken", { token: token });
+    return { config: cfg, session: ses, via: "bundle" };
+  }
+  /* The bundle never answered (three attempts, Google's page / timeouts):
+     the separate calls would pay the same 45 s again before the customer
+     sees anything. The caller shows the cached config, or the self-retrying
+     error screen, which asks for the bundle again in 10 s. */
+  if (isUnknownOutcome(b)) return { config: b, session: null, via: "none" };
+  // An old backend ("Unknown action: getBootBundle"), or a bundle the server
+  // answered with an error: the separate calls, exactly as before v187.
+  var res = await Promise.all([api("getConfig"), token ? api("validateToken", { token: token }) : Promise.resolve(null)]);
+  return { config: res[0], session: res[1], via: "separate" };
+}
+
+/* v187r — NOT A METRONOME. Every customer whose boot failed in the same
+   Google outage reached this screen within seconds of each other; a fixed
+   10 s count sent their retries back in lock-step, and a tab left in the
+   background (a phone in a pocket) kept retrying — three attempts a cycle —
+   for as long as it stayed open. The first count is 10 s plus 0–3 s of
+   jitter, and the count stands still while the page is hidden: it resumes
+   (and retries) when the customer comes back to it. */
+var BOOT_RETRY_JITTER_S = 3;
+/* v188 S8 — BACK OFF, THEN STOP. Every automatic try is a full bundle
+   attempt (up to three executions) against a Google that is already
+   failing; a tab left open through an outage tried every ~10 s forever.
+   The waits grow 10 → 20 → 40 → 60 → 60 s, and after five automatic tries
+   the screen stops counting and waits for the customer's own Retry tap
+   (which always works). A boot that succeeds starts the count again. */
+var BOOT_RETRY_BACKOFF_S = [BOOT_RETRY_EVERY_S, 20, 40, 60, 60];
+var BOOT_RETRY_MAX_AUTO = 5;
+var _bootAutoTries = 0;
+function BootFailScreen({ lang, onRetry }) {
+  const [auto] = useState(() => _bootAutoTries < BOOT_RETRY_MAX_AUTO);
+  const [left, setLeft] = useState(() => BOOT_RETRY_BACKOFF_S[Math.min(_bootAutoTries, BOOT_RETRY_BACKOFF_S.length - 1)] + Math.floor(Math.random() * (BOOT_RETRY_JITTER_S + 1)));
+  useEffect(() => {
+    if (!auto) return;
+    const id = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;   // v187r — paused in the background
+      setLeft(n => n - 1);
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => { if (auto && left <= 0) { _bootAutoTries++; onRetry(); } }, [left]);
+  return (
+    <div className="loading-overlay boot-fail" style={{ flexDirection: "column", gap: 16, textAlign: "center", padding: "0 24px" }}>
+      <div style={{ fontFamily: "var(--serif)", fontSize: 22, fontWeight: 700 }}>
+        {t("boot_fail_title", null, lang)}
+      </div>
+      <div style={{ fontFamily: "var(--mono)", fontSize: 13, opacity: 0.75, maxWidth: 360 }}>
+        {t("boot_fail_sub", null, lang)}
+      </div>
+      <div className={auto ? "boot-fail-auto" : "boot-fail-manual"} style={{ fontFamily: "var(--mono)", fontSize: 12, opacity: 0.65 }}>
+        {auto ? t("boot_fail_auto", { s: Math.max(0, left) }, lang) : t("boot_fail_manual", null, lang)}
+      </div>
+      <button className="btn" onClick={onRetry}>
+        {t("boot_fail_retry", null, lang)}
+      </button>
+    </div>
+  );
+}
+
 function App() {
   const [lang, setLangState] = useState(getLang());
-  const [state, setState] = useState({
-    phone: getStoredPhone(),
-    token: getToken(),
-    isMember: false,
-    member: null,
-    guest: null,
-    confirmation: null
+  const [state, setState] = useState(() => {
+    const tok = getToken();
+    const ses = tok ? _sessionLkgGet(tok) : null;   // v187 S1 — the last session for THIS token, if any
+    return {
+      phone: (ses && ses.phone) || getStoredPhone(),
+      token: tok,
+      isMember: !!(ses && ses.isMember),
+      member: (ses && ses.member) || null,
+      guest: (ses && ses.guest) || null,
+      confirmation: null
+    };
   });
-  const [config, setConfig] = useState(null);  // pricing rules, grace period, etc.
+  // v187 S1 — the last config that worked renders at once (refreshed behind it).
+  const [config, setConfig] = useState(() => { const l = _configLkgGet(); return l ? l.d : null; });  // pricing rules, grace period, etc.
 
   const [screen, setScreen] = useState("phone");
-  const [bootLoading, setBootLoading] = useState(true);
-  const [configLoaded, setConfigLoaded] = useState(false);
+  const [bootLoading, setBootLoading] = useState(() => { const tok = getToken(); return !!tok && !_sessionLkgGet(tok); });
+  const [configLoaded, setConfigLoaded] = useState(() => !!_configLkgGet());
+  const [configTrusted, setConfigTrusted] = useState(() => _configLkgTrusted(_configLkgGet()));   // v188 S7
+  /* v188r S3 — THE LANDING GATE IS THE SERVER'S ANSWER, NOT A MEMORY. A
+     cached config of ANY age still paints the app (layout, labels) at once,
+     but it never shuts the customer out behind the pre-launch landing page:
+     after launch, a copy saved while the gate was on would otherwise keep a
+     returning customer on "Opening soon" for as long as Google was slow or
+     down. Only a config this page has just received from the server can
+     turn the gate on. */
+  const [configFresh, setConfigFresh] = useState(false);
   // H1 fix: fail-CLOSED if getConfig can't be reached. Previously a failed
   // getConfig left `config` as null but still set configLoaded=true, so the
   // app fell through to the normal booking flow with no prices and skipped
   // the pre-launch landing gate entirely. Now a failure renders a dedicated
   // blocked/retry screen instead of ever reaching the booking app.
+  // v187 S1 — …but only when there is NO config at all, not even a cached one.
   const [configError, setConfigError] = useState(false);
   const [configRetryTick, setConfigRetryTick] = useState(0);
+  const bootSlow = useSlowFlag(bootLoading || !configLoaded);
+  /* v187 S2 — the boot bundle leaves on the FIRST RENDER, not in an effect:
+     React runs a child's effects before its parent's, so the first screen's
+     own reads (founding status, the week of availability) used to leave
+     before the bundle existed and asked Google the same questions in
+     parallel. Started here, they find it in flight and wait for it. */
+  const bootFirstRef = useRef(undefined);
+  if (bootFirstRef.current === undefined) bootFirstRef.current = _bootBundleFetch(getToken());
 
-  // On first load: validate existing token if any, and fetch config in parallel
+  /* A valid session: into state, and off the sign-in screens. */
+  function applySession(token, r) {
+    setState(s => ({
+      ...s,
+      token,
+      phone: r.phone || s.phone,
+      isMember: !!r.isMember,
+      member: r.member || null,
+      guest: r.guest || null
+    }));
+    // Skip phone+otp screens; jump straight to booking
+    const hash = (location.hash || "").replace("#", "");
+    // v112: "fairuse" is a PUBLIC deep-link target — the owner sends the
+    // #fairuse URL directly, so it must survive the boot-time redirect.
+    const validHashes = ["phone", "otp", "booking", "myBookings", "membership", "confirm", "openplay", "about", "fairuse"];
+    // Authenticated users: phone/otp don't make sense; redirect to booking
+    const target = validHashes.includes(hash) ? hash : "booking";
+    const SIGNIN_SCREENS = new Set(["phone", "otp"]);
+    setScreen(SIGNIN_SCREENS.has(target) ? "booking" : target);
+  }
+
+  // On first load: ONE boot request (v187 S2); cached config/session first (v187 S1)
   useEffect(() => {
     document.body.setAttribute("lang", lang);
     const token = getToken();
-
-    // Always fetch config — needed for client-side pricing
+    let alive = true;
     setConfigError(false);
-    api("getConfig").then(r => {
-      if (r && r.ok) {
-        setConfig(r);
+    const hadConfig = !!_configLkgGet();
+    const cachedSession = token ? _sessionLkgGet(token) : null;
+    if (cachedSession) { applySession(token, cachedSession); setBootLoading(false); }
+    else if (!token) setBootLoading(false);
+
+    const started = bootFirstRef.current || null;
+    bootFirstRef.current = null;   // a retry (configRetryTick) asks again
+    _bootLoad(token, started).then(res => {
+      if (!alive) return;
+      const c = res && res.config;
+      if (c && c.ok) {
+        setConfig(c);
+        setConfigTrusted(true);   // v188 S7 — the server's copy
+        setConfigFresh(true);     // v188r S3 — …and the only one that may close the landing gate
+        _bootAutoTries = 0;       // v188 S8 — a boot that worked resets the back-off
         setConfigError(false);
-      } else {
+        setConfigLoaded(true);
+      } else if (!hadConfig) {
         setConfig(null);
         setConfigError(true);
+        setConfigLoaded(true);
       }
-      setConfigLoaded(true);
+      // else: the cached config stays on screen; the next visit asks again.
+      if (token) {
+        const r = res && res.session;
+        if (r && r.ok && r.valid) {
+          applySession(token, r);
+          _sessionLkgPut(token, r);
+        } else if (r && r.ok === true && r.valid === false) {
+          // The SERVER said this token is no good — that, and only that, signs out.
+          setToken("");
+          _sessionLkgClear();
+          setState(s => ({ ...s, token: "", isMember: false, member: null, guest: null }));
+          if (cachedSession) showToast(lang === "km" ? "សម័យ​បាន​ផុត​កំណត់ — សូម​ចូល​ម្ដង​ទៀត" : "Session expired — please sign in again.", "error");
+        }
+        // A transport failure is not a verdict: the token is kept (v187 S1).
+        setBootLoading(false);
+      }
     }).catch(() => {
-      setConfig(null);
-      setConfigError(true);
-      setConfigLoaded(true);
-    });
-
-    if (!token) { setBootLoading(false); return; }
-
-    api("validateToken", { token }).then(r => {
+      if (!alive) return;
+      if (!hadConfig) { setConfig(null); setConfigError(true); setConfigLoaded(true); }
       setBootLoading(false);
-      if (r.ok && r.valid) {
-        setState(s => ({
-          ...s,
-          token,
-          phone: r.phone || s.phone,
-          isMember: !!r.isMember,
-          member: r.member || null,
-          guest: r.guest || null
-        }));
-        // Skip phone+otp screens; jump straight to booking
-        const hash = (location.hash || "").replace("#", "");
-        // v112: "fairuse" is a PUBLIC deep-link target — the owner sends the
-        // #fairuse URL directly, so it must survive the boot-time redirect.
-        const validHashes = ["phone", "otp", "booking", "myBookings", "membership", "confirm", "openplay", "about", "fairuse"];
-        // Authenticated users: phone/otp don't make sense; redirect to booking
-        const target = validHashes.includes(hash) ? hash : "booking";
-        const SIGNIN_SCREENS = new Set(["phone", "otp"]);
-        setScreen(SIGNIN_SCREENS.has(target) ? "booking" : target);
-      } else {
-        setToken("");
-      }
     });
+    return () => { alive = false; };
   }, [configRetryTick]);
 
   function go(s) {
@@ -9468,6 +10642,7 @@ function App() {
 
   function logout() {
     setToken("");
+    _sessionLkgClear();   // v187 S1
     setStoredPhone("");
     clearLastConfirmation();
     setState({ phone: "", token: "", isMember: false, member: null, guest: null, confirmation: null });
@@ -9477,7 +10652,7 @@ function App() {
   const isSignedIn = !!state.token;
 
   if (bootLoading || !configLoaded) {
-    return <Loading message={t("loading", null, lang)} />;
+    return <Loading message={bootSlow ? t("slow_connecting", null, lang) : t("loading", null, lang)} />;
   }
 
   // H1 fix: fail CLOSED, not open. If getConfig failed, we have no pricing,
@@ -9485,33 +10660,26 @@ function App() {
   // rendering the normal app here would either show a bookable UI with no/
   // blank prices, or skip the pre-launch "Opening Soon" gate entirely. Block
   // with a branded retry screen instead of proceeding past this point.
+  // v187 S1 — reached only with NO config at all (not even a cached one),
+  // and it retries by itself every 10 s.
   if (configError) {
     return (
-      <div className="loading-overlay" style={{ flexDirection: "column", gap: 16, textAlign: "center", padding: "0 24px" }}>
-        <div style={{ fontFamily: "var(--serif)", fontSize: 22, fontWeight: 700 }}>
-          {t("boot_fail_title", null, lang)}
-        </div>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 13, opacity: 0.75, maxWidth: 360 }}>
-          {t("boot_fail_sub", null, lang)}
-        </div>
-        <button
-          className="btn"
-          onClick={() => {
-            setConfigLoaded(false);
-            setBootLoading(true);
-            setConfigRetryTick(n => n + 1);
-          }}
-        >
-          {t("boot_fail_retry", null, lang)}
-        </button>
-      </div>
+      <BootFailScreen
+        lang={lang}
+        onRetry={() => {
+          setConfigLoaded(false);
+          setBootLoading(true);
+          setConfigRetryTick(n => n + 1);
+        }}
+      />
     );
   }
 
   // ── Coming-soon landing takeover (customers only; staff use admin.html).
   //    Bypass with ?preview so staff can preview the live site pre-launch.
   const previewBypass = /(?:^|[?&#])preview(?:[=&#]|$)/.test(location.search + location.hash);  // QA fix: allow #hash after ?preview
-  if (config && config.landing && config.landing.enabled && !previewBypass) {
+  // v188 S7 / v188r S3 — never decided by a cached copy, only by the server's fresh answer.
+  if (config && configFresh && config.landing && config.landing.enabled && !previewBypass) {
     const opening = parseOpening(config.landing.openingDate);
     if (!opening || Date.now() < opening.getTime()) {
       return <LandingPage config={config} lang={lang} setLang={switchLang} />;
@@ -9530,7 +10698,7 @@ function App() {
 
   if (effectiveScreen === "phone") body = <ScreenPhone state={state} setState={setState} go={go} lang={lang} />;
   else if (effectiveScreen === "otp") body = <ScreenOTP state={state} setState={setState} go={go} lang={lang} />;
-  else if (effectiveScreen === "booking") body = <ScreenBooking state={state} setState={setState} go={go} lang={lang} config={config} />;
+  else if (effectiveScreen === "booking") body = <ScreenBooking state={state} setState={setState} go={go} lang={lang} config={config} configTrusted={configTrusted} />;
   else if (effectiveScreen === "confirm") body = <ScreenConfirm state={state} setState={setState} go={go} lang={lang} />;
   else if (effectiveScreen === "myBookings") body = <ScreenMyBookings state={state} setState={setState} go={go} lang={lang} config={config} />;
   else if (effectiveScreen === "membership") body = <ScreenMembership state={state} setState={setState} go={go} lang={lang} config={config} />;
