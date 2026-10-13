@@ -46,7 +46,7 @@
  */
 "use strict";
 
-const CACHE_VERSION = "yard-v184-audit";
+const CACHE_VERSION = "yard-v191-nightly";
 const VENDOR_CACHE = "yard-vendor-v1";
 
 // Vendor URLs we know are immutable (include a version in the path)
@@ -102,6 +102,21 @@ function pageCacheKey(url) {
   } catch (e) {
     return String(url).split(/[?#]/)[0];
   }
+}
+
+/**
+ * v189 S5 — A PAGE IS FETCHED PAST THE BROWSER'S HTTP CACHE.
+ * The page fetch below is what fills the NEW version's cache after a
+ * release; a plain fetch() may be answered by the browser's HTTP cache
+ * (GitHub Pages typically answers with a max-age of minutes), so the old release's bytes could be
+ * written into the new cache and served from it. `cache: "no-cache"` makes
+ * the browser revalidate with the server (a 304 when nothing changed).
+ * A browser that cannot build the request (an old engine refusing a
+ * navigate-mode copy) falls back to the request as it came. Vendor files
+ * are untouched: immutable URLs, cache-first, as before.
+ */
+function pageRequest(req) {
+  try { return new Request(req, { cache: "no-cache" }); } catch (e) { return req; }
 }
 
 // Last-resort body when the network is dead and nothing is cached. Returning
@@ -180,7 +195,7 @@ self.addEventListener("fetch", (event) => {
       // `key` is a plain URL string, so ?ui=desktop / ?_r=… find the entry
       // that the plain page URL already wrote.
       const cached = await cache.match(key);
-      const networkPromise = fetch(event.request).then(resp => {
+      const networkPromise = fetch(pageRequest(event.request)).then(resp => {
         if (resp && resp.ok) {
           // Fire-and-forget; a cache write must never reject the response.
           cache.put(key, resp.clone()).catch(() => {});
@@ -198,6 +213,10 @@ self.addEventListener("fetch", (event) => {
       if (fresh) return fresh;
       // Nothing cached, network refused. One honest retry, then a real
       // Response. Never null.
+      // v189 R13 — the retry is the request AS IT CAME, not the no-cache
+      // copy: offline, a no-cache fetch must revalidate and so fails, while
+      // the plain request may still be answered from the browser's own HTTP
+      // cache (an iPad whose SW cache was just emptied by a release).
       try {
         const retry = await fetch(event.request);
         if (retry) return retry;
