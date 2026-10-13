@@ -416,6 +416,12 @@ h1.tournament-name{
   box-shadow:var(--lift-2);
 }
 
+/* v189 S8 — a bracket value that is not a web link: plain text. */
+.bracket-note{
+  font-family:var(--sans); font-size:13px; margin-bottom:24px;
+  overflow-wrap:anywhere; word-break:break-word;
+}
+
 /* ───── Sign-up CTA card ───── */
 .signup-card{
   position:relative;
@@ -878,6 +884,11 @@ h1.tournament-name{
   function isSafeContactHref(href) {
     return /^(tel:[+\d][\d]{6,}|mailto:[^\s@]+@[^\s@]+\.\w+|https:\/\/[^\s"'<>]+)$/i.test(href);
   }
+  // v188r S4 — the bracket link: http:// or https:// with a host, nothing else
+  // (no javascript:, data:, vbscript:, protocol-relative or bare paths).
+  function isSafeBracketHref(href) {
+    return /^https?:\/\/[^\s"'<>\/\\][^\s"'<>]*$/i.test(href);
+  }
 
   function buildContactLink(contact) {
     if (!contact) return "";
@@ -1020,8 +1031,19 @@ h1.tournament-name{
     }
 
     // External bracket
-    if (t.bracketUrl) {
-      html += '<a class="bracket-link" href="' + escapeHtml(t.bracketUrl) + '" target="_blank" rel="noopener">View bracket / live results →</a>';
+    // v188 T1 — a web link only. escapeHtml stops markup, not a javascript:
+    // or data: URL typed into the bracket field; anything that is not an
+    // http:// or https:// address is not rendered as a link at all.
+    // v188r S4 — http:// is a web link too: the backend now stores http://
+    // and https:// (a bare domain is upgraded to https://), and a bracket
+    // site without TLS is still the organiser's bracket.
+    if (t.bracketUrl && isSafeBracketHref(String(t.bracketUrl).trim())) {
+      html += '<a class="bracket-link" href="' + escapeHtml(String(t.bracketUrl).trim()) + '" target="_blank" rel="noopener">View bracket / live results →</a>';
+    } else if (t.bracketUrl && String(t.bracketUrl).trim()) {
+      // v189 S8 — an older value that is not a web address (a bare domain,
+      // a note) is still the organiser's bracket: shown as plain text, never
+      // as a link.
+      html += '<div class="bracket-note">Bracket: <span class="bracket-raw">' + escapeHtml(String(t.bracketUrl).trim()) + '</span></div>';
     }
 
     // SIGN-UP — interactive registration. Skipped for completed/cancelled.
@@ -1250,6 +1272,19 @@ h1.tournament-name{
     fetchWithTimeout(API_URL + "?" + params.toString(), { method: "GET" })
       .then(function(r) { return r.json(); })
       .then(function(r) {
+        /* v188 S1 — { duplicate:true, ok:false } is the server saying the
+         * first attempt with this id is STILL RUNNING: not an answer. The id
+         * is kept (a re-tap stays the same intent) and the outcome is
+         * reported as unknown, never as a failure. */
+        if (r && r.ok === false && r.duplicate === true) {
+          errEl.textContent = "We're still waiting for the server to finish your first attempt, so we don't know yet whether your registration was saved. Reload this page in a minute to check before trying again — please don't tap twice.";
+          btn.disabled = false;
+          btn.textContent = t.entryFee > 0
+            ? 'Reserve my spot · $' + Number(t.entryFee).toFixed(2) + ' at counter'
+            : 'Reserve my spot';
+          _signupInFlight = false;
+          return;
+        }
         retireIntent("signup");   // a definite answer from the server
         if (r.ok) {
           saveProfile({
@@ -1263,6 +1298,18 @@ h1.tournament-name{
           // Success path replaces the entire signup card, so the flag is
           // effectively retired with the DOM — but reset it anyway for
           // tidiness in case any retry logic ever re-renders the form.
+          _signupInFlight = false;
+        } else if (/^SIGNUP_/.test(String(r.code || ""))) {
+          // v188 T2 — the per-number sign-up limit: the server's sentence, plainly.
+          // v188 (integration) G3 — the backend answers SIGNUP_DAILY_LIMIT or
+          // SIGNUP_BUSY (_v188PublicSignupGate); every SIGNUP_* code lands here.
+          errEl.textContent = r.error || (r.code === "SIGNUP_BUSY"
+            ? "Lots of people are signing up right now — please try again in a few minutes, or ask our staff at the counter."
+            : "This phone number has reached its sign-up limit — please ask our staff at the counter.");
+          btn.disabled = false;
+          btn.textContent = t.entryFee > 0
+            ? 'Reserve my spot · $' + Number(t.entryFee).toFixed(2) + ' at counter'
+            : 'Reserve my spot';
           _signupInFlight = false;
         } else {
           errEl.textContent = r.error || "Registration failed";
@@ -1299,7 +1346,11 @@ h1.tournament-name{
           '<div>Ref · ' + escapeHtml(resp.registrationId) + '</div>' +
           '<div>' + feeTxt + (t.entryFee > 0 ? ' · pay at counter' : '') + '</div>' +
         '</div>' +
-        '<div class="note">A confirmation text was sent to your phone. To cancel later, visit the booking site → Manage tab.</div>' +
+        // v189 C4 — a text is promised only when the server did not say it failed.
+        '<div class="note">' + ((resp.smsSent !== false && !resp.alreadyRegistered)
+          ? "A confirmation text was sent to your phone."
+          : "Your spot is saved — screenshot this page.") +
+          ' To cancel later, visit the booking site → Manage tab.</div>' +
       '</div>';
   }
 
